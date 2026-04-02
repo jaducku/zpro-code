@@ -10,7 +10,9 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct UpgradeCommand;
 
-pub struct UpgradeState;
+pub struct UpgradeState {
+    pub version: String,
+}
 
 impl UpgradeCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +45,37 @@ impl TuiCommand for UpgradeCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(UpgradeState)
+        Box::new(UpgradeState {
+            version: format!("v{}", env!("CARGO_PKG_VERSION")),
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<UpgradeState>().unwrap();
+        let state = state.downcast_ref::<UpgradeState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Upgrade (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Check for updates")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Current version: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(state.version.clone(), Style::default().fg(Color::White).bold()),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("  You are running the latest version.", Style::default().fg(Color::Green))),
+            Line::from(""),
+            Line::from(Span::styled("  To update via cargo:", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled("    cargo install atom-code", Style::default().fg(Color::White))),
+            Line::from(""),
+            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {

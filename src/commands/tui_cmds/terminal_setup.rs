@@ -10,7 +10,12 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct TerminalSetupCommand;
 
-pub struct TerminalSetupState;
+pub struct TerminalSetupState {
+    pub term: String,
+    pub shell: String,
+    pub cols: u16,
+    pub rows: u16,
+}
 
 impl TerminalSetupCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +48,43 @@ impl TuiCommand for TerminalSetupCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(TerminalSetupState)
+        let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".into());
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "unknown".into());
+        let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+        Box::new(TerminalSetupState { term, shell, cols, rows })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<TerminalSetupState>().unwrap();
+        let state = state.downcast_ref::<TerminalSetupState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Terminal Setup (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Configure terminal")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled("  Terminal Info", Style::default().fg(Color::White).bold())),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  TERM:       ", Style::default().fg(Color::DarkGray)),
+                Span::styled(state.term.clone(), Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Shell:      ", Style::default().fg(Color::DarkGray)),
+                Span::styled(state.shell.clone(), Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Size:       ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{}x{}", state.cols, state.rows), Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {

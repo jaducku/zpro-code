@@ -10,7 +10,7 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct DesktopCommand;
 
-pub struct DesktopState;
+pub struct DesktopState {}
 
 impl DesktopCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +43,27 @@ impl TuiCommand for DesktopCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(DesktopState)
+        Box::new(DesktopState {})
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<DesktopState>().unwrap();
+        let _state = state.downcast_ref::<DesktopState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Desktop (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Open desktop app")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled("  Desktop app not yet available. Use the terminal CLI.", Style::default().fg(Color::White))),
+            Line::from(""),
+            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {

@@ -10,7 +10,7 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct ExtraUsageCommand;
 
-pub struct ExtraUsageState;
+pub struct ExtraUsageState {}
 
 impl ExtraUsageCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +43,59 @@ impl TuiCommand for ExtraUsageCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(ExtraUsageState)
+        Box::new(ExtraUsageState {})
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<ExtraUsageState>().unwrap();
+        let _state = state.downcast_ref::<ExtraUsageState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Extra Usage (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Show extra usage information")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled("  Additional Usage Tips", Style::default().fg(Color::White).bold())),
+            Line::from(""),
+            Line::from(Span::styled("  Keyboard:", Style::default().fg(Color::White).bold())),
+            Line::from(vec![
+                Span::styled("    Ctrl+C      ", Style::default().fg(Color::Cyan)),
+                Span::styled("Quit", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("    /           ", Style::default().fg(Color::Cyan)),
+                Span::styled("Command menu", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("    @           ", Style::default().fg(Color::Cyan)),
+                Span::styled("File mention", Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("  CLI Flags:", Style::default().fg(Color::White).bold())),
+            Line::from(vec![
+                Span::styled("    --model     ", Style::default().fg(Color::Cyan)),
+                Span::styled("Set model", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("    --print     ", Style::default().fg(Color::Cyan)),
+                Span::styled("Non-interactive mode", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("    --api-base  ", Style::default().fg(Color::Cyan)),
+                Span::styled("Set provider URL", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("    --help      ", Style::default().fg(Color::Cyan)),
+                Span::styled("Show all options", Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {
