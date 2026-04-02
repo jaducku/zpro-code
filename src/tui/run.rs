@@ -12,7 +12,7 @@ use super::app::{App, DisplayMessage, DisplayRole};
 use super::ui;
 use crate::commands::registry::CommandRegistry;
 use crate::commands::traits::Command;
-use crate::commands::types::CommandAction;
+use crate::commands::types::{CommandAction, LocalCommandResult};
 use crate::query::QueryEvent;
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
@@ -104,13 +104,13 @@ pub async fn run_app(
                                         app.accept_typeahead();
                                     }
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &model, &system_prompt);
+                                    handle_submit(&mut app, &input, &model, &system_prompt).await;
                                 } else {
                                     let typeahead_accepted = app.handle_key(key);
                                     if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                         // Typeahead accepted via Enter — submit immediately
                                         let input = app.take_input();
-                                        handle_submit(&mut app, &input, &model, &system_prompt);
+                                        handle_submit(&mut app, &input, &model, &system_prompt).await;
                                     }
                                 }
                             }
@@ -142,7 +142,7 @@ pub async fn run_app(
     Ok(())
 }
 
-fn handle_submit(
+async fn handle_submit(
     app: &mut App,
     input: &str,
     model: &str,
@@ -150,7 +150,7 @@ fn handle_submit(
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
-        dispatch_slash_command(app, &name, &args);
+        dispatch_slash_command(app, &name, &args).await;
         return;
     }
 
@@ -160,23 +160,19 @@ fn handle_submit(
 /// What kind of command was found, with any data we need extracted before
 /// releasing the borrow on the registry.
 enum FoundCommand {
-    Local { description: String, is_clear: bool },
+    Local { is_exit: bool },
     Tui,
     Prompt { progress: String },
     NotFound,
 }
 
-fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
+async fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
     // First pass: identify the command kind and extract needed data without
     // holding a mutable borrow on app.
     let found = match app.command_registry.find(name) {
         Some(Command::Local(cmd)) => {
-            let meta = cmd.meta();
-            let is_clear = meta.name == "clear" || meta.aliases.contains(&name);
-            FoundCommand::Local {
-                description: meta.description.to_string(),
-                is_clear,
-            }
+            let is_exit = cmd.meta().name == "exit";
+            FoundCommand::Local { is_exit }
         }
         Some(Command::Tui(_)) => FoundCommand::Tui,
         Some(Command::Prompt(cmd)) => FoundCommand::Prompt {
@@ -187,27 +183,68 @@ fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
 
     // Second pass: act on the result with full mutable access to app.
     match found {
-        FoundCommand::Local { description, is_clear } => {
+        FoundCommand::Local { is_exit } => {
+            use crate::commands::context::{CommandContext, CommandOptions, MessageUpdate, UiEvent};
+            use crate::state::AppState;
+            use std::path::PathBuf;
+            use std::sync::Arc;
+            use tokio::sync::RwLock;
+
+            // Show the user's command first
             app.push_message(DisplayMessage {
                 role: DisplayRole::User,
                 content: format!("/{}{}", name, if args.is_empty() { String::new() } else { format!(" {}", args) }),
                 tool_name: None,
             });
 
-            if is_clear {
-                app.messages.clear();
-                app.api_messages.clear();
-                app.push_message(DisplayMessage {
-                    role: DisplayRole::System,
-                    content: "Conversation cleared.".to_string(),
-                    tool_name: None,
-                });
-            } else {
-                app.push_message(DisplayMessage {
-                    role: DisplayRole::System,
-                    content: format!("/{}: {} (executed)", name, description),
-                    tool_name: None,
-                });
+            // Build a CommandContext (same pattern as the Tui branch)
+            let (msg_tx, _msg_rx) = tokio::sync::mpsc::unbounded_channel::<MessageUpdate>();
+            let (ui_tx, _ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
+            let ctx = CommandContext {
+                app_state: Arc::new(RwLock::new(AppState::default())),
+                abort_signal: tokio_util::sync::CancellationToken::new(),
+                cwd: PathBuf::from("."),
+                message_tx: msg_tx,
+                ui_event_tx: ui_tx,
+                options: CommandOptions {
+                    theme: "default".to_string(),
+                },
+            };
+
+            // Look up the command again and call it
+            if let Some(Command::Local(cmd)) = app.command_registry.find(name) {
+                match cmd.call(args, &ctx).await {
+                    Ok(LocalCommandResult::Text { value }) => {
+                        app.push_message(DisplayMessage {
+                            role: DisplayRole::System,
+                            content: value,
+                            tool_name: None,
+                        });
+                    }
+                    Ok(LocalCommandResult::Compact { display_text }) => {
+                        app.messages.clear();
+                        app.api_messages.clear();
+                        if let Some(text) = display_text {
+                            app.push_message(DisplayMessage {
+                                role: DisplayRole::System,
+                                content: text,
+                                tool_name: None,
+                            });
+                        }
+                    }
+                    Ok(LocalCommandResult::Skip) => {}
+                    Err(e) => {
+                        app.push_message(DisplayMessage {
+                            role: DisplayRole::System,
+                            content: format!("Error: {}", e),
+                            tool_name: None,
+                        });
+                    }
+                }
+            }
+
+            if is_exit {
+                app.should_quit = true;
             }
         }
         FoundCommand::Tui => {
