@@ -54,45 +54,129 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, width: u16) {
     let elapsed = app.start_time.elapsed().as_millis() as usize;
     let orbit_colors = [Color::Cyan, Color::Blue, Color::Magenta, Color::LightCyan];
     let color_idx = (elapsed / 500) % orbit_colors.len();
-    let orbit_color = orbit_colors[color_idx];
     let nucleus_color = Color::Yellow;
 
     lines.push(Line::from(""));
-    lines.push(Line::from(""));
 
-    // Atom orbital art — colored
+    // 3 orbital colors cycle with animation
+    let o1 = orbit_colors[color_idx % orbit_colors.len()];
+    let o2 = orbit_colors[(color_idx + 1) % orbit_colors.len()];
+    let o3 = orbit_colors[(color_idx + 2) % orbit_colors.len()];
+    let electron = Color::White;
+
+    // Electron position cycles
+    let e_pos = (elapsed / 200) % 12;
+
     let center = |s: &str| -> String {
         let pad = w.saturating_sub(s.len()) / 2;
         format!("{:>pad$}{s}", "", pad = pad)
     };
 
-    // Orbital top
-    lines.push(Line::from(Span::styled(
-        center("    ╭───────╮"),
-        Style::default().fg(orbit_color),
-    )));
-    lines.push(Line::from(Span::styled(
-        center("  ╭─┤       ├─╮"),
-        Style::default().fg(orbit_color),
-    )));
+    // Bohr atom model — 3 intersecting elliptical orbits + nucleus
+    //
+    //            .  ·411·  .            ← orbit 1 (horizontal ellipse)
+    //        ·´    /      \    `·
+    //      /    .´          `.    \     ← orbit 2 (diagonal /)
+    //    /    /        ●       \    \   ← orbit 3 (diagonal \), ● = nucleus
+    //   |   |        ⚛         |   |
+    //    \    \                /    /
+    //      \    `.          .´    /
+    //        ·.    \      /    .·
+    //            `  ·····  ´
 
-    // Nucleus line
-    let nuc_line = "╭─┤   (⚛)   ├─╮";
-    let nuc_pad = w.saturating_sub(nuc_line.len()) / 2;
+    // Electron chars at different positions
+    let e = |pos: usize| -> &'static str {
+        if e_pos == pos { "●" } else { " " }
+    };
+
+    // Row by row rendering with multi-colored orbits
+    let art_w = 42;
+    let p = w.saturating_sub(art_w) / 2;
+
+    // Line 1:        .·---orbit1---·.
     lines.push(Line::from(vec![
-        Span::styled(format!("{:>pad$}╭─┤   ", "", pad = nuc_pad), Style::default().fg(orbit_color)),
-        Span::styled("(⚛)", Style::default().fg(nucleus_color).bold()),
-        Span::styled("   ├─╮", Style::default().fg(orbit_color)),
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("         .·", Style::default().fg(o1)),
+        Span::styled(e(0), Style::default().fg(electron).bold()),
+        Span::styled("─────────", Style::default().fg(o1)),
+        Span::styled(e(6), Style::default().fg(electron).bold()),
+        Span::styled("·.         ", Style::default().fg(o1)),
     ]));
 
-    lines.push(Line::from(Span::styled(
-        center("  ╰─┤       ├─╯"),
-        Style::default().fg(orbit_color),
-    )));
-    lines.push(Line::from(Span::styled(
-        center("    ╰───────╯"),
-        Style::default().fg(orbit_color),
-    )));
+    // Line 2:     ·´    /              \    `·
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("      ·´", Style::default().fg(o1)),
+        Span::styled("   /", Style::default().fg(o2)),
+        Span::styled("               ", Style::default().fg(Color::Reset)),
+        Span::styled("\\", Style::default().fg(o3)),
+        Span::styled("   `·", Style::default().fg(o1)),
+        Span::styled(format!(" {}", e(7)), Style::default().fg(electron).bold()),
+    ]));
+
+    // Line 3:    /    ·´                `·    \
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("    /", Style::default().fg(o2)),
+        Span::styled(format!(" {}", e(11)), Style::default().fg(electron).bold()),
+        Span::styled(" ·´", Style::default().fg(o3)),
+        Span::styled("                 ", Style::default().fg(Color::Reset)),
+        Span::styled("`·", Style::default().fg(o3)),
+        Span::styled("     \\", Style::default().fg(o2)),
+    ]));
+
+    // Line 4:   |   /                        \   |
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("  |", Style::default().fg(o1)),
+        Span::styled("  /", Style::default().fg(o2)),
+        Span::styled("         ", Style::default().fg(Color::Reset)),
+        Span::styled("⚛", Style::default().fg(nucleus_color).bold()),
+        Span::styled("          ", Style::default().fg(Color::Reset)),
+        Span::styled("\\", Style::default().fg(o2)),
+        Span::styled("  |", Style::default().fg(o1)),
+    ]));
+
+    // Line 5:   |   \                        /   |
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("  |", Style::default().fg(o1)),
+        Span::styled("  \\", Style::default().fg(o2)),
+        Span::styled("                     ", Style::default().fg(Color::Reset)),
+        Span::styled("/", Style::default().fg(o2)),
+        Span::styled("  |", Style::default().fg(o1)),
+    ]));
+
+    // Line 6:    \    `·                ·´    /
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("    \\", Style::default().fg(o2)),
+        Span::styled("    `·", Style::default().fg(o3)),
+        Span::styled("             ", Style::default().fg(Color::Reset)),
+        Span::styled("·´", Style::default().fg(o3)),
+        Span::styled(format!("  {} ", e(9)), Style::default().fg(electron).bold()),
+        Span::styled("/", Style::default().fg(o2)),
+    ]));
+
+    // Line 7:      `·    \              /    ·´
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled(format!("  {}  `·", e(5)), Style::default().fg(electron).bold()),
+        Span::styled("   \\", Style::default().fg(o3)),
+        Span::styled("               ", Style::default().fg(Color::Reset)),
+        Span::styled("/", Style::default().fg(o3)),
+        Span::styled("   ·´", Style::default().fg(o1)),
+    ]));
+
+    // Line 8:         `·.─────────.·´
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("         `·", Style::default().fg(o1)),
+        Span::styled(e(4), Style::default().fg(electron).bold()),
+        Span::styled("─────────", Style::default().fg(o1)),
+        Span::styled(e(2), Style::default().fg(electron).bold()),
+        Span::styled("·´", Style::default().fg(o1)),
+    ]));
 
     lines.push(Line::from(""));
 
