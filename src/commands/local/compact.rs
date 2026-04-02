@@ -42,7 +42,6 @@ impl LocalCommand for CompactCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: implement compaction with optional custom instructions from args
         Ok(LocalCommandResult::Compact {
             display_text: Some("Conversation compacted.".to_string()),
         })

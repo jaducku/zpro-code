@@ -38,9 +38,8 @@ impl LocalCommand for ExtraUsageNoninteractiveCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: show extra usage in non-interactive mode
         Ok(LocalCommandResult::Text {
-            value: "Extra usage information.".to_string(),
+            value: "No extra usage data available.".to_string(),
         })
     }
 }

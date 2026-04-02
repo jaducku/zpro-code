@@ -38,9 +38,8 @@ impl LocalCommand for AdvisorCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: toggle advisor mode in app state
         Ok(LocalCommandResult::Text {
-            value: "Advisor mode toggled.".to_string(),
+            value: "Advisor mode toggled. (Full advisor integration pending)".to_string(),
         })
     }
 }

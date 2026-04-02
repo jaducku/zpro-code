@@ -38,9 +38,16 @@ impl LocalCommand for ContextNoninteractiveCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: show context information in non-interactive mode
         Ok(LocalCommandResult::Text {
-            value: "Context information.".to_string(),
+            value: {
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let claude_md = cwd.join("CLAUDE.md");
+                if claude_md.exists() {
+                    format!("Context: CLAUDE.md found at {}", claude_md.display())
+                } else {
+                    format!("Context: No CLAUDE.md found in {}", cwd.display())
+                }
+            },
         })
     }
 }

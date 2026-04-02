@@ -38,9 +38,8 @@ impl LocalCommand for KeybindingsCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: display keybinding configuration
         Ok(LocalCommandResult::Text {
-            value: "Keybinding configuration.".to_string(),
+            value: "Keybindings:\n  Enter     — Send message\n  Ctrl+C    — Quit\n  /         — Command menu\n  @         — File mention\n  Up/Down   — Scroll\n  Tab       — Accept suggestion".to_string(),
         })
     }
 }

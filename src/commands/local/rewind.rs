@@ -38,9 +38,8 @@ impl LocalCommand for RewindCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: implement conversation rewind
         Ok(LocalCommandResult::Text {
-            value: "Conversation rewound.".to_string(),
+            value: "Rewind requires conversation history. (Session persistence pending)".to_string(),
         })
     }
 }

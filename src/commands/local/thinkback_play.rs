@@ -38,9 +38,8 @@ impl LocalCommand for ThinkbackPlayCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: replay thinkback
         Ok(LocalCommandResult::Text {
-            value: "Replaying thinkback...".to_string(),
+            value: "No thinking history to replay.".to_string(),
         })
     }
 }

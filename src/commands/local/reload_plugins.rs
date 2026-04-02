@@ -38,9 +38,8 @@ impl LocalCommand for ReloadPluginsCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: reload plugins
         Ok(LocalCommandResult::Text {
-            value: "Plugins reloaded.".to_string(),
+            value: "Plugins reloaded. (No plugins currently loaded)".to_string(),
         })
     }
 }

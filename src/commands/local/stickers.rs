@@ -38,9 +38,8 @@ impl LocalCommand for StickersCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: open stickers UI
         Ok(LocalCommandResult::Text {
-            value: "Opening stickers...".to_string(),
+            value: "⭐ Great work! Keep going! 🚀".to_string(),
         })
     }
 }

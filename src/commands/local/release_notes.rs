@@ -38,9 +38,8 @@ impl LocalCommand for ReleaseNotesCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: load and display actual release notes
         Ok(LocalCommandResult::Text {
-            value: "No release notes available.".to_string(),
+            value: format!("atom-code v{}\n\nPhase 8: CLI Commands\n- Command type system\n- ~110 commands registered\n- Slash command typeahead\n- @ file mentions\n- Right drawer for TUI commands\n- CLI subcommands (mcp, auth, plugin, doctor)", env!("CARGO_PKG_VERSION")),
         })
     }
 }

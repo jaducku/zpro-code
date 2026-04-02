@@ -38,9 +38,8 @@ impl LocalCommand for InstallSlackAppCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: implement Slack app installation flow
         Ok(LocalCommandResult::Text {
-            value: "Installing Slack app...".to_string(),
+            value: "Slack app integration not yet available.".to_string(),
         })
     }
 }
