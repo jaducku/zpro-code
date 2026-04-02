@@ -10,7 +10,9 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct PrivacySettingsCommand;
 
-pub struct PrivacySettingsState;
+pub struct PrivacySettingsState {
+    pub settings: Vec<(String, String)>,
+}
 
 impl PrivacySettingsCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +45,39 @@ impl TuiCommand for PrivacySettingsCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(PrivacySettingsState)
+        Box::new(PrivacySettingsState {
+            settings: vec![
+                ("Analytics".to_string(), "enabled".to_string()),
+                ("Session persistence".to_string(), "enabled".to_string()),
+                ("Error reporting".to_string(), "enabled".to_string()),
+            ],
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<PrivacySettingsState>().unwrap();
+        let state = state.downcast_ref::<PrivacySettingsState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Privacy Settings (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Configure privacy settings")
-            .block(block);
+
+        let mut lines = vec![Line::from("")];
+        for (name, value) in &state.settings {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {:<24}", name), Style::default().fg(Color::DarkGray)),
+                Span::styled(value.clone(), Style::default().fg(Color::White)),
+            ]));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  Press q to close",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {

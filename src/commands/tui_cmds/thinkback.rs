@@ -10,7 +10,7 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct ThinkbackCommand;
 
-pub struct ThinkbackState;
+pub struct ThinkbackState {}
 
 impl ThinkbackCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +43,38 @@ impl TuiCommand for ThinkbackCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(ThinkbackState)
+        Box::new(ThinkbackState {})
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<ThinkbackState>().unwrap();
+        let _state = state.downcast_ref::<ThinkbackState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Thinking History (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Review thinking history")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  No thinking history available.",
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Thinking traces appear here when the model uses extended thinking.",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {

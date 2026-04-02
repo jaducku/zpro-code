@@ -10,7 +10,7 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct RemoteEnvCommand;
 
-pub struct RemoteEnvState;
+pub struct RemoteEnvState {}
 
 impl RemoteEnvCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +43,38 @@ impl TuiCommand for RemoteEnvCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(RemoteEnvState)
+        Box::new(RemoteEnvState {})
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<RemoteEnvState>().unwrap();
+        let _state = state.downcast_ref::<RemoteEnvState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Remote Environment (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Configure remote environment")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Remote environment not configured.",
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Use --api-base to connect to a remote LLM provider.",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {

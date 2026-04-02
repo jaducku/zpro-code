@@ -10,7 +10,7 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct RateLimitOptionsCommand;
 
-pub struct RateLimitOptionsState;
+pub struct RateLimitOptionsState {}
 
 impl RateLimitOptionsCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +43,42 @@ impl TuiCommand for RateLimitOptionsCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(RateLimitOptionsState)
+        Box::new(RateLimitOptionsState {})
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<RateLimitOptionsState>().unwrap();
+        let _state = state.downcast_ref::<RateLimitOptionsState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Rate Limit Options (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Configure rate limit options")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Rate limits are enforced by the API provider.",
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  When rate-limited, requests are automatically retried",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(Span::styled(
+                "  with exponential backoff.",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {
