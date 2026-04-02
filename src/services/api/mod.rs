@@ -1,3 +1,4 @@
+pub mod openai_types;
 pub mod provider;
 pub mod types;
 
