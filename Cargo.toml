@@ -1,0 +1,63 @@
+[workspace]
+members = [
+    ".",
+    "packages/color-diff",
+    "packages/audio-capture",
+    "packages/image-processor",
+    "packages/modifiers",
+    "packages/url-handler",
+]
+resolver = "2"
+
+[package]
+name = "atom-code"
+version = "0.1.0"
+edition = "2021"
+description = "Open LLM-powered coding assistant CLI"
+license = "MIT"
+
+[[bin]]
+name = "atom-code"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+clap = { version = "4", features = ["derive"] }
+ratatui = "0.29"
+crossterm = "0.28"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest-eventsource = "0.6"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+thiserror = "2"
+anyhow = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+semver = "1"
+globset = "0.4"
+ignore = "0.4"
+similar = "2"
+syntect = "5"
+pulldown-cmark = "0.12"
+shell-words = "1"
+strip-ansi-escapes = "0.2"
+lru = "0.12"
+fuzzy-matcher = "0.3"
+notify = "7"
+async-trait = "0.1"
+pin-project-lite = "0.2"
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+image = "0.25"
+plist = "1"
+qrcode = "0.14"
+opentelemetry = "0.27"
+
+[dev-dependencies]
+tokio-test = "0.4"
+pretty_assertions = "1"
+tempfile = "3"
