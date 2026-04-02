@@ -17,7 +17,7 @@ description = "Open LLM-powered coding assistant CLI"
 license = "MIT"
 
 [[bin]]
-name = "atom-code"
+name = "atom"
 path = "src/main.rs"
 
 [dependencies]
