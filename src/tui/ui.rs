@@ -189,17 +189,28 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, width: u16) {
     ]));
 
     lines.push(Line::from(""));
+
+    // Large ATOM block text with color gradient
+    let atom_art: &[(&str, Color)] = &[
+        ("  █████╗ ████████╗ ██████╗ ███╗   ███╗", Color::Cyan),
+        (" ██╔══██╗╚══██╔══╝██╔═══██╗████╗ ████║", Color::Cyan),
+        (" ███████║   ██║   ██║   ██║██╔████╔██║", Color::LightCyan),
+        (" ██╔══██║   ██║   ██║   ██║██║╚██╔╝██║", Color::Blue),
+        (" ██║  ██║   ██║   ╚██████╔╝██║ ╚═╝ ██║", Color::Blue),
+        (" ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝", Color::Magenta),
+    ];
+
+    for (text, color) in atom_art {
+        lines.push(Line::from(Span::styled(
+            center(text),
+            Style::default().fg(*color).bold(),
+        )));
+    }
+
     lines.push(Line::from(""));
 
-    // "A T O M" — simple, spaced, clean
-    let atom_text = "A  T  O  M";
-    lines.push(Line::from(Span::styled(
-        center(atom_text),
-        Style::default().fg(Color::Cyan).bold(),
-    )));
-
-    // Version
-    let ver = format!("v{}", env!("CARGO_PKG_VERSION"));
+    // Version + tagline
+    let ver = format!("v{}  ·  open LLM coding assistant", env!("CARGO_PKG_VERSION"));
     lines.push(Line::from(Span::styled(
         center(&ver),
         Style::default().fg(Color::DarkGray),
