@@ -29,13 +29,15 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let api_base = cli.api_base.unwrap_or_else(|| "http://localhost:8000/v1".into());
-    let model = cli.model.unwrap_or_else(|| "default".into());
-    let provider = OpenAiCompatibleProvider::new(api_base, cli.api_key, model);
+    let provider = cli.api_base.map(|base| {
+        let model = cli.model.unwrap_or_else(|| "default".into());
+        Box::new(OpenAiCompatibleProvider::new(base, cli.api_key, model)) as Box<dyn atom_code::services::api::provider::LlmProvider>
+    });
+
     let tools = get_builtin_tools();
     let system_prompt = cli.system_prompt.map(|s| vec![SystemBlock::Text { text: s }]);
 
-    run_app(Box::new(provider), tools, system_prompt).await?;
+    run_app(provider, tools, system_prompt).await?;
 
     Ok(())
 }

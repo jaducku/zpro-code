@@ -18,7 +18,7 @@ use crate::types::message::{ApiMessage, Role};
 
 /// Run the TUI application
 pub async fn run_app(
-    provider: Box<dyn LlmProvider>,
+    provider: Option<Box<dyn LlmProvider>>,
     _tools: Vec<Box<dyn crate::tool::Tool>>,
     system_prompt: Option<Vec<SystemBlock>>,
 ) -> io::Result<()> {
@@ -29,7 +29,9 @@ pub async fn run_app(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let model = provider.model_info().id.clone();
+    let model = provider.as_ref()
+        .map(|p| p.model_info().id.clone())
+        .unwrap_or_else(|| "(no provider)".into());
     let mut app = App::new(model.clone());
 
     let (_query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
