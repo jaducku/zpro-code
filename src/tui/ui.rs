@@ -3,16 +3,7 @@ use ratatui::widgets::*;
 
 use super::app::{App, DisplayRole};
 
-const LOGO: &str = r#"
-        .--.
-       /    \        _  _____ ___  __  __
-      |  ()  |      / \|_   _/ _ \|  \/  |
-     --|    |--    / _ \ | || | | | |\/| |
-    /  '-..-'  \  / ___ \| || |_| | |  | |
-   |  .-'''-.  | /_/   \_\_| \___/|_|  |_|
-    \  '---'  /
-     '-.____.-'
-"#;
+// Logo is rendered with colors in render_welcome(), not as a static string
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -59,65 +50,106 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
 fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, width: u16) {
     let w = width as usize;
 
-    // Vertical centering padding
+    // Animated color based on elapsed time
+    let elapsed = app.start_time.elapsed().as_millis() as usize;
+    let orbit_colors = [Color::Cyan, Color::Blue, Color::Magenta, Color::LightCyan];
+    let color_idx = (elapsed / 500) % orbit_colors.len();
+    let orbit_color = orbit_colors[color_idx];
+    let nucleus_color = Color::Yellow;
+
+    lines.push(Line::from(""));
     lines.push(Line::from(""));
 
-    // Logo
-    for line in LOGO.lines() {
-        if line.is_empty() {
-            continue;
-        }
-        let pad = w.saturating_sub(line.len()) / 2;
+    // Atom orbital art — colored
+    let center = |s: &str| -> String {
+        let pad = w.saturating_sub(s.len()) / 2;
+        format!("{:>pad$}{s}", "", pad = pad)
+    };
+
+    // Orbital top
+    lines.push(Line::from(Span::styled(
+        center("    ╭───────╮"),
+        Style::default().fg(orbit_color),
+    )));
+    lines.push(Line::from(Span::styled(
+        center("  ╭─┤       ├─╮"),
+        Style::default().fg(orbit_color),
+    )));
+
+    // Nucleus line
+    let nuc_line = "╭─┤   (⚛)   ├─╮";
+    let nuc_pad = w.saturating_sub(nuc_line.len()) / 2;
+    lines.push(Line::from(vec![
+        Span::styled(format!("{:>pad$}╭─┤   ", "", pad = nuc_pad), Style::default().fg(orbit_color)),
+        Span::styled("(⚛)", Style::default().fg(nucleus_color).bold()),
+        Span::styled("   ├─╮", Style::default().fg(orbit_color)),
+    ]));
+
+    lines.push(Line::from(Span::styled(
+        center("  ╰─┤       ├─╯"),
+        Style::default().fg(orbit_color),
+    )));
+    lines.push(Line::from(Span::styled(
+        center("    ╰───────╯"),
+        Style::default().fg(orbit_color),
+    )));
+
+    lines.push(Line::from(""));
+
+    // ATOM text with gradient
+    let atom_chars = [
+        ("  ▄▀█ ▀█▀ █▀█ █▀▄▀█", Color::Cyan),
+        ("  █▀█  █  █▄█ █ ▀ █", Color::Blue),
+    ];
+    for (text, color) in &atom_chars {
+        let padded = center(text);
         lines.push(Line::from(Span::styled(
-            format!("{:>pad$}{}", "", line, pad = pad),
-            Style::default().fg(Color::Cyan).bold(),
+            padded,
+            Style::default().fg(*color).bold(),
         )));
     }
 
     lines.push(Line::from(""));
 
-    // Version centered
-    let ver = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let pad = w.saturating_sub(ver.len()) / 2;
+    // Version + tagline
+    let ver = format!("v{}  ·  open LLM coding assistant", env!("CARGO_PKG_VERSION"));
     lines.push(Line::from(Span::styled(
-        format!("{:>pad$}{}", "", ver, pad = pad),
+        center(&ver),
         Style::default().fg(Color::DarkGray),
     )));
 
     lines.push(Line::from(""));
     lines.push(Line::from(""));
 
-    // Connection status
+    // Connection status with icon
     if app.has_provider {
-        let msg = format!("Connected: {}", app.model);
-        let pad = w.saturating_sub(msg.len()) / 2;
+        let msg = format!("● Connected: {}", app.model);
         lines.push(Line::from(Span::styled(
-            format!("{:>pad$}{}", "", msg, pad = pad),
+            center(&msg),
             Style::default().fg(Color::Green),
         )));
     } else {
-        let msg = "No provider connected";
-        let pad = w.saturating_sub(msg.len()) / 2;
+        let msg = "○ No provider connected";
         lines.push(Line::from(Span::styled(
-            format!("{:>pad$}{}", "", msg, pad = pad),
+            center(msg),
             Style::default().fg(Color::Yellow),
         )));
 
-        let hint = "Use --api-base <URL> --api-key <KEY> to connect";
-        let pad = w.saturating_sub(hint.len()) / 2;
+        lines.push(Line::from(""));
+
+        let hint = "atom --api-base <URL> --api-key <KEY> --model <MODEL>";
         lines.push(Line::from(Span::styled(
-            format!("{:>pad$}{}", "", hint, pad = pad),
-            Style::default().fg(Color::DarkGray),
+            center(hint),
+            Style::default().fg(Color::DarkGray).italic(),
         )));
     }
 
     lines.push(Line::from(""));
 
-    // Keybindings hint
-    let hints = "Enter: send | Ctrl+C: quit";
-    let pad = w.saturating_sub(hints.len()) / 2;
+    // Keybinding chips
+    let hints_str = "Enter ↵ send  ·  Ctrl+C quit";
     lines.push(Line::from(Span::styled(
-        format!("{:>pad$}{}", "", hints, pad = pad),
+        center(hints_str),
         Style::default().fg(Color::DarkGray),
     )));
 }
