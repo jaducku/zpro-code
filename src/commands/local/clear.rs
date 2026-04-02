@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::commands::context::{CommandContext, MessageUpdate};
+use crate::commands::context::CommandContext;
 use crate::commands::traits::LocalCommand;
 use crate::commands::types::{CommandMeta, LocalCommandResult};
 
@@ -37,10 +37,9 @@ impl LocalCommand for ClearCommand {
         &Self::META
     }
 
-    async fn call(&self, _args: &str, ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        let _ = ctx.message_tx.send(MessageUpdate::Set(Box::new(|_| Vec::new())));
-        Ok(LocalCommandResult::Text {
-            value: "Conversation cleared.".to_string(),
+    async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
+        Ok(LocalCommandResult::Compact {
+            display_text: Some("Conversation cleared.".to_string()),
         })
     }
 }

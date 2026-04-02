@@ -38,9 +38,8 @@ impl LocalCommand for CopyCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: copy last response to system clipboard
         Ok(LocalCommandResult::Text {
-            value: "Last response copied to clipboard.".to_string(),
+            value: "Copy to clipboard not yet available.".to_string(),
         })
     }
 }

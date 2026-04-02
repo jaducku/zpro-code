@@ -38,9 +38,8 @@ impl LocalCommand for VimCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: toggle vim mode in app state
         Ok(LocalCommandResult::Text {
-            value: "Vim mode toggled.".to_string(),
+            value: "Vim mode toggled. (Full vim integration pending)".to_string(),
         })
     }
 }
