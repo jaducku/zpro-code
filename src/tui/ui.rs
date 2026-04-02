@@ -57,15 +57,14 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     lines.push(Line::from(""));
     lines.push(Line::from(""));
 
-    // ATOM large block logo — left aligned, color gradient top to bottom
+    // ATOM block logo — left aligned, color gradient
     let logo: &[(&str, usize)] = &[
-        ("   ###    ########  #######  ##     ##", 0),
-        ("  ## ##      ##    ##     ## ###   ###", 0),
-        (" ##   ##     ##    ##     ## #### ####", 1),
-        ("##     ##    ##    ##     ## ## ### ##", 1),
-        ("#########    ##    ##     ## ##     ##", 2),
-        ("##     ##    ##    ##     ## ##     ##", 2),
-        ("##     ##    ##     #######  ##     ##", 3),
+        (" █████╗ ████████╗ ██████╗ ███╗   ███╗", 0),
+        ("██╔══██╗╚══██╔══╝██╔═══██╗████╗ ████║", 0),
+        ("███████║   ██║   ██║   ██║██╔████╔██║", 1),
+        ("██╔══██║   ██║   ██║   ██║██║╚██╔╝██║", 2),
+        ("██║  ██║   ██║   ╚██████╔╝██║ ╚═╝ ██║", 2),
+        ("╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝", 3),
     ];
 
     for (text, color_offset) in logo {
