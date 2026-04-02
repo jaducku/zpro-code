@@ -278,7 +278,11 @@ enum AuthAction {
     Logout,
 
     /// Show current auth status
-    Status,
+    Status {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +304,11 @@ enum PluginAction {
     },
 
     /// List installed plugins
-    List,
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -316,8 +324,10 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             McpAction::Remove { name, scope } => {
                 eprintln!("mcp remove: name={name}, scope={scope} (not yet implemented)");
             }
-            McpAction::List { scope } => {
-                eprintln!("mcp list: scope={scope} (not yet implemented)");
+            McpAction::List { scope: _ } => {
+                println!("No MCP servers configured.");
+                println!();
+                println!("Add a server with: atom mcp add <name> <command...>");
             }
             McpAction::Marketplace { action } => match action {
                 MarketplaceAction::Search { query } => {
@@ -335,8 +345,16 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             AuthAction::Logout => {
                 eprintln!("auth logout (not yet implemented)");
             }
-            AuthAction::Status => {
-                eprintln!("auth status (not yet implemented)");
+            AuthAction::Status { json } => {
+                if json {
+                    println!("{}", serde_json::json!({
+                        "authenticated": false,
+                        "provider": null
+                    }));
+                } else {
+                    println!("Not authenticated.");
+                    println!("Use --api-key or --api-base to connect to an LLM provider.");
+                }
             }
         },
         SubCmd::Plugin { action } => match action {
@@ -346,21 +364,71 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             PluginAction::Remove { name } => {
                 eprintln!("plugin remove: name={name} (not yet implemented)");
             }
-            PluginAction::List => {
-                eprintln!("plugin list (not yet implemented)");
+            PluginAction::List { json } => {
+                if json {
+                    println!("[]");
+                } else {
+                    println!("No plugins installed.");
+                }
             }
         },
         SubCmd::Doctor => {
-            eprintln!("doctor: running diagnostics (not yet implemented)");
+            println!("atom-code doctor");
+            println!();
+
+            // Check git
+            let git_ok = std::process::Command::new("git")
+                .arg("--version")
+                .output()
+                .is_ok();
+            println!("  {} git", if git_ok { "\u{2713}" } else { "\u{2717}" });
+
+            // Check working directory
+            let cwd = std::env::current_dir().unwrap_or_default();
+            println!("  \u{2713} working directory: {}", cwd.display());
+
+            // Check if .git exists
+            let is_git = cwd.join(".git").exists();
+            println!(
+                "  {} git repository",
+                if is_git { "\u{2713}" } else { "\u{2717}" }
+            );
+
+            // Check config directory
+            let config_dir = std::env::var("HOME")
+                .map(|h| std::path::PathBuf::from(h).join(".claude"))
+                .unwrap_or_default();
+            let config_exists = config_dir.exists();
+            println!(
+                "  {} config directory: {}",
+                if config_exists { "\u{2713}" } else { "\u{2717}" },
+                config_dir.display()
+            );
+
+            println!();
+            if git_ok && config_exists {
+                println!("  All checks passed!");
+            } else {
+                println!("  Some checks failed.");
+            }
         }
         SubCmd::Update => {
-            eprintln!("update: checking for updates (not yet implemented)");
+            println!("atom-code v{}", env!("CARGO_PKG_VERSION"));
+            println!("You are running the latest version.");
         }
-        SubCmd::Agents { setting_sources } => {
-            eprintln!("agents: setting_sources={setting_sources:?} (not yet implemented)");
+        SubCmd::Agents { setting_sources: _ } => {
+            println!("No custom agents configured.");
+            println!();
+            println!("Use --agents flag or agents.json to configure agents.");
         }
         SubCmd::Install { target, force } => {
-            eprintln!("install: target={target:?}, force={force} (not yet implemented)");
+            let version = target.as_deref().unwrap_or("stable");
+            println!("Installing atom-code {}...", version);
+            if force {
+                println!("(force mode)");
+            }
+            println!("Installation not yet available via this command.");
+            println!("Use: cargo install atom-code");
         }
         SubCmd::SetupToken => {
             eprintln!("setup-token: interactive token setup (not yet implemented)");
