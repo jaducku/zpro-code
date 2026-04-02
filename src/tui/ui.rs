@@ -269,6 +269,8 @@ fn render_permission_dialog(frame: &mut Frame, dialog: &super::app::PermissionDi
 }
 
 fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::TypeaheadState) {
+    use super::app::TypeaheadKind;
+
     let max_visible = 10.min(ta.items.len());
     if max_visible == 0 {
         return;
@@ -276,11 +278,16 @@ fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::Typeah
 
     let height = max_visible as u16 + 2; // +2 for borders
 
+    let (title, prefix, title_color) = match &ta.kind {
+        TypeaheadKind::Command => (" Commands ", "/", Color::Cyan),
+        TypeaheadKind::FileMention { .. } => (" Files ", "", Color::Yellow),
+    };
+
     // Position above the input area
     let area = Rect {
         x: input_area.x,
         y: input_area.y.saturating_sub(height),
-        width: input_area.width.min(60),
+        width: input_area.width.min(70),
         height,
     };
 
@@ -288,10 +295,7 @@ fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::Typeah
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(
-            " Commands ",
-            Style::default().fg(Color::Cyan),
-        ));
+        .title(Span::styled(title, Style::default().fg(title_color)));
 
     // Scroll window around selected item
     let scroll_start = if ta.selected >= max_visible {
@@ -308,23 +312,45 @@ fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::Typeah
         .take(max_visible)
         .map(|(i, (name, desc))| {
             let is_selected = i == ta.selected;
+            let sel_bg = match &ta.kind {
+                TypeaheadKind::Command => Color::Cyan,
+                TypeaheadKind::FileMention { .. } => Color::Yellow,
+            };
+            let name_fg = match &ta.kind {
+                TypeaheadKind::Command => Color::Green,
+                TypeaheadKind::FileMention { .. } => {
+                    if name.ends_with('/') { Color::Blue } else { Color::Yellow }
+                }
+            };
+
             let style = if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+                Style::default().fg(Color::Black).bg(sel_bg).bold()
             } else {
                 Style::default()
             };
             let name_style = if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+                Style::default().fg(Color::Black).bg(sel_bg).bold()
             } else {
-                Style::default().fg(Color::Green)
+                Style::default().fg(name_fg)
             };
             let desc_style = if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan)
+                Style::default().fg(Color::Black).bg(sel_bg)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
 
-            let max_desc = (area.width as usize).saturating_sub(name.len() + 6);
+            let icon = match &ta.kind {
+                TypeaheadKind::Command => "",
+                TypeaheadKind::FileMention { .. } => {
+                    if name.ends_with('/') { " " } else { " " }
+                }
+            };
+
+            let formatted_name = format!(" {}{}{}", icon, prefix, name);
+            let pad = 24_usize.saturating_sub(formatted_name.len());
+            let padded = format!("{}{}", formatted_name, " ".repeat(pad));
+
+            let max_desc = (area.width as usize).saturating_sub(padded.len() + 2);
             let truncated_desc = if desc.len() > max_desc {
                 format!("{}...", &desc[..max_desc.saturating_sub(3)])
             } else {
@@ -332,7 +358,7 @@ fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::Typeah
             };
 
             ListItem::new(Line::from(vec![
-                Span::styled(format!(" /{:<16}", name), name_style),
+                Span::styled(padded, name_style),
                 Span::styled(truncated_desc, desc_style),
             ]))
             .style(style)

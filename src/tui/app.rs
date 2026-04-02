@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::commands::CommandRegistry;
@@ -45,13 +46,31 @@ pub struct App {
     pub command_registry: CommandRegistry,
     /// Currently active TUI command overlay
     pub active_command: Option<ActiveCommand>,
-    /// Slash command typeahead state (shown when input starts with '/')
+    /// Typeahead state (for '/' commands or '@' file mentions)
     pub typeahead: Option<TypeaheadState>,
+    /// Working directory for file suggestions
+    pub cwd: PathBuf,
 }
 
-/// Typeahead autocomplete state for slash commands
+/// What kind of typeahead is active
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeaheadKind {
+    /// Slash command typeahead (triggered by '/')
+    Command,
+    /// File mention typeahead (triggered by '@')
+    FileMention {
+        /// Position in input where the '@' token starts
+        token_start: usize,
+        /// The query text after '@'
+        query: String,
+    },
+}
+
+/// Typeahead autocomplete state
 pub struct TypeaheadState {
-    /// Filtered command entries: (name, description)
+    /// What triggered the typeahead
+    pub kind: TypeaheadKind,
+    /// Filtered entries: (display_name, description)
     pub items: Vec<(String, String)>,
     /// Currently selected index
     pub selected: usize,
@@ -129,6 +148,7 @@ impl App {
             command_registry,
             active_command: None,
             typeahead: None,
+            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         }
     }
 
@@ -246,11 +266,22 @@ impl App {
     /// Update typeahead based on current input.
     /// Called after every input change.
     pub fn update_typeahead(&mut self) {
-        if !self.input.starts_with('/') || self.input.contains(char::is_whitespace) {
-            self.typeahead = None;
+        // Check for '/' command typeahead
+        if self.input.starts_with('/') && !self.input.contains(char::is_whitespace) {
+            self.update_command_typeahead();
             return;
         }
 
+        // Check for '@' file mention typeahead
+        if let Some((token_start, query)) = find_at_token(&self.input, self.cursor_pos) {
+            self.update_file_typeahead(token_start, &query);
+            return;
+        }
+
+        self.typeahead = None;
+    }
+
+    fn update_command_typeahead(&mut self) {
         let query = &self.input[1..]; // strip '/'
         let available = self.command_registry.available_commands();
 
@@ -262,7 +293,6 @@ impl App {
                     if query.is_empty() {
                         return true;
                     }
-                    // Fuzzy prefix match on name and aliases
                     name.starts_with(query)
                         || cmd.meta().aliases.iter().any(|a| a.starts_with(query))
                         || name.contains(query)
@@ -283,6 +313,25 @@ impl App {
         } else {
             let prev_selected = self.typeahead.as_ref().map(|t| t.selected).unwrap_or(0);
             self.typeahead = Some(TypeaheadState {
+                kind: TypeaheadKind::Command,
+                selected: prev_selected.min(items.len().saturating_sub(1)),
+                items,
+            });
+        }
+    }
+
+    fn update_file_typeahead(&mut self, token_start: usize, query: &str) {
+        let items = get_file_suggestions(&self.cwd, query);
+
+        if items.is_empty() {
+            self.typeahead = None;
+        } else {
+            let prev_selected = self.typeahead.as_ref().map(|t| t.selected).unwrap_or(0);
+            self.typeahead = Some(TypeaheadState {
+                kind: TypeaheadKind::FileMention {
+                    token_start,
+                    query: query.to_string(),
+                },
                 selected: prev_selected.min(items.len().saturating_sub(1)),
                 items,
             });
@@ -293,8 +342,27 @@ impl App {
     pub fn accept_typeahead(&mut self) {
         if let Some(ta) = &self.typeahead {
             if let Some((name, _)) = ta.items.get(ta.selected) {
-                self.input = format!("/{}", name);
-                self.cursor_pos = self.input.len();
+                match &ta.kind {
+                    TypeaheadKind::Command => {
+                        self.input = format!("/{}", name);
+                        self.cursor_pos = self.input.len();
+                    }
+                    TypeaheadKind::FileMention { token_start, .. } => {
+                        let start = *token_start;
+                        // Replace @query with @filename (add space after)
+                        let needs_quote = name.contains(' ');
+                        let replacement = if needs_quote {
+                            format!("@\"{}\" ", name)
+                        } else {
+                            format!("@{} ", name)
+                        };
+                        // Find end of current @ token
+                        let after_at = &self.input[start..];
+                        let token_end = start + at_token_len(after_at);
+                        self.input.replace_range(start..token_end, &replacement);
+                        self.cursor_pos = start + replacement.len();
+                    }
+                }
             }
         }
         self.typeahead = None;
@@ -356,6 +424,144 @@ impl App {
             }
         }
     }
+}
+
+/// Find the '@' token at or before the cursor position.
+/// Returns (token_start_index, query_after_at) if found.
+fn find_at_token(input: &str, cursor_pos: usize) -> Option<(usize, String)> {
+    // Look backwards from cursor to find '@'
+    let before_cursor = &input[..cursor_pos.min(input.len())];
+
+    // Find the last '@' that's either at start or preceded by whitespace
+    let mut at_pos = None;
+    for (i, c) in before_cursor.char_indices().rev() {
+        if c == '@' && (i == 0 || before_cursor[..i].ends_with(char::is_whitespace)) {
+            at_pos = Some(i);
+            break;
+        }
+        // Stop if we hit whitespace before finding '@'
+        if c.is_whitespace() {
+            break;
+        }
+    }
+
+    let start = at_pos?;
+    let after_at = &input[start + 1..]; // text after '@'
+
+    // Extract the query: everything until whitespace (or end), supporting quoted paths
+    let query = if after_at.starts_with('"') {
+        // Quoted path: @"some path" — extract until closing quote
+        let end = after_at[1..].find('"').map(|i| i + 2).unwrap_or(after_at.len());
+        after_at[1..end.min(after_at.len()).saturating_sub(1)].to_string()
+    } else {
+        // Unquoted: take until whitespace
+        let end = after_at
+            .find(char::is_whitespace)
+            .unwrap_or(after_at.len());
+        after_at[..end].to_string()
+    };
+
+    Some((start, query))
+}
+
+/// Get the length of an @ token in the input (from '@' to end of token)
+fn at_token_len(s: &str) -> usize {
+    if !s.starts_with('@') {
+        return 0;
+    }
+    let after_at = &s[1..];
+    if after_at.starts_with('"') {
+        // Quoted: find closing quote
+        1 + after_at
+            .find('"')
+            .map(|i| {
+                // Check if there's a second quote (closing)
+                after_at[i + 1..]
+                    .find('"')
+                    .map(|j| i + 1 + j + 1 + 1) // @"..."
+                    .unwrap_or(after_at.len() + 1) // @"... (unclosed)
+            })
+            .unwrap_or(after_at.len() + 1)
+    } else {
+        1 + after_at
+            .find(char::is_whitespace)
+            .unwrap_or(after_at.len())
+    }
+}
+
+/// Get file suggestions matching a query in the given directory.
+/// Returns up to 15 results as (relative_path, file_type_description).
+fn get_file_suggestions(cwd: &Path, query: &str) -> Vec<(String, String)> {
+    let mut results = Vec::new();
+
+    // Use ignore crate to respect .gitignore
+    let walker = ignore::WalkBuilder::new(cwd)
+        .max_depth(Some(4))
+        .hidden(true) // skip hidden files
+        .build();
+
+    let query_lower = query.to_lowercase();
+
+    for entry in walker.flatten() {
+        if results.len() >= 15 {
+            break;
+        }
+
+        let path = entry.path();
+        if path == cwd {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(cwd)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+
+        if relative.is_empty() {
+            continue;
+        }
+
+        let rel_lower = relative.to_lowercase();
+
+        // Match: prefix, contains, or path component match
+        let matches = if query.is_empty() {
+            // Show top-level entries when '@' is typed with no query
+            !relative.contains(std::path::MAIN_SEPARATOR)
+                || relative.matches(std::path::MAIN_SEPARATOR).count() <= 1
+        } else {
+            rel_lower.starts_with(&query_lower)
+                || rel_lower.contains(&query_lower)
+                || path
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().to_lowercase().contains(&query_lower))
+        };
+
+        if matches {
+            let desc = if path.is_dir() {
+                "dir".to_string()
+            } else {
+                path.extension()
+                    .map(|e| e.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "file".to_string())
+            };
+            let display = if path.is_dir() {
+                format!("{}/", relative)
+            } else {
+                relative
+            };
+            results.push((display, desc));
+        }
+    }
+
+    // Sort: directories first, then by name
+    results.sort_by(|a, b| {
+        let a_is_dir = a.0.ends_with('/');
+        let b_is_dir = b.0.ends_with('/');
+        b_is_dir.cmp(&a_is_dir).then(a.0.cmp(&b.0))
+    });
+
+    results
 }
 
 #[cfg(test)]
@@ -458,5 +664,53 @@ mod tests {
         assert!(app.command_registry.has("clear"));
         assert!(app.command_registry.has("help"));
         assert!(app.command_registry.has("review"));
+    }
+
+    // --- @ mention tests ---
+
+    #[test]
+    fn test_find_at_token_simple() {
+        let result = find_at_token("@file", 5);
+        assert_eq!(result, Some((0, "file".to_string())));
+    }
+
+    #[test]
+    fn test_find_at_token_mid_input() {
+        let result = find_at_token("look at @src/main", 17);
+        assert_eq!(result, Some((8, "src/main".to_string())));
+    }
+
+    #[test]
+    fn test_find_at_token_no_at() {
+        assert_eq!(find_at_token("no at here", 10), None);
+    }
+
+    #[test]
+    fn test_find_at_token_at_start_empty() {
+        let result = find_at_token("@", 1);
+        assert_eq!(result, Some((0, String::new())));
+    }
+
+    #[test]
+    fn test_find_at_token_after_space() {
+        let result = find_at_token("check @foo.rs please", 13);
+        assert_eq!(result, Some((6, "foo.rs".to_string())));
+    }
+
+    #[test]
+    fn test_find_at_token_not_at_boundary() {
+        // email@example.com — '@' not preceded by whitespace
+        assert_eq!(find_at_token("email@example.com", 17), None);
+    }
+
+    #[test]
+    fn test_at_token_len_simple() {
+        // "@file.rs" = 1('@') + 7("file.rs") = 8
+        assert_eq!(at_token_len("@file.rs rest"), 8);
+    }
+
+    #[test]
+    fn test_at_token_len_to_end() {
+        assert_eq!(at_token_len("@file.rs"), 8);
     }
 }
