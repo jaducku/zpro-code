@@ -23,6 +23,12 @@ pub struct CommandRegistry {
     dynamic: Vec<Command>,
 }
 
+impl Default for CommandRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandRegistry {
     /// Create a registry pre-populated with all builtin commands.
     pub fn new() -> Self {
@@ -38,6 +44,10 @@ impl CommandRegistry {
         }
         #[cfg(feature = "internal")]
         for cmd in super::local::get_internal_local_commands() {
+            reg.register_builtin(cmd);
+        }
+        #[cfg(feature = "internal")]
+        for cmd in super::tui_cmds::get_internal_tui_commands() {
             reg.register_builtin(cmd);
         }
         reg
@@ -75,7 +85,7 @@ impl CommandRegistry {
             let meta = cmd.meta();
             meta.name == name
                 || get_command_name(meta) == name
-                || meta.aliases.iter().any(|a| *a == name)
+                || meta.aliases.contains(&name)
         })
     }
 
@@ -141,6 +151,35 @@ impl CommandRegistry {
     /// Remove all dynamic commands.
     pub fn clear_dynamic(&mut self) {
         self.dynamic.clear();
+    }
+
+    /// Load commands from `.skill` directories relative to the given working directory.
+    ///
+    /// Implemented in Phase 9 (services).
+    #[allow(unused_variables)]
+    pub async fn load_skill_dir_commands(&mut self, cwd: &std::path::Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Load plugin commands from configured plugin sources.
+    ///
+    /// Implemented in Phase 9 (services).
+    pub async fn load_plugin_commands(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Register a batch of MCP-sourced commands as dynamic commands.
+    pub fn register_mcp_commands(&mut self, commands: Vec<Command>) {
+        for cmd in commands {
+            self.register_dynamic(cmd);
+        }
+    }
+
+    /// Load bundled skill commands that ship with the binary.
+    ///
+    /// Implemented in Phase 9.
+    pub fn load_bundled_skills(&mut self) {
+        // Implemented in Phase 9
     }
 
     /// Iterate over all commands, dynamic first then builtin.
