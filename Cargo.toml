@@ -61,3 +61,34 @@ opentelemetry = "0.27"
 tokio-test = "0.4"
 pretty_assertions = "1"
 tempfile = "3"
+
+[features]
+default = []
+kairos = []
+kairos_brief = []
+kairos_github_webhooks = []
+bridge_mode = []
+voice_mode = []
+history_snip = []
+workflow_scripts = []
+ccr_remote_setup = []
+ultraplan = []
+torch = []
+uds_inbox = []
+fork_subagent = []
+buddy = []
+coordinator_mode = []
+agents_platform = []
+daemon = []
+proactive = []
+mcp_skills = []
+experimental_skill_search = []
+upload_user_settings = []
+internal = ["all"]
+all = [
+    "kairos", "kairos_brief", "kairos_github_webhooks", "bridge_mode",
+    "voice_mode", "history_snip", "workflow_scripts", "ccr_remote_setup",
+    "ultraplan", "torch", "uds_inbox", "fork_subagent", "buddy",
+    "coordinator_mode", "agents_platform", "daemon", "proactive",
+    "mcp_skills", "experimental_skill_search", "upload_user_settings",
+]
