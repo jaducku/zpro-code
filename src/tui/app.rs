@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::time::Instant;
 
 use crate::query::QueryEvent;
 use crate::types::message::ApiMessage;
@@ -25,6 +26,14 @@ pub struct App {
     pub permission_dialog: Option<PermissionDialog>,
     /// API messages (conversation history for LLM)
     pub api_messages: Vec<ApiMessage>,
+    /// App start time (for animations)
+    pub start_time: Instant,
+    /// Whether provider is connected
+    pub has_provider: bool,
+    /// Number of tokens used
+    pub token_count: u64,
+    /// Session cost
+    pub session_cost: f64,
 }
 
 /// A message for display purposes
@@ -88,14 +97,14 @@ impl App {
             should_quit: false,
             is_loading: false,
             scroll_offset: 0,
-            status: if has_provider {
-                format!(" {} | Ready", model)
-            } else {
-                " atom | No provider".into()
-            },
+            status: String::new(),
             model,
             permission_dialog: None,
             api_messages: Vec::new(),
+            start_time: Instant::now(),
+            has_provider,
+            token_count: 0,
+            session_cost: 0.0,
         }
     }
 
