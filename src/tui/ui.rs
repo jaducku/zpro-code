@@ -47,9 +47,7 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(paragraph, area);
 }
 
-fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, width: u16) {
-    let w = width as usize;
-
+fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     // Animated color based on elapsed time
     let elapsed = app.start_time.elapsed().as_millis() as usize;
     let orbit_colors = [Color::Cyan, Color::Blue, Color::Magenta, Color::LightCyan];
@@ -62,164 +60,149 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, width: u16) {
     let o3 = orbit_colors[(color_idx + 2) % orbit_colors.len()];
     let electron = Color::LightYellow;
 
-    // Electron position cycles (16 positions around orbits)
+    // Electron position cycles
     let e_pos = (elapsed / 150) % 16;
-
-    let center = |s: &str| -> String {
-        let pad = w.saturating_sub(s.len()) / 2;
-        format!("{:>pad$}{s}", "", pad = pad)
-    };
-
-    // Electron character at position
     let e = |pos: usize| -> &'static str {
-        if e_pos == pos { "◉" } else { " " }
+        if e_pos == pos { "*" } else { " " }
     };
 
-    // Large Bohr atom — 3 intersecting orbits, wider and taller
-    let art_w = 56;
-    let p = w.saturating_sub(art_w) / 2;
+    // Left-aligned with fixed indent
+    let m = "  "; // left margin
 
-    // Row 1
+    // Atom orbital — all ASCII safe, left-aligned
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("               .·", Style::default().fg(o1)),
+        Span::raw(m),
+        Span::styled("              .", Style::default().fg(o1)),
         Span::styled(e(0), Style::default().fg(electron).bold()),
-        Span::styled("─────────────", Style::default().fg(o1)),
+        Span::styled("-------------", Style::default().fg(o1)),
         Span::styled(e(8), Style::default().fg(electron).bold()),
-        Span::styled("·.               ", Style::default().fg(o1)),
+        Span::styled(".              ", Style::default().fg(o1)),
     ]));
-    // Row 2
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("           ·´", Style::default().fg(o1)),
+        Span::raw(m),
+        Span::styled("          .'", Style::default().fg(o1)),
         Span::styled("     /", Style::default().fg(o2)),
         Span::styled("               ", Style::default().fg(Color::Reset)),
         Span::styled("\\", Style::default().fg(o3)),
-        Span::styled("     `·", Style::default().fg(o1)),
+        Span::styled("     '.", Style::default().fg(o1)),
         Span::styled(format!("  {}", e(9)), Style::default().fg(electron).bold()),
     ]));
-    // Row 3
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("        ·´", Style::default().fg(o1)),
-        Span::styled("     ·´", Style::default().fg(o2)),
+        Span::raw(m),
+        Span::styled("       .'", Style::default().fg(o1)),
+        Span::styled("     .'", Style::default().fg(o2)),
         Span::styled("                   ", Style::default().fg(Color::Reset)),
-        Span::styled("`·", Style::default().fg(o3)),
-        Span::styled("     `·", Style::default().fg(o1)),
+        Span::styled("'.", Style::default().fg(o3)),
+        Span::styled("     '.", Style::default().fg(o1)),
     ]));
-    // Row 4
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled(format!("      /  {}  /", e(15)), Style::default().fg(o2)),
+        Span::raw(m),
+        Span::styled(format!("     /  {}  /", e(15)), Style::default().fg(o2)),
         Span::styled("                         ", Style::default().fg(Color::Reset)),
         Span::styled("\\", Style::default().fg(o3)),
         Span::styled("     \\", Style::default().fg(o2)),
     ]));
-    // Row 5
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("    |", Style::default().fg(o1)),
+        Span::raw(m),
+        Span::styled("   |", Style::default().fg(o1)),
         Span::styled("   /", Style::default().fg(o2)),
-        Span::styled("       ", Style::default().fg(Color::Reset)),
-        Span::styled(format!(" {}  ", e(14)), Style::default().fg(electron).bold()),
-        Span::styled("·", Style::default().fg(o3)),
+        Span::styled(format!("       {}  ", e(14)), Style::default().fg(electron).bold()),
+        Span::styled("'.", Style::default().fg(o3)),
         Span::styled("              ", Style::default().fg(Color::Reset)),
-        Span::styled("·", Style::default().fg(o3)),
+        Span::styled(".'", Style::default().fg(o3)),
         Span::styled("  \\", Style::default().fg(o2)),
         Span::styled("   |", Style::default().fg(o1)),
     ]));
-    // Row 6 — nucleus
+    // Nucleus
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("    |", Style::default().fg(o1)),
+        Span::raw(m),
+        Span::styled("   |", Style::default().fg(o1)),
         Span::styled("  |", Style::default().fg(o2)),
-        Span::styled("          ", Style::default().fg(Color::Reset)),
-        Span::styled(" ⚛ ", Style::default().fg(nucleus_color).bold()),
         Span::styled("           ", Style::default().fg(Color::Reset)),
+        Span::styled("@", Style::default().fg(nucleus_color).bold()),
+        Span::styled("            ", Style::default().fg(Color::Reset)),
         Span::styled("|", Style::default().fg(o2)),
         Span::styled("  |", Style::default().fg(o1)),
     ]));
-    // Row 7
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("    |", Style::default().fg(o1)),
+        Span::raw(m),
+        Span::styled("   |", Style::default().fg(o1)),
         Span::styled("   \\", Style::default().fg(o2)),
-        Span::styled("            ", Style::default().fg(Color::Reset)),
-        Span::styled("·", Style::default().fg(o3)),
+        Span::styled("         ", Style::default().fg(Color::Reset)),
+        Span::styled(".'", Style::default().fg(o3)),
         Span::styled("              ", Style::default().fg(Color::Reset)),
-        Span::styled("·", Style::default().fg(o3)),
+        Span::styled("'.", Style::default().fg(o3)),
         Span::styled("  /", Style::default().fg(o2)),
         Span::styled("   |", Style::default().fg(o1)),
     ]));
-    // Row 8
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("      \\", Style::default().fg(o2)),
+        Span::raw(m),
+        Span::styled("     \\", Style::default().fg(o2)),
         Span::styled("     \\", Style::default().fg(o3)),
         Span::styled("                         ", Style::default().fg(Color::Reset)),
         Span::styled("/", Style::default().fg(o3)),
         Span::styled(format!("  {}  /", e(11)), Style::default().fg(electron).bold()),
     ]));
-    // Row 9
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("        `·", Style::default().fg(o1)),
-        Span::styled("     `·", Style::default().fg(o3)),
+        Span::raw(m),
+        Span::styled("       '.", Style::default().fg(o1)),
+        Span::styled("     '.", Style::default().fg(o3)),
         Span::styled("                   ", Style::default().fg(Color::Reset)),
-        Span::styled("·´", Style::default().fg(o3)),
-        Span::styled("     ·´", Style::default().fg(o1)),
+        Span::styled(".'", Style::default().fg(o3)),
+        Span::styled("     .'", Style::default().fg(o1)),
     ]));
-    // Row 10
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled(format!("     {}     `·", e(5)), Style::default().fg(electron).bold()),
+        Span::raw(m),
+        Span::styled(format!("    {}     '.", e(5)), Style::default().fg(electron).bold()),
         Span::styled("     \\", Style::default().fg(o3)),
         Span::styled("               ", Style::default().fg(Color::Reset)),
         Span::styled("/", Style::default().fg(o2)),
-        Span::styled("     ·´", Style::default().fg(o1)),
+        Span::styled("     .'", Style::default().fg(o1)),
     ]));
-    // Row 11
     lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("               `·", Style::default().fg(o1)),
+        Span::raw(m),
+        Span::styled("              '", Style::default().fg(o1)),
         Span::styled(e(4), Style::default().fg(electron).bold()),
-        Span::styled("─────────────", Style::default().fg(o1)),
+        Span::styled("-------------", Style::default().fg(o1)),
         Span::styled(e(12), Style::default().fg(electron).bold()),
-        Span::styled("·´               ", Style::default().fg(o1)),
+        Span::styled("'", Style::default().fg(o1)),
     ]));
 
     lines.push(Line::from(""));
 
-    // Version + tagline
-    let ver = format!("v{}  ·  open LLM coding assistant", env!("CARGO_PKG_VERSION"));
-    lines.push(Line::from(Span::styled(
-        center(&ver),
-        Style::default().fg(Color::DarkGray),
-    )));
+    // Version
+    lines.push(Line::from(vec![
+        Span::raw(m),
+        Span::styled(
+            format!("  v{}  ", env!("CARGO_PKG_VERSION")),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled("open LLM coding assistant", Style::default().fg(Color::DarkGray)),
+    ]));
 
     lines.push(Line::from(""));
 
     // Connection status
     if app.has_provider {
-        let msg = format!("● {}", app.model);
-        lines.push(Line::from(Span::styled(
-            center(&msg),
-            Style::default().fg(Color::Green),
-        )));
+        lines.push(Line::from(vec![
+            Span::raw(m),
+            Span::styled("  * ", Style::default().fg(Color::Green).bold()),
+            Span::styled(app.model.clone(), Style::default().fg(Color::Green)),
+        ]));
     } else {
-        lines.push(Line::from(Span::styled(
-            center("○ no provider"),
-            Style::default().fg(Color::DarkGray),
-        )));
+        lines.push(Line::from(vec![
+            Span::raw(m),
+            Span::styled("  o ", Style::default().fg(Color::DarkGray)),
+            Span::styled("no provider", Style::default().fg(Color::DarkGray)),
+        ]));
     }
 
     lines.push(Line::from(""));
 
-    let hints_str = "Enter ↵ send  ·  Ctrl+C quit";
-    lines.push(Line::from(Span::styled(
-        center(hints_str),
-        Style::default().fg(Color::DarkGray),
-    )));
+    lines.push(Line::from(vec![
+        Span::raw(m),
+        Span::styled("  Enter: send  |  Ctrl+C: quit", Style::default().fg(Color::DarkGray)),
+    ]));
 }
 
 fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
