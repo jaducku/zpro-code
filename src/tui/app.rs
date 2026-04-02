@@ -52,14 +52,47 @@ pub struct PermissionDialog {
 
 impl App {
     pub fn new(model: String) -> Self {
+        let has_provider = model != "(no provider)";
+        let mut messages = vec![
+            DisplayMessage {
+                role: DisplayRole::System,
+                content: format!("atom-code v{}", env!("CARGO_PKG_VERSION")),
+                tool_name: None,
+            },
+        ];
+
+        if has_provider {
+            messages.push(DisplayMessage {
+                role: DisplayRole::System,
+                content: format!("Connected to model: {}", model),
+                tool_name: None,
+            });
+        } else {
+            messages.push(DisplayMessage {
+                role: DisplayRole::System,
+                content: "No LLM provider connected. Use --api-base to connect.".into(),
+                tool_name: None,
+            });
+        }
+
+        messages.push(DisplayMessage {
+            role: DisplayRole::System,
+            content: "Type a message and press Enter. Ctrl+C to quit.".into(),
+            tool_name: None,
+        });
+
         Self {
-            messages: Vec::new(),
+            messages,
             input: String::new(),
             cursor_pos: 0,
             should_quit: false,
             is_loading: false,
             scroll_offset: 0,
-            status: format!("Model: {}", model),
+            status: if has_provider {
+                format!(" {} | Ready", model)
+            } else {
+                " atom | No provider".into()
+            },
             model,
             permission_dialog: None,
             api_messages: Vec::new(),
@@ -190,7 +223,7 @@ mod tests {
     #[test]
     fn test_app_creation() {
         let app = App::new("test-model".into());
-        assert!(app.messages.is_empty());
+        assert!(!app.messages.is_empty()); // has welcome messages
         assert!(app.input.is_empty());
         assert!(!app.should_quit);
     }
@@ -227,10 +260,11 @@ mod tests {
     #[test]
     fn test_text_delta_streaming() {
         let mut app = App::new("test".into());
+        let initial_count = app.messages.len();
         app.handle_query_event(QueryEvent::TextDelta("Hello ".into()));
         app.handle_query_event(QueryEvent::TextDelta("world".into()));
-        assert_eq!(app.messages.len(), 1);
-        assert_eq!(app.messages[0].content, "Hello world");
+        assert_eq!(app.messages.len(), initial_count + 1);
+        assert_eq!(app.messages.last().unwrap().content, "Hello world");
     }
 
     #[test]

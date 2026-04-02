@@ -24,44 +24,68 @@ pub fn render(frame: &mut Frame, app: &App) {
 }
 
 fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
-        .messages
-        .iter()
-        .map(|msg| {
-            let (prefix, style) = match msg.role {
-                DisplayRole::User => ("You", Style::default().fg(Color::Green).bold()),
-                DisplayRole::Assistant => ("Assistant", Style::default().fg(Color::Cyan)),
-                DisplayRole::System => ("System", Style::default().fg(Color::Yellow)),
-                DisplayRole::Tool => {
-                    let name = msg.tool_name.as_deref().unwrap_or("Tool");
-                    return ListItem::new(Line::from(vec![
-                        Span::styled(
-                            format!("[{}] ", name),
-                            Style::default().fg(Color::Magenta),
-                        ),
-                        Span::raw(truncate_content(
-                            &msg.content,
-                            area.width as usize - 20,
-                        )),
-                    ]));
+    let max_w = area.width as usize;
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    for msg in &app.messages {
+        match msg.role {
+            DisplayRole::System => {
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", msg.content),
+                    Style::default().fg(Color::DarkGray).italic(),
+                )));
+            }
+            DisplayRole::User => {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    " You ",
+                    Style::default().fg(Color::Black).bg(Color::Green).bold(),
+                )));
+                for line in msg.content.lines() {
+                    lines.push(Line::from(format!("  {}", line)));
                 }
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{}: ", prefix), style),
-                Span::raw(truncate_content(
-                    &msg.content,
-                    area.width as usize - 15,
-                )),
-            ]))
-        })
-        .collect();
+            }
+            DisplayRole::Assistant => {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    " Assistant ",
+                    Style::default().fg(Color::Black).bg(Color::Cyan).bold(),
+                )));
+                for line in msg.content.lines() {
+                    lines.push(Line::from(Span::styled(
+                        format!("  {}", line),
+                        Style::default().fg(Color::White),
+                    )));
+                }
+            }
+            DisplayRole::Tool => {
+                let name = msg.tool_name.as_deref().unwrap_or("Tool");
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  [{name}] "),
+                        Style::default().fg(Color::Magenta).bold(),
+                    ),
+                    Span::styled(
+                        truncate_content(&msg.content, max_w.saturating_sub(20)),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]));
+            }
+        }
+    }
 
-    let messages_block = Block::default()
-        .borders(Borders::NONE)
-        .title(" Messages ");
+    // Auto-scroll: show the last N lines that fit
+    let visible_height = area.height as usize;
+    let skip = if lines.len() > visible_height {
+        lines.len() - visible_height
+    } else {
+        0
+    };
 
-    let list = List::new(items).block(messages_block);
-    frame.render_widget(list, area);
+    let paragraph = Paragraph::new(lines)
+        .scroll((skip as u16, 0));
+    frame.render_widget(paragraph, area);
 }
 
 fn render_separator(frame: &mut Frame, area: Rect) {
