@@ -43,10 +43,29 @@ pub async fn run_app(
     loop {
         // Render
         terminal.draw(|frame| {
-            if let Some(active) = &mut app.active_command {
-                // Route rendering to the active TUI command
-                if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&active.command_name) {
-                    tui_cmd.render(frame, frame.area(), active.state.as_mut());
+            let has_active = app.active_command.is_some();
+
+            if has_active {
+                // Split screen: chat on left, command drawer on right
+                let area = frame.area();
+                let drawer_width = (area.width / 2).max(30).min(area.width.saturating_sub(20));
+                let chunks = Layout::horizontal([
+                    Constraint::Min(20),
+                    Constraint::Length(drawer_width),
+                ])
+                .split(area);
+
+                // Left: normal chat UI (read-only borrow of app)
+                ui::render_in_area(frame, &app, chunks[0]);
+
+                // Right: command drawer (need mutable borrow of active_command state)
+                if let Some(active) = &mut app.active_command {
+                    let cmd_name = active.command_name.clone();
+                    if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
+                        // Safety: we clone cmd_name above to avoid borrow conflict
+                        let active = app.active_command.as_mut().unwrap();
+                        tui_cmd.render(frame, chunks[1], active.state.as_mut());
+                    }
                 }
             } else {
                 ui::render(frame, &app);

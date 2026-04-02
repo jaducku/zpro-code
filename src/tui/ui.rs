@@ -8,12 +8,16 @@ use super::app::{App, DisplayRole};
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn render(frame: &mut Frame, app: &App) {
+    render_in_area(frame, app, frame.area());
+}
+
+pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect) {
     let layout = Layout::vertical([
         Constraint::Min(1),    // Messages area
         Constraint::Length(3), // Input
         Constraint::Length(1), // Status bar
     ]);
-    let chunks = layout.split(frame.area());
+    let chunks = layout.split(area);
 
     render_messages(frame, chunks[0], app);
     render_input(frame, chunks[1], app);
