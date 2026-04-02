@@ -56,181 +56,173 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, width: u16) {
     let color_idx = (elapsed / 500) % orbit_colors.len();
     let nucleus_color = Color::Yellow;
 
-    lines.push(Line::from(""));
-
     // 3 orbital colors cycle with animation
     let o1 = orbit_colors[color_idx % orbit_colors.len()];
     let o2 = orbit_colors[(color_idx + 1) % orbit_colors.len()];
     let o3 = orbit_colors[(color_idx + 2) % orbit_colors.len()];
-    let electron = Color::White;
+    let electron = Color::LightYellow;
 
-    // Electron position cycles
-    let e_pos = (elapsed / 200) % 12;
+    // Electron position cycles (16 positions around orbits)
+    let e_pos = (elapsed / 150) % 16;
 
     let center = |s: &str| -> String {
         let pad = w.saturating_sub(s.len()) / 2;
         format!("{:>pad$}{s}", "", pad = pad)
     };
 
-    // Bohr atom model — 3 intersecting elliptical orbits + nucleus
-    //
-    //            .  ·411·  .            ← orbit 1 (horizontal ellipse)
-    //        ·´    /      \    `·
-    //      /    .´          `.    \     ← orbit 2 (diagonal /)
-    //    /    /        ●       \    \   ← orbit 3 (diagonal \), ● = nucleus
-    //   |   |        ⚛         |   |
-    //    \    \                /    /
-    //      \    `.          .´    /
-    //        ·.    \      /    .·
-    //            `  ·····  ´
-
-    // Electron chars at different positions
+    // Electron character at position
     let e = |pos: usize| -> &'static str {
-        if e_pos == pos { "●" } else { " " }
+        if e_pos == pos { "◉" } else { " " }
     };
 
-    // Row by row rendering with multi-colored orbits
-    let art_w = 42;
+    // Large Bohr atom — 3 intersecting orbits, wider and taller
+    let art_w = 56;
     let p = w.saturating_sub(art_w) / 2;
 
-    // Line 1:        .·---orbit1---·.
+    // Row 1
     lines.push(Line::from(vec![
         Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("         .·", Style::default().fg(o1)),
+        Span::styled("               .·", Style::default().fg(o1)),
         Span::styled(e(0), Style::default().fg(electron).bold()),
-        Span::styled("─────────", Style::default().fg(o1)),
-        Span::styled(e(6), Style::default().fg(electron).bold()),
-        Span::styled("·.         ", Style::default().fg(o1)),
+        Span::styled("─────────────", Style::default().fg(o1)),
+        Span::styled(e(8), Style::default().fg(electron).bold()),
+        Span::styled("·.               ", Style::default().fg(o1)),
     ]));
-
-    // Line 2:     ·´    /              \    `·
+    // Row 2
     lines.push(Line::from(vec![
         Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("      ·´", Style::default().fg(o1)),
-        Span::styled("   /", Style::default().fg(o2)),
+        Span::styled("           ·´", Style::default().fg(o1)),
+        Span::styled("     /", Style::default().fg(o2)),
         Span::styled("               ", Style::default().fg(Color::Reset)),
         Span::styled("\\", Style::default().fg(o3)),
-        Span::styled("   `·", Style::default().fg(o1)),
-        Span::styled(format!(" {}", e(7)), Style::default().fg(electron).bold()),
+        Span::styled("     `·", Style::default().fg(o1)),
+        Span::styled(format!("  {}", e(9)), Style::default().fg(electron).bold()),
     ]));
-
-    // Line 3:    /    ·´                `·    \
+    // Row 3
     lines.push(Line::from(vec![
         Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("    /", Style::default().fg(o2)),
-        Span::styled(format!(" {}", e(11)), Style::default().fg(electron).bold()),
-        Span::styled(" ·´", Style::default().fg(o3)),
-        Span::styled("                 ", Style::default().fg(Color::Reset)),
+        Span::styled("        ·´", Style::default().fg(o1)),
+        Span::styled("     ·´", Style::default().fg(o2)),
+        Span::styled("                   ", Style::default().fg(Color::Reset)),
         Span::styled("`·", Style::default().fg(o3)),
+        Span::styled("     `·", Style::default().fg(o1)),
+    ]));
+    // Row 4
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled(format!("      /  {}  /", e(15)), Style::default().fg(o2)),
+        Span::styled("                         ", Style::default().fg(Color::Reset)),
+        Span::styled("\\", Style::default().fg(o3)),
         Span::styled("     \\", Style::default().fg(o2)),
     ]));
-
-    // Line 4:   |   /                        \   |
+    // Row 5
     lines.push(Line::from(vec![
         Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("  |", Style::default().fg(o1)),
-        Span::styled("  /", Style::default().fg(o2)),
-        Span::styled("         ", Style::default().fg(Color::Reset)),
-        Span::styled("⚛", Style::default().fg(nucleus_color).bold()),
-        Span::styled("          ", Style::default().fg(Color::Reset)),
-        Span::styled("\\", Style::default().fg(o2)),
-        Span::styled("  |", Style::default().fg(o1)),
-    ]));
-
-    // Line 5:   |   \                        /   |
-    lines.push(Line::from(vec![
-        Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("  |", Style::default().fg(o1)),
+        Span::styled("    |", Style::default().fg(o1)),
+        Span::styled("   /", Style::default().fg(o2)),
+        Span::styled("       ", Style::default().fg(Color::Reset)),
+        Span::styled(format!(" {}  ", e(14)), Style::default().fg(electron).bold()),
+        Span::styled("·", Style::default().fg(o3)),
+        Span::styled("              ", Style::default().fg(Color::Reset)),
+        Span::styled("·", Style::default().fg(o3)),
         Span::styled("  \\", Style::default().fg(o2)),
-        Span::styled("                     ", Style::default().fg(Color::Reset)),
-        Span::styled("/", Style::default().fg(o2)),
+        Span::styled("   |", Style::default().fg(o1)),
+    ]));
+    // Row 6 — nucleus
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("    |", Style::default().fg(o1)),
+        Span::styled("  |", Style::default().fg(o2)),
+        Span::styled("          ", Style::default().fg(Color::Reset)),
+        Span::styled(" ⚛ ", Style::default().fg(nucleus_color).bold()),
+        Span::styled("           ", Style::default().fg(Color::Reset)),
+        Span::styled("|", Style::default().fg(o2)),
         Span::styled("  |", Style::default().fg(o1)),
     ]));
-
-    // Line 6:    \    `·                ·´    /
+    // Row 7
     lines.push(Line::from(vec![
         Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("    \\", Style::default().fg(o2)),
-        Span::styled("    `·", Style::default().fg(o3)),
-        Span::styled("             ", Style::default().fg(Color::Reset)),
-        Span::styled("·´", Style::default().fg(o3)),
-        Span::styled(format!("  {} ", e(9)), Style::default().fg(electron).bold()),
-        Span::styled("/", Style::default().fg(o2)),
+        Span::styled("    |", Style::default().fg(o1)),
+        Span::styled("   \\", Style::default().fg(o2)),
+        Span::styled("            ", Style::default().fg(Color::Reset)),
+        Span::styled("·", Style::default().fg(o3)),
+        Span::styled("              ", Style::default().fg(Color::Reset)),
+        Span::styled("·", Style::default().fg(o3)),
+        Span::styled("  /", Style::default().fg(o2)),
+        Span::styled("   |", Style::default().fg(o1)),
     ]));
-
-    // Line 7:      `·    \              /    ·´
+    // Row 8
     lines.push(Line::from(vec![
         Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled(format!("  {}  `·", e(5)), Style::default().fg(electron).bold()),
-        Span::styled("   \\", Style::default().fg(o3)),
-        Span::styled("               ", Style::default().fg(Color::Reset)),
+        Span::styled("      \\", Style::default().fg(o2)),
+        Span::styled("     \\", Style::default().fg(o3)),
+        Span::styled("                         ", Style::default().fg(Color::Reset)),
         Span::styled("/", Style::default().fg(o3)),
-        Span::styled("   ·´", Style::default().fg(o1)),
+        Span::styled(format!("  {}  /", e(11)), Style::default().fg(electron).bold()),
     ]));
-
-    // Line 8:         `·.─────────.·´
+    // Row 9
     lines.push(Line::from(vec![
         Span::raw(format!("{:>p$}", "", p = p)),
-        Span::styled("         `·", Style::default().fg(o1)),
+        Span::styled("        `·", Style::default().fg(o1)),
+        Span::styled("     `·", Style::default().fg(o3)),
+        Span::styled("                   ", Style::default().fg(Color::Reset)),
+        Span::styled("·´", Style::default().fg(o3)),
+        Span::styled("     ·´", Style::default().fg(o1)),
+    ]));
+    // Row 10
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled(format!("     {}     `·", e(5)), Style::default().fg(electron).bold()),
+        Span::styled("     \\", Style::default().fg(o3)),
+        Span::styled("               ", Style::default().fg(Color::Reset)),
+        Span::styled("/", Style::default().fg(o2)),
+        Span::styled("     ·´", Style::default().fg(o1)),
+    ]));
+    // Row 11
+    lines.push(Line::from(vec![
+        Span::raw(format!("{:>p$}", "", p = p)),
+        Span::styled("               `·", Style::default().fg(o1)),
         Span::styled(e(4), Style::default().fg(electron).bold()),
-        Span::styled("─────────", Style::default().fg(o1)),
-        Span::styled(e(2), Style::default().fg(electron).bold()),
-        Span::styled("·´", Style::default().fg(o1)),
+        Span::styled("─────────────", Style::default().fg(o1)),
+        Span::styled(e(12), Style::default().fg(electron).bold()),
+        Span::styled("·´               ", Style::default().fg(o1)),
     ]));
 
     lines.push(Line::from(""));
-
-    // ATOM text with gradient
-    let atom_chars = [
-        ("  ▄▀█ ▀█▀ █▀█ █▀▄▀█", Color::Cyan),
-        ("  █▀█  █  █▄█ █ ▀ █", Color::Blue),
-    ];
-    for (text, color) in &atom_chars {
-        let padded = center(text);
-        lines.push(Line::from(Span::styled(
-            padded,
-            Style::default().fg(*color).bold(),
-        )));
-    }
-
     lines.push(Line::from(""));
 
-    // Version + tagline
-    let ver = format!("v{}  ·  open LLM coding assistant", env!("CARGO_PKG_VERSION"));
+    // "A T O M" — simple, spaced, clean
+    let atom_text = "A  T  O  M";
+    lines.push(Line::from(Span::styled(
+        center(atom_text),
+        Style::default().fg(Color::Cyan).bold(),
+    )));
+
+    // Version
+    let ver = format!("v{}", env!("CARGO_PKG_VERSION"));
     lines.push(Line::from(Span::styled(
         center(&ver),
         Style::default().fg(Color::DarkGray),
     )));
 
     lines.push(Line::from(""));
-    lines.push(Line::from(""));
 
-    // Connection status with icon
+    // Connection status
     if app.has_provider {
-        let msg = format!("● Connected: {}", app.model);
+        let msg = format!("● {}", app.model);
         lines.push(Line::from(Span::styled(
             center(&msg),
             Style::default().fg(Color::Green),
         )));
     } else {
-        let msg = "○ No provider connected";
         lines.push(Line::from(Span::styled(
-            center(msg),
-            Style::default().fg(Color::Yellow),
-        )));
-
-        lines.push(Line::from(""));
-
-        let hint = "atom --api-base <URL> --api-key <KEY> --model <MODEL>";
-        lines.push(Line::from(Span::styled(
-            center(hint),
-            Style::default().fg(Color::DarkGray).italic(),
+            center("○ no provider"),
+            Style::default().fg(Color::DarkGray),
         )));
     }
 
     lines.push(Line::from(""));
 
-    // Keybinding chips
     let hints_str = "Enter ↵ send  ·  Ctrl+C quit";
     lines.push(Line::from(Span::styled(
         center(hints_str),
