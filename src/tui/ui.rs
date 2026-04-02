@@ -19,6 +19,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_input(frame, chunks[1], app);
     render_status_bar(frame, chunks[2], app);
 
+    // Typeahead overlay (rendered above input area)
+    if let Some(ta) = &app.typeahead {
+        render_typeahead(frame, chunks[1], ta);
+    }
+
     // Permission dialog overlay
     if let Some(dialog) = &app.permission_dialog {
         render_permission_dialog(frame, dialog);
@@ -261,6 +266,82 @@ fn render_permission_dialog(frame: &mut Frame, dialog: &super::app::PermissionDi
         .block(block)
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
+}
+
+fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::TypeaheadState) {
+    let max_visible = 10.min(ta.items.len());
+    if max_visible == 0 {
+        return;
+    }
+
+    let height = max_visible as u16 + 2; // +2 for borders
+
+    // Position above the input area
+    let area = Rect {
+        x: input_area.x,
+        y: input_area.y.saturating_sub(height),
+        width: input_area.width.min(60),
+        height,
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(
+            " Commands ",
+            Style::default().fg(Color::Cyan),
+        ));
+
+    // Scroll window around selected item
+    let scroll_start = if ta.selected >= max_visible {
+        ta.selected - max_visible + 1
+    } else {
+        0
+    };
+
+    let items: Vec<ListItem> = ta
+        .items
+        .iter()
+        .enumerate()
+        .skip(scroll_start)
+        .take(max_visible)
+        .map(|(i, (name, desc))| {
+            let is_selected = i == ta.selected;
+            let style = if is_selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+            } else {
+                Style::default()
+            };
+            let name_style = if is_selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+            } else {
+                Style::default().fg(Color::Green)
+            };
+            let desc_style = if is_selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            let max_desc = (area.width as usize).saturating_sub(name.len() + 6);
+            let truncated_desc = if desc.len() > max_desc {
+                format!("{}...", &desc[..max_desc.saturating_sub(3)])
+            } else {
+                desc.clone()
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::styled(format!(" /{:<16}", name), name_style),
+                Span::styled(truncated_desc, desc_style),
+            ]))
+            .style(style)
+        })
+        .collect();
+
+    frame.render_widget(Clear, area);
+    let list = List::new(items).block(block);
+    frame.render_widget(list, area);
 }
 
 fn truncate_content(content: &str, max_width: usize) -> String {

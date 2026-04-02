@@ -45,6 +45,16 @@ pub struct App {
     pub command_registry: CommandRegistry,
     /// Currently active TUI command overlay
     pub active_command: Option<ActiveCommand>,
+    /// Slash command typeahead state (shown when input starts with '/')
+    pub typeahead: Option<TypeaheadState>,
+}
+
+/// Typeahead autocomplete state for slash commands
+pub struct TypeaheadState {
+    /// Filtered command entries: (name, description)
+    pub items: Vec<(String, String)>,
+    /// Currently selected index
+    pub selected: usize,
 }
 
 /// A message for display purposes
@@ -118,11 +128,13 @@ impl App {
             session_cost: 0.0,
             command_registry,
             active_command: None,
+            typeahead: None,
         }
     }
 
-    /// Handle a key event
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    /// Handle a key event.
+    /// Returns true if typeahead accepted a selection (caller should handle Enter).
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('c') | KeyCode::Char('d') => {
@@ -130,7 +142,41 @@ impl App {
                 }
                 _ => {}
             }
-            return;
+            return false;
+        }
+
+        // When typeahead is active, Up/Down/Tab navigate, Enter/Tab accepts, Esc closes
+        if self.typeahead.is_some() {
+            match key.code {
+                KeyCode::Up => {
+                    if let Some(ta) = &mut self.typeahead {
+                        ta.selected = ta.selected.saturating_sub(1);
+                    }
+                    return false;
+                }
+                KeyCode::Down => {
+                    if let Some(ta) = &mut self.typeahead {
+                        ta.selected = (ta.selected + 1).min(ta.items.len().saturating_sub(1));
+                    }
+                    return false;
+                }
+                KeyCode::Tab => {
+                    self.accept_typeahead();
+                    return false;
+                }
+                KeyCode::Enter => {
+                    // Accept typeahead and signal caller to submit
+                    self.accept_typeahead();
+                    return true;
+                }
+                KeyCode::Esc => {
+                    self.typeahead = None;
+                    return false;
+                }
+                _ => {
+                    // Fall through to normal input handling, then update typeahead
+                }
+            }
         }
 
         match key.code {
@@ -178,6 +224,10 @@ impl App {
             }
             _ => {}
         }
+
+        // Update typeahead after any input change
+        self.update_typeahead();
+        false
     }
 
     /// Take the current input (clears it)
@@ -191,6 +241,63 @@ impl App {
     /// Add a display message
     pub fn push_message(&mut self, msg: DisplayMessage) {
         self.messages.push(msg);
+    }
+
+    /// Update typeahead based on current input.
+    /// Called after every input change.
+    pub fn update_typeahead(&mut self) {
+        if !self.input.starts_with('/') || self.input.contains(char::is_whitespace) {
+            self.typeahead = None;
+            return;
+        }
+
+        let query = &self.input[1..]; // strip '/'
+        let available = self.command_registry.available_commands();
+
+        let mut items: Vec<(String, String)> = available
+            .iter()
+            .filter(|cmd| {
+                if !cmd.meta().is_hidden {
+                    let name = cmd.name();
+                    if query.is_empty() {
+                        return true;
+                    }
+                    // Fuzzy prefix match on name and aliases
+                    name.starts_with(query)
+                        || cmd.meta().aliases.iter().any(|a| a.starts_with(query))
+                        || name.contains(query)
+                } else {
+                    false
+                }
+            })
+            .map(|cmd| {
+                (cmd.name().to_string(), cmd.meta().description.to_string())
+            })
+            .collect();
+
+        items.sort_by(|a, b| a.0.cmp(&b.0));
+        items.dedup_by(|a, b| a.0 == b.0);
+
+        if items.is_empty() {
+            self.typeahead = None;
+        } else {
+            let prev_selected = self.typeahead.as_ref().map(|t| t.selected).unwrap_or(0);
+            self.typeahead = Some(TypeaheadState {
+                selected: prev_selected.min(items.len().saturating_sub(1)),
+                items,
+            });
+        }
+    }
+
+    /// Accept the currently selected typeahead item, filling the input.
+    pub fn accept_typeahead(&mut self) {
+        if let Some(ta) = &self.typeahead {
+            if let Some((name, _)) = ta.items.get(ta.selected) {
+                self.input = format!("/{}", name);
+                self.cursor_pos = self.input.len();
+            }
+        }
+        self.typeahead = None;
     }
 
     /// Parse a slash command from input, returning (name, args) if it starts with '/'.

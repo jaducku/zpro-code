@@ -80,10 +80,19 @@ pub async fn run_app(
                                         }
                                     }
                                 } else if key.code == KeyCode::Enter && !app.is_loading && !app.input.is_empty() {
+                                    // If typeahead is open, accept it first; then submit
+                                    if app.typeahead.is_some() {
+                                        app.accept_typeahead();
+                                    }
                                     let input = app.take_input();
                                     handle_submit(&mut app, &input, &model, &system_prompt);
                                 } else {
-                                    app.handle_key(key);
+                                    let typeahead_accepted = app.handle_key(key);
+                                    if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
+                                        // Typeahead accepted via Enter — submit immediately
+                                        let input = app.take_input();
+                                        handle_submit(&mut app, &input, &model, &system_prompt);
+                                    }
                                 }
                             }
                             Event::Resize(w, h) => {
