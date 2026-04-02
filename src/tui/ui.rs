@@ -48,125 +48,33 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
-    // Animated color based on elapsed time
     let elapsed = app.start_time.elapsed().as_millis() as usize;
-    let orbit_colors = [Color::Cyan, Color::Blue, Color::Magenta, Color::LightCyan];
-    let color_idx = (elapsed / 500) % orbit_colors.len();
-    let nucleus_color = Color::Yellow;
+    let colors = [Color::Cyan, Color::LightCyan, Color::Blue, Color::Magenta];
+    let ci = (elapsed / 400) % colors.len();
 
-    // 3 orbital colors cycle with animation
-    let o1 = orbit_colors[color_idx % orbit_colors.len()];
-    let o2 = orbit_colors[(color_idx + 1) % orbit_colors.len()];
-    let o3 = orbit_colors[(color_idx + 2) % orbit_colors.len()];
-    let electron = Color::LightYellow;
+    let m = "  ";
 
-    // Electron position cycles
-    let e_pos = (elapsed / 150) % 16;
-    let e = |pos: usize| -> &'static str {
-        if e_pos == pos { "*" } else { " " }
-    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(""));
 
-    // Left-aligned with fixed indent
-    let m = "  "; // left margin
+    // ATOM large block logo — left aligned, color gradient top to bottom
+    let logo: &[(&str, usize)] = &[
+        ("   ###    ########  #######  ##     ##", 0),
+        ("  ## ##      ##    ##     ## ###   ###", 0),
+        (" ##   ##     ##    ##     ## #### ####", 1),
+        ("##     ##    ##    ##     ## ## ### ##", 1),
+        ("#########    ##    ##     ## ##     ##", 2),
+        ("##     ##    ##    ##     ## ##     ##", 2),
+        ("##     ##    ##     #######  ##     ##", 3),
+    ];
 
-    // Atom orbital — all ASCII safe, left-aligned
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("              .", Style::default().fg(o1)),
-        Span::styled(e(0), Style::default().fg(electron).bold()),
-        Span::styled("-------------", Style::default().fg(o1)),
-        Span::styled(e(8), Style::default().fg(electron).bold()),
-        Span::styled(".              ", Style::default().fg(o1)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("          .'", Style::default().fg(o1)),
-        Span::styled("     /", Style::default().fg(o2)),
-        Span::styled("               ", Style::default().fg(Color::Reset)),
-        Span::styled("\\", Style::default().fg(o3)),
-        Span::styled("     '.", Style::default().fg(o1)),
-        Span::styled(format!("  {}", e(9)), Style::default().fg(electron).bold()),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("       .'", Style::default().fg(o1)),
-        Span::styled("     .'", Style::default().fg(o2)),
-        Span::styled("                   ", Style::default().fg(Color::Reset)),
-        Span::styled("'.", Style::default().fg(o3)),
-        Span::styled("     '.", Style::default().fg(o1)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled(format!("     /  {}  /", e(15)), Style::default().fg(o2)),
-        Span::styled("                         ", Style::default().fg(Color::Reset)),
-        Span::styled("\\", Style::default().fg(o3)),
-        Span::styled("     \\", Style::default().fg(o2)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("   |", Style::default().fg(o1)),
-        Span::styled("   /", Style::default().fg(o2)),
-        Span::styled(format!("       {}  ", e(14)), Style::default().fg(electron).bold()),
-        Span::styled("'.", Style::default().fg(o3)),
-        Span::styled("              ", Style::default().fg(Color::Reset)),
-        Span::styled(".'", Style::default().fg(o3)),
-        Span::styled("  \\", Style::default().fg(o2)),
-        Span::styled("   |", Style::default().fg(o1)),
-    ]));
-    // Nucleus
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("   |", Style::default().fg(o1)),
-        Span::styled("  |", Style::default().fg(o2)),
-        Span::styled("           ", Style::default().fg(Color::Reset)),
-        Span::styled("@", Style::default().fg(nucleus_color).bold()),
-        Span::styled("            ", Style::default().fg(Color::Reset)),
-        Span::styled("|", Style::default().fg(o2)),
-        Span::styled("  |", Style::default().fg(o1)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("   |", Style::default().fg(o1)),
-        Span::styled("   \\", Style::default().fg(o2)),
-        Span::styled("         ", Style::default().fg(Color::Reset)),
-        Span::styled(".'", Style::default().fg(o3)),
-        Span::styled("              ", Style::default().fg(Color::Reset)),
-        Span::styled("'.", Style::default().fg(o3)),
-        Span::styled("  /", Style::default().fg(o2)),
-        Span::styled("   |", Style::default().fg(o1)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("     \\", Style::default().fg(o2)),
-        Span::styled("     \\", Style::default().fg(o3)),
-        Span::styled("                         ", Style::default().fg(Color::Reset)),
-        Span::styled("/", Style::default().fg(o3)),
-        Span::styled(format!("  {}  /", e(11)), Style::default().fg(electron).bold()),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("       '.", Style::default().fg(o1)),
-        Span::styled("     '.", Style::default().fg(o3)),
-        Span::styled("                   ", Style::default().fg(Color::Reset)),
-        Span::styled(".'", Style::default().fg(o3)),
-        Span::styled("     .'", Style::default().fg(o1)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled(format!("    {}     '.", e(5)), Style::default().fg(electron).bold()),
-        Span::styled("     \\", Style::default().fg(o3)),
-        Span::styled("               ", Style::default().fg(Color::Reset)),
-        Span::styled("/", Style::default().fg(o2)),
-        Span::styled("     .'", Style::default().fg(o1)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw(m),
-        Span::styled("              '", Style::default().fg(o1)),
-        Span::styled(e(4), Style::default().fg(electron).bold()),
-        Span::styled("-------------", Style::default().fg(o1)),
-        Span::styled(e(12), Style::default().fg(electron).bold()),
-        Span::styled("'", Style::default().fg(o1)),
-    ]));
+    for (text, color_offset) in logo {
+        let c = colors[(ci + color_offset) % colors.len()];
+        lines.push(Line::from(vec![
+            Span::raw(m),
+            Span::styled(text.to_string(), Style::default().fg(c).bold()),
+        ]));
+    }
 
     lines.push(Line::from(""));
 
@@ -174,7 +82,7 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     lines.push(Line::from(vec![
         Span::raw(m),
         Span::styled(
-            format!("  v{}  ", env!("CARGO_PKG_VERSION")),
+            format!("v{}  ", env!("CARGO_PKG_VERSION")),
             Style::default().fg(Color::DarkGray),
         ),
         Span::styled("open LLM coding assistant", Style::default().fg(Color::DarkGray)),
@@ -186,13 +94,13 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     if app.has_provider {
         lines.push(Line::from(vec![
             Span::raw(m),
-            Span::styled("  * ", Style::default().fg(Color::Green).bold()),
+            Span::styled("* ", Style::default().fg(Color::Green).bold()),
             Span::styled(app.model.clone(), Style::default().fg(Color::Green)),
         ]));
     } else {
         lines.push(Line::from(vec![
             Span::raw(m),
-            Span::styled("  o ", Style::default().fg(Color::DarkGray)),
+            Span::styled("o ", Style::default().fg(Color::DarkGray)),
             Span::styled("no provider", Style::default().fg(Color::DarkGray)),
         ]));
     }
@@ -201,7 +109,7 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
 
     lines.push(Line::from(vec![
         Span::raw(m),
-        Span::styled("  Enter: send  |  Ctrl+C: quit", Style::default().fg(Color::DarkGray)),
+        Span::styled("Enter: send  |  Ctrl+C: quit", Style::default().fg(Color::DarkGray)),
     ]));
 }
 
