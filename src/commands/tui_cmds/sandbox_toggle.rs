@@ -10,7 +10,9 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct SandboxToggleCommand;
 
-pub struct SandboxToggleState;
+pub struct SandboxToggleState {
+    pub enabled: bool,
+}
 
 impl SandboxToggleCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,24 +45,45 @@ impl TuiCommand for SandboxToggleCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(SandboxToggleState)
+        Box::new(SandboxToggleState { enabled: false })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<SandboxToggleState>().unwrap();
+        let state = state.downcast_mut::<SandboxToggleState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Sandbox Mode (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Toggle sandbox mode")
-            .block(block);
+
+        let status_text = if state.enabled { "ON" } else { "OFF" };
+        let status_color = if state.enabled { Color::Green } else { Color::Red };
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Sandbox mode: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(status_text, Style::default().fg(status_color).bold()),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Space/Enter to toggle | q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
-    fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {
+    fn handle_key(&self, key: KeyEvent, state: &mut dyn Any) -> CommandAction {
         match key.code {
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let state = state.downcast_mut::<SandboxToggleState>().unwrap();
+                state.enabled = !state.enabled;
+                CommandAction::Continue
+            }
             KeyCode::Char('q') | KeyCode::Esc => CommandAction::Done(None),
             _ => CommandAction::Continue,
         }

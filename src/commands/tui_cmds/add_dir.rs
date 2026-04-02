@@ -6,11 +6,14 @@ use ratatui::widgets::*;
 
 use crate::commands::context::CommandContext;
 use crate::commands::traits::TuiCommand;
-use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
+use crate::commands::types::{CommandAction, CommandDoneResult, CommandMeta, CommandSource};
 
 pub struct AddDirCommand;
 
-pub struct AddDirState;
+pub struct AddDirState {
+    pub input: String,
+    pub cursor: usize,
+}
 
 impl AddDirCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,25 +46,81 @@ impl TuiCommand for AddDirCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(AddDirState)
+        Box::new(AddDirState {
+            input: String::new(),
+            cursor: 0,
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<AddDirState>().unwrap();
+        let state = state.downcast_ref::<AddDirState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Add Directory (Enter to add, Esc to cancel) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Add directory to allowed paths")
-            .block(block);
+
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        let mut display = state.input.clone();
+        display.insert(state.cursor, '|');
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  cwd: {cwd}"),
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  > {display}"),
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
-    fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {
+    fn handle_key(&self, key: KeyEvent, state: &mut dyn Any) -> CommandAction {
+        let state = state.downcast_mut::<AddDirState>().unwrap();
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => CommandAction::Done(None),
+            KeyCode::Char(c) => {
+                state.input.insert(state.cursor, c);
+                state.cursor += 1;
+                CommandAction::Continue
+            }
+            KeyCode::Backspace => {
+                if state.cursor > 0 {
+                    state.cursor -= 1;
+                    state.input.remove(state.cursor);
+                }
+                CommandAction::Continue
+            }
+            KeyCode::Left => {
+                if state.cursor > 0 {
+                    state.cursor -= 1;
+                }
+                CommandAction::Continue
+            }
+            KeyCode::Right => {
+                if state.cursor < state.input.len() {
+                    state.cursor += 1;
+                }
+                CommandAction::Continue
+            }
+            KeyCode::Enter => {
+                let text = state.input.clone();
+                CommandAction::Done(Some(CommandDoneResult {
+                    text: Some(text),
+                    ..Default::default()
+                }))
+            }
+            KeyCode::Esc => CommandAction::Done(None),
             _ => CommandAction::Continue,
         }
     }

@@ -10,7 +10,7 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct PassesCommand;
 
-pub struct PassesState;
+pub struct PassesState {}
 
 impl PassesCommand {
     pub(crate) const META: CommandMeta = CommandMeta {
@@ -43,20 +43,33 @@ impl TuiCommand for PassesCommand {
     }
 
     fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        Box::new(PassesState)
+        Box::new(PassesState {})
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
-        let _state = state.downcast_mut::<PassesState>().unwrap();
+        let _state = state.downcast_ref::<PassesState>().unwrap();
         let block = Block::default()
-            .title(format!(" {} (q to close) ", Self::META.description))
+            .title(" Passes (q to close) ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Manage passes")
-            .block(block);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Passes feature not yet available.",
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  q/Esc to close",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(Clear, area);
-        frame.render_widget(text, area);
+        frame.render_widget(paragraph, area);
     }
 
     fn handle_key(&self, key: KeyEvent, _state: &mut dyn Any) -> CommandAction {
