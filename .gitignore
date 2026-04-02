@@ -8,6 +8,7 @@ coverage
 .vscode
 *.suo
 *.lock
+!Cargo.lock
 
 # Rust
 /target
