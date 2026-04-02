@@ -36,6 +36,10 @@ impl CommandRegistry {
         for cmd in super::tui_cmds::get_tui_commands() {
             reg.register_builtin(cmd);
         }
+        #[cfg(feature = "internal")]
+        for cmd in super::local::get_internal_local_commands() {
+            reg.register_builtin(cmd);
+        }
         reg
     }
 
