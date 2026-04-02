@@ -1,8 +1,15 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::time::Instant;
 
+use crate::commands::CommandRegistry;
 use crate::query::QueryEvent;
 use crate::types::message::ApiMessage;
+
+/// State for a currently active TUI command overlay.
+pub struct ActiveCommand {
+    pub command_name: String,
+    pub state: Box<dyn std::any::Any + Send>,
+}
 
 /// Application state
 pub struct App {
@@ -34,6 +41,10 @@ pub struct App {
     pub token_count: u64,
     /// Session cost
     pub session_cost: f64,
+    /// Command registry for slash commands
+    pub command_registry: CommandRegistry,
+    /// Currently active TUI command overlay
+    pub active_command: Option<ActiveCommand>,
 }
 
 /// A message for display purposes
@@ -60,7 +71,7 @@ pub struct PermissionDialog {
 }
 
 impl App {
-    pub fn new(model: String) -> Self {
+    pub fn new(model: String, command_registry: CommandRegistry) -> Self {
         let has_provider = model != "(no provider)";
         let mut messages = vec![
             DisplayMessage {
@@ -105,6 +116,8 @@ impl App {
             has_provider,
             token_count: 0,
             session_cost: 0.0,
+            command_registry,
+            active_command: None,
         }
     }
 
@@ -180,6 +193,19 @@ impl App {
         self.messages.push(msg);
     }
 
+    /// Parse a slash command from input, returning (name, args) if it starts with '/'.
+    pub fn parse_slash_command(input: &str) -> Option<(String, String)> {
+        let trimmed = input.trim();
+        if !trimmed.starts_with('/') {
+            return None;
+        }
+        let without_slash = &trimmed[1..];
+        match without_slash.split_once(char::is_whitespace) {
+            Some((name, args)) => Some((name.to_string(), args.trim().to_string())),
+            None => Some((without_slash.to_string(), String::new())),
+        }
+    }
+
     /// Handle a query event (streaming update)
     pub fn handle_query_event(&mut self, event: QueryEvent) {
         match event {
@@ -229,9 +255,13 @@ impl App {
 mod tests {
     use super::*;
 
+    fn test_app(model: &str) -> App {
+        App::new(model.into(), CommandRegistry::empty())
+    }
+
     #[test]
     fn test_app_creation() {
-        let app = App::new("test-model".into());
+        let app = test_app("test-model");
         assert!(!app.messages.is_empty()); // has welcome messages
         assert!(app.input.is_empty());
         assert!(!app.should_quit);
@@ -239,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_handle_char_input() {
-        let mut app = App::new("test".into());
+        let mut app = test_app("test");
         app.handle_key(KeyEvent::from(KeyCode::Char('h')));
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
         assert_eq!(app.input, "hi");
@@ -248,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_handle_backspace() {
-        let mut app = App::new("test".into());
+        let mut app = test_app("test");
         app.input = "hello".into();
         app.cursor_pos = 5;
         app.handle_key(KeyEvent::from(KeyCode::Backspace));
@@ -257,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_take_input() {
-        let mut app = App::new("test".into());
+        let mut app = test_app("test");
         app.input = "test input".into();
         app.cursor_pos = 10;
         let input = app.take_input();
@@ -268,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_text_delta_streaming() {
-        let mut app = App::new("test".into());
+        let mut app = test_app("test");
         let initial_count = app.messages.len();
         app.handle_query_event(QueryEvent::TextDelta("Hello ".into()));
         app.handle_query_event(QueryEvent::TextDelta("world".into()));
@@ -278,8 +308,48 @@ mod tests {
 
     #[test]
     fn test_ctrl_c_quits() {
-        let mut app = App::new("test".into());
+        let mut app = test_app("test");
         app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_parse_slash_command_simple() {
+        let result = App::parse_slash_command("/help");
+        assert_eq!(result, Some(("help".into(), String::new())));
+    }
+
+    #[test]
+    fn test_parse_slash_command_with_args() {
+        let result = App::parse_slash_command("/review some args here");
+        assert_eq!(result, Some(("review".into(), "some args here".into())));
+    }
+
+    #[test]
+    fn test_parse_slash_command_with_leading_whitespace() {
+        let result = App::parse_slash_command("  /clear  ");
+        assert_eq!(result, Some(("clear".into(), String::new())));
+    }
+
+    #[test]
+    fn test_parse_slash_command_not_slash() {
+        assert_eq!(App::parse_slash_command("hello"), None);
+        assert_eq!(App::parse_slash_command(""), None);
+        assert_eq!(App::parse_slash_command("  no slash"), None);
+    }
+
+    #[test]
+    fn test_parse_slash_command_args_trimmed() {
+        let result = App::parse_slash_command("/cmd   arg1  arg2  ");
+        assert_eq!(result, Some(("cmd".into(), "arg1  arg2".into())));
+    }
+
+    #[test]
+    fn test_app_has_registry() {
+        let reg = CommandRegistry::new();
+        let app = App::new("test".into(), reg);
+        assert!(app.command_registry.has("clear"));
+        assert!(app.command_registry.has("help"));
+        assert!(app.command_registry.has("review"));
     }
 }

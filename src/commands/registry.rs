@@ -24,6 +24,21 @@ pub struct CommandRegistry {
 }
 
 impl CommandRegistry {
+    /// Create a registry pre-populated with all builtin commands.
+    pub fn new() -> Self {
+        let mut reg = Self::empty();
+        for cmd in super::local::get_local_commands() {
+            reg.register_builtin(cmd);
+        }
+        for cmd in super::prompt::get_prompt_commands() {
+            reg.register_builtin(cmd);
+        }
+        for cmd in super::tui_cmds::get_tui_commands() {
+            reg.register_builtin(cmd);
+        }
+        reg
+    }
+
     /// Create an empty registry (useful for testing).
     pub fn empty() -> Self {
         Self {

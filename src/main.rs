@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
+use atom_code::commands::CommandRegistry;
 use atom_code::services::api::openai_provider::OpenAiCompatibleProvider;
 use atom_code::services::api::types::SystemBlock;
 use atom_code::tools::get_builtin_tools;
@@ -393,7 +394,8 @@ async fn main() -> anyhow::Result<()> {
             let system_prompt =
                 cli.system_prompt.map(|s| vec![SystemBlock::Text { text: s }]);
 
-            run_app(provider, tools, system_prompt).await?;
+            let command_registry = CommandRegistry::new();
+            run_app(provider, tools, system_prompt, command_registry).await?;
         }
     }
 
