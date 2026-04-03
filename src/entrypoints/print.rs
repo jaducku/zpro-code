@@ -24,6 +24,8 @@ pub async fn run_print_mode(
     system_prompt: Vec<SystemBlock>,
     mcp_manager: McpConnectionManager,
     output_format: OutputFormat,
+    max_turns: Option<u32>,
+    max_budget_usd: Option<f64>,
 ) -> anyhow::Result<()> {
     // 1. Get prompt
     let prompt_text = match prompt {
@@ -69,6 +71,8 @@ pub async fn run_print_mode(
         permission_tx: perm_tx,
         hooks,
         cwd,
+        max_turns,
+        max_budget_usd,
     };
 
     // 4. Run query

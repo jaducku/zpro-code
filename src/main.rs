@@ -582,6 +582,8 @@ async fn main() -> anyhow::Result<()> {
                 system_prompt,
                 mcp_manager,
                 output_format,
+                cli.max_turns,
+                cli.max_budget_usd,
             ).await?;
         }
         None => {

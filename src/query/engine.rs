@@ -25,15 +25,27 @@ pub async fn query(
     abort_signal: CancellationToken,
 ) -> crate::types::Result<QueryResult> {
     let mut loop_count = 0;
+    let max_loops = ctx.max_turns.map(|t| t as usize).unwrap_or(MAX_TOOL_LOOPS);
+    let mut total_cost: f64 = 0.0;
 
     loop {
-        if loop_count >= MAX_TOOL_LOOPS {
+        if loop_count >= max_loops {
             let _ = event_tx.send(QueryEvent::Error(
-                "Maximum tool-use loop count reached".into(),
+                format!("Maximum turns reached ({})", max_loops),
             ));
             break;
         }
         loop_count += 1;
+
+        // Check budget limit
+        if let Some(budget) = ctx.max_budget_usd {
+            if total_cost >= budget {
+                let _ = event_tx.send(QueryEvent::Error(
+                    format!("Budget limit reached (${:.4} >= ${:.4})", total_cost, budget),
+                ));
+                break;
+            }
+        }
 
         // 0. Check token budget — auto-compact if needed
         let estimated_tokens = crate::services::token_estimation::estimate_message_tokens(&ctx.messages);
@@ -136,6 +148,8 @@ pub async fn query(
                     stop_reason = sr;
                 }
                 StreamEvent::Usage(usage) => {
+                    // Track cost for budget limiting (~$0.01 per 1K tokens rough avg)
+                    total_cost += (usage.input_tokens + usage.output_tokens) as f64 * 0.00001;
                     let _ = event_tx.send(QueryEvent::Usage {
                         input_tokens: usage.input_tokens,
                         output_tokens: usage.output_tokens,
@@ -402,6 +416,8 @@ mod tests {
             permission_tx,
             hooks: Vec::new(),
             cwd: std::path::PathBuf::from("."),
+            max_turns: None,
+            max_budget_usd: None,
         }
     }
 

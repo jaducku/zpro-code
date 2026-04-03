@@ -55,6 +55,8 @@ pub struct App {
     pub typeahead: Option<TypeaheadState>,
     /// Working directory for file suggestions
     pub cwd: PathBuf,
+    /// Disable session persistence
+    pub no_session_persistence: bool,
 }
 
 /// What kind of typeahead is active
@@ -157,6 +159,7 @@ impl App {
             active_command: None,
             typeahead: None,
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            no_session_persistence: false,
         }
     }
 

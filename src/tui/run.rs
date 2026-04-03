@@ -171,13 +171,11 @@ pub async fn run_app(
 
             // Query events from the spawned query task
             Some(event) = query_event_rx.recv() => {
-                let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/atom-events.log")
-                    .and_then(|mut f| { use std::io::Write; writeln!(f, "event: {:?}", std::mem::discriminant(&event)) });
                 let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
                 app.handle_query_event(event);
 
                 // Auto-save session after each completed response
-                if is_response_complete {
+                if is_response_complete && !app.no_session_persistence {
                     if let Ok(store) = SessionStore::new() {
                         let _ = store.save(&app.build_transcript());
                     }
@@ -430,6 +428,8 @@ async fn submit_query(
         permission_tx: perm_tx,
         hooks,
         cwd,
+        max_turns: None,       // TUI mode: no turn limit
+        max_budget_usd: None,  // TUI mode: no budget limit
     };
 
     let event_tx = query_event_tx.clone();

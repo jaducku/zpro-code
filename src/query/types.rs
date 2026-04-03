@@ -19,6 +19,10 @@ pub struct QueryContext {
     pub permission_tx: mpsc::UnboundedSender<PermissionAsk>,
     pub hooks: Vec<HookConfig>,
     pub cwd: PathBuf,
+    /// Maximum agentic turns (tool-use loops). None = unlimited (default 50 in engine).
+    pub max_turns: Option<u32>,
+    /// Maximum budget in USD. None = unlimited.
+    pub max_budget_usd: Option<f64>,
 }
 
 /// Sent to the TUI when a tool needs user permission
