@@ -10,6 +10,28 @@ use crate::commands::types::{CommandAction, CommandMeta, CommandSource};
 
 pub struct ConfigCommand;
 
+fn find_instructions_file(cwd: &std::path::Path) -> String {
+    // Check for AGENTS.md (open standard)
+    let agents_md = cwd.join("AGENTS.md");
+    if agents_md.exists() {
+        return agents_md.display().to_string();
+    }
+
+    // Check for .agents/AGENTS.md
+    let dot_agents = cwd.join(".agents/AGENTS.md");
+    if dot_agents.exists() {
+        return dot_agents.display().to_string();
+    }
+
+    // Check for CLAUDE.md (legacy)
+    let claude_md = cwd.join("CLAUDE.md");
+    if claude_md.exists() {
+        return format!("{} (legacy)", claude_md.display());
+    }
+
+    "(not set)".to_string()
+}
+
 pub struct ConfigState {
     pub items: Vec<(String, String)>,
     pub selected: usize,
@@ -46,22 +68,38 @@ impl TuiCommand for ConfigCommand {
     }
 
     fn create_state(&self, ctx: &CommandContext) -> Box<dyn Any + Send> {
-        let home = std::env::var("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_default();
-        let instructions_path = home.join(".claude").join("CLAUDE.md");
-        let instructions_value = if instructions_path.exists() {
-            instructions_path.display().to_string()
-        } else {
-            "(not set)".to_string()
+        // Read actual permission mode from app state
+        let permission_mode = {
+            let state = ctx.app_state.try_read();
+            state.map(|s| format!("{:?}", s.tool_permission_context.mode))
+                .unwrap_or_else(|_| "default".to_string())
+                .to_lowercase()
         };
 
+        // Detect model from app state or environment
+        let model = std::env::var("ATOM_MODEL")
+            .unwrap_or_else(|_| "(from --model flag)".to_string());
+
+        // Find AGENTS.md (project instructions)
+        let agents_md = find_instructions_file(&ctx.cwd);
+
+        // Count MCP servers
+        let mcp_configs = crate::services::mcp::config::read_mcp_json(&ctx.cwd);
+        let mcp_count = mcp_configs.len();
+
+        // Count loaded skills
+        let skills = crate::services::skills::load_skills(&ctx.cwd);
+        let skill_count = skills.len();
+
         let items = vec![
-            ("Permission mode".to_string(), "default".to_string()),
-            ("Model".to_string(), "claude-sonnet-4-20250514".to_string()),
+            ("Permission mode".to_string(), permission_mode),
+            ("Model".to_string(), model),
             ("Theme".to_string(), ctx.options.theme.clone()),
-            ("Vim mode".to_string(), "off".to_string()),
-            ("Custom instructions".to_string(), instructions_value),
+            ("Working directory".to_string(), ctx.cwd.display().to_string()),
+            ("Project instructions".to_string(), agents_md),
+            ("MCP servers".to_string(), if mcp_count > 0 { format!("{} configured", mcp_count) } else { "none".to_string() }),
+            ("Skills".to_string(), if skill_count > 0 { format!("{} loaded", skill_count) } else { "none".to_string() }),
+            ("Version".to_string(), format!("v{}", env!("CARGO_PKG_VERSION"))),
         ];
 
         Box::new(ConfigState { items, selected: 0 })
