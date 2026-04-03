@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use clap::{Parser, Subcommand, ValueEnum};
 
 use atom_code::commands::CommandRegistry;
-use atom_code::services::api::openai_provider::OpenAiCompatibleProvider;
+use atom_code::services::api::create_provider;
+use atom_code::services::api::provider::LlmProvider;
 use atom_code::services::api::types::SystemBlock;
 use atom_code::tools::get_builtin_tools;
 use atom_code::tui::run::run_app;
@@ -128,6 +131,10 @@ struct Cli {
     /// Maximum budget in USD
     #[arg(long)]
     max_budget_usd: Option<f64>,
+
+    /// LLM provider: "codex" or "openai" (default)
+    #[arg(long)]
+    provider: Option<String>,
 
     /// API base URL (e.g. https://openrouter.ai/api/v1)
     #[arg(long)]
@@ -451,12 +458,19 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Print mode not yet implemented");
         }
         None => {
-            // Existing TUI boot logic
-            let provider = cli.api_base.map(|base| {
-                let model = cli.model.unwrap_or_else(|| "default".into());
-                Box::new(OpenAiCompatibleProvider::new(base, cli.api_key, model))
-                    as Box<dyn atom_code::services::api::provider::LlmProvider>
-            });
+            let provider: Option<Arc<dyn LlmProvider>> = match create_provider(
+                cli.provider.as_deref(),
+                cli.api_base.as_deref(),
+                cli.api_key.as_deref(),
+                cli.model.as_deref(),
+            ) {
+                Ok(p) => Some(Arc::from(p)),
+                Err(e) if cli.provider.is_some() || cli.api_base.is_some() => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+                Err(_) => None, // no-provider mode
+            };
 
             let tools = get_builtin_tools();
             let system_prompt =

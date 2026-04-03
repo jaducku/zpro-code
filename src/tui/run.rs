@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::Arc;
 
 use crossterm::{
     event::{self, Event, KeyCode},
@@ -21,7 +22,7 @@ use crate::types::message::{ApiMessage, Role};
 
 /// Run the TUI application
 pub async fn run_app(
-    provider: Option<Box<dyn LlmProvider>>,
+    provider: Option<Arc<dyn LlmProvider>>,
     _tools: Vec<Box<dyn crate::tool::Tool>>,
     system_prompt: Option<Vec<SystemBlock>>,
     command_registry: CommandRegistry,
@@ -38,7 +39,7 @@ pub async fn run_app(
         .unwrap_or_else(|| "(no provider)".into());
     let mut app = App::new(model.clone(), command_registry);
 
-    let (_query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
+    let (query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
 
     loop {
         // Render
@@ -104,13 +105,13 @@ pub async fn run_app(
                                         app.accept_typeahead();
                                     }
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &model, &system_prompt).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx).await;
                                 } else {
                                     let typeahead_accepted = app.handle_key(key);
                                     if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                         // Typeahead accepted via Enter — submit immediately
                                         let input = app.take_input();
-                                        handle_submit(&mut app, &input, &model, &system_prompt).await;
+                                        handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx).await;
                                     }
                                 }
                             }
@@ -145,8 +146,9 @@ pub async fn run_app(
 async fn handle_submit(
     app: &mut App,
     input: &str,
-    model: &str,
+    provider: &Option<Arc<dyn LlmProvider>>,
     system_prompt: &Option<Vec<SystemBlock>>,
+    query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
@@ -154,7 +156,7 @@ async fn handle_submit(
         return;
     }
 
-    submit_query(app, input, model, system_prompt);
+    submit_query(app, input, provider, system_prompt, query_event_tx);
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -300,17 +302,25 @@ async fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
 fn submit_query(
     app: &mut App,
     input: &str,
-    model: &str,
-    _system_prompt: &Option<Vec<SystemBlock>>,
+    provider: &Option<Arc<dyn LlmProvider>>,
+    system_prompt: &Option<Vec<SystemBlock>>,
+    query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
 ) {
-    // Add user message to display
+    let Some(provider) = provider.clone() else {
+        app.push_message(DisplayMessage {
+            role: DisplayRole::System,
+            content: "No LLM provider connected. Use --provider or --api-base.".into(),
+            tool_name: None,
+        });
+        return;
+    };
+
+    // Add user message to display and API messages
     app.push_message(DisplayMessage {
         role: DisplayRole::User,
         content: input.to_string(),
         tool_name: None,
     });
-
-    // Add to API messages
     app.api_messages.push(ApiMessage {
         role: Role::User,
         content: vec![ContentBlock::Text {
@@ -320,8 +330,22 @@ fn submit_query(
 
     app.is_loading = true;
 
-    // The actual query execution would be spawned as a background task
-    // For the skeleton, we just set loading state
-    // tokio::spawn(async move { query(ctx, provider, event_tx, cancel).await });
-    app.status = format!("Model: {} | Thinking...", model);
+    // Build query context
+    let ctx = crate::query::QueryContext {
+        messages: app.api_messages.clone(),
+        tools: vec![], // Tools passed separately in future
+        system_prompt: system_prompt.clone(),
+        model: provider.model_info().id.clone(),
+        max_tokens: provider.model_info().max_output_tokens,
+    };
+
+    let event_tx = query_event_tx.clone();
+    let cancel = tokio_util::sync::CancellationToken::new();
+
+    // Spawn query as background task
+    tokio::spawn(async move {
+        if let Err(e) = crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
+            let _ = event_tx.send(crate::query::QueryEvent::Error(e.to_string()));
+        }
+    });
 }
