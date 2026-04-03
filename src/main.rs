@@ -8,7 +8,7 @@ use atom_code::services::api::provider::LlmProvider;
 use atom_code::services::context::assemble_system_prompt;
 use atom_code::services::session_transcript::SessionStore;
 use atom_code::tui::run::run_app;
-use atom_code::types::permissions::PermissionMode;
+use atom_code::types::permissions::{PermissionMode, PermissionRule};
 
 // ---------------------------------------------------------------------------
 // Output / Input format enums
@@ -152,6 +152,22 @@ struct Cli {
     /// Path to settings file
     #[arg(long)]
     settings: Option<String>,
+
+    /// Fork a resumed session into a new session ID
+    #[arg(long)]
+    fork_session: bool,
+
+    /// Disable session persistence (no auto-save)
+    #[arg(long)]
+    no_session_persistence: bool,
+
+    /// Filter available tools (comma-separated names, "default" for all, empty for none)
+    #[arg(long, num_args = 1)]
+    tools: Option<Vec<String>>,
+
+    /// JSON schema for structured output (not yet implemented)
+    #[arg(long)]
+    json_schema: Option<String>,
 
     #[command(subcommand)]
     subcommand: Option<SubCmd>,
@@ -528,12 +544,52 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a tool spec like "Bash(git:*)" into (tool_name, optional rule_content).
+fn parse_tool_spec(spec: &str) -> (String, Option<String>) {
+    if let Some(paren_start) = spec.find('(') {
+        let name = spec[..paren_start].to_string();
+        let content = spec[paren_start + 1..].trim_end_matches(')').to_string();
+        (name, Some(content))
+    } else {
+        (spec.to_string(), None)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    // Warn about unimplemented flags
+    if cli.json_schema.is_some() {
+        eprintln!("Warning: --json-schema is not yet implemented");
+    }
+
+    // Parse --allowed-tools / --disallowed-tools into permission rules
+    let mut allow_rules: Vec<PermissionRule> = Vec::new();
+    let mut deny_rules: Vec<PermissionRule> = Vec::new();
+
+    if let Some(allowed) = &cli.allowed_tools {
+        for tool_spec in allowed {
+            let (tool_name, rule_content) = parse_tool_spec(tool_spec);
+            allow_rules.push(PermissionRule { tool_name, rule_content });
+        }
+    }
+
+    if let Some(disallowed) = &cli.disallowed_tools {
+        for tool_spec in disallowed {
+            let (tool_name, rule_content) = parse_tool_spec(tool_spec);
+            deny_rules.push(PermissionRule { tool_name, rule_content });
+        }
+    }
+
+    let tools_filter = cli.tools.clone();
 
     match cli.subcommand {
         Some(sub) => execute_subcommand(sub).await?,
@@ -584,6 +640,9 @@ async fn main() -> anyhow::Result<()> {
                 output_format,
                 cli.max_turns,
                 cli.max_budget_usd,
+                allow_rules.clone(),
+                deny_rules.clone(),
+                tools_filter.clone(),
             ).await?;
         }
         None => {
@@ -670,9 +729,30 @@ async fn main() -> anyhow::Result<()> {
                 None
             };
 
+            // --fork-session: generate a new session ID when resuming
+            let resume_transcript = if cli.fork_session {
+                resume_transcript.map(|mut t| {
+                    t.session_id = uuid::Uuid::new_v4().to_string();
+                    t
+                })
+            } else {
+                resume_transcript
+            };
+
             let mut command_registry = CommandRegistry::new();
             command_registry.load_skill_dir_commands(&cwd).await?;
-            run_app(provider, mcp_manager, system_prompt, command_registry, permission_mode, resume_transcript).await?;
+            run_app(
+                provider,
+                mcp_manager,
+                system_prompt,
+                command_registry,
+                permission_mode,
+                resume_transcript,
+                cli.no_session_persistence,
+                allow_rules,
+                deny_rules,
+                tools_filter,
+            ).await?;
         }
     }
 

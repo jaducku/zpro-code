@@ -10,7 +10,7 @@ use crate::services::mcp::McpConnectionManager;
 use crate::tools::get_builtin_tools;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
-use crate::types::permissions::{PermissionMode, ToolPermissionContext};
+use crate::types::permissions::{PermissionMode, PermissionRule, ToolPermissionContext};
 
 pub enum OutputFormat {
     Text,
@@ -26,6 +26,9 @@ pub async fn run_print_mode(
     output_format: OutputFormat,
     max_turns: Option<u32>,
     max_budget_usd: Option<f64>,
+    allow_rules: Vec<PermissionRule>,
+    deny_rules: Vec<PermissionRule>,
+    tools_filter: Option<Vec<String>>,
 ) -> anyhow::Result<()> {
     // 1. Get prompt
     let prompt_text = match prompt {
@@ -50,6 +53,15 @@ pub async fn run_print_mode(
     let mut tools = get_builtin_tools();
     tools.extend(mcp_manager.get_all_tools().await);
 
+    // Apply --tools filter
+    if let Some(ref filter) = tools_filter {
+        if filter.is_empty() || (filter.len() == 1 && filter[0].is_empty()) {
+            tools.clear();
+        } else if !filter.contains(&"default".to_string()) {
+            tools.retain(|t| filter.iter().any(|f| t.name() == f));
+        }
+    }
+
     // 3. Build query context (bypass permissions -- no TUI for dialogs)
     let (perm_tx, _perm_rx) = mpsc::unbounded_channel();
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -66,6 +78,8 @@ pub async fn run_print_mode(
         max_tokens: provider.model_info().max_output_tokens,
         permission_ctx: ToolPermissionContext {
             mode: PermissionMode::BypassPermissions,
+            always_allow_rules: allow_rules,
+            always_deny_rules: deny_rules,
             ..Default::default()
         },
         permission_tx: perm_tx,

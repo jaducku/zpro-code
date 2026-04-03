@@ -22,7 +22,7 @@ use crate::services::session_transcript::{SessionStore, SessionTranscript};
 use crate::tools::get_builtin_tools;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
-use crate::types::permissions::{PermissionMode, ToolPermissionContext};
+use crate::types::permissions::{PermissionMode, PermissionRule, ToolPermissionContext};
 
 /// Run the TUI application
 pub async fn run_app(
@@ -32,6 +32,10 @@ pub async fn run_app(
     command_registry: CommandRegistry,
     permission_mode: PermissionMode,
     resume_transcript: Option<SessionTranscript>,
+    no_session_persistence: bool,
+    allow_rules: Vec<PermissionRule>,
+    deny_rules: Vec<PermissionRule>,
+    tools_filter: Option<Vec<String>>,
 ) -> io::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -44,6 +48,7 @@ pub async fn run_app(
         .map(|p| p.model_info().id.clone())
         .unwrap_or_else(|| "(no provider)".into());
     let mut app = App::new(model.clone(), command_registry);
+    app.no_session_persistence = no_session_persistence;
 
     // Restore session if resuming
     if let Some(transcript) = resume_transcript {
@@ -152,12 +157,12 @@ pub async fn run_app(
                                     app.accept_typeahead();
                                 }
                                 let input = app.take_input();
-                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager).await;
+                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
                             } else {
                                 let typeahead_accepted = app.handle_key(key);
                                 if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
                                 }
                             }
                         }
@@ -220,6 +225,9 @@ async fn handle_submit(
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
     mcp_manager: &McpConnectionManager,
+    allow_rules: &[PermissionRule],
+    deny_rules: &[PermissionRule],
+    tools_filter: &Option<Vec<String>>,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
@@ -227,7 +235,7 @@ async fn handle_submit(
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager).await;
+    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -379,6 +387,9 @@ async fn submit_query(
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
     mcp_manager: &McpConnectionManager,
+    allow_rules: &[PermissionRule],
+    deny_rules: &[PermissionRule],
+    tools_filter: &Option<Vec<String>>,
 ) {
     let Some(provider) = provider.clone() else {
         app.push_message(DisplayMessage {
@@ -412,6 +423,15 @@ async fn submit_query(
     let mut tools = get_builtin_tools();
     tools.extend(mcp_manager.get_all_tools().await);
 
+    // Apply --tools filter
+    if let Some(ref filter) = tools_filter {
+        if filter.is_empty() || (filter.len() == 1 && filter[0].is_empty()) {
+            tools.clear();
+        } else if !filter.contains(&"default".to_string()) {
+            tools.retain(|t| filter.iter().any(|f| t.name() == f));
+        }
+    }
+
     // Build query context
     let cwd = std::env::current_dir().unwrap_or_default();
     let hooks = crate::services::hooks::load_hooks(&cwd);
@@ -423,6 +443,8 @@ async fn submit_query(
         max_tokens: provider.model_info().max_output_tokens,
         permission_ctx: ToolPermissionContext {
             mode: permission_mode.clone(),
+            always_allow_rules: allow_rules.to_vec(),
+            always_deny_rules: deny_rules.to_vec(),
             ..Default::default()
         },
         permission_tx: perm_tx,
