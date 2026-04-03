@@ -5,6 +5,7 @@ pub mod file_read_tool;
 pub mod file_write_tool;
 pub mod glob_tool;
 pub mod grep_tool;
+pub mod skill_tool;
 
 use crate::tool::Tool;
 
@@ -18,6 +19,7 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(file_write_tool::FileWriteTool),
         Box::new(glob_tool::GlobTool),
         Box::new(grep_tool::GrepTool),
+        Box::new(skill_tool::SkillTool),
     ]
 }
 
@@ -33,7 +35,7 @@ mod tests {
     #[test]
     fn test_get_builtin_tools() {
         let tools = get_builtin_tools();
-        assert!(tools.len() >= 6);
+        assert!(tools.len() >= 7);
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"Bash"));
         assert!(names.contains(&"Read"));
