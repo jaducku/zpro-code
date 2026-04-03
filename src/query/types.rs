@@ -1,6 +1,9 @@
+use tokio::sync::mpsc;
+
 use crate::services::api::types::SystemBlock;
 use crate::tool::{Tool, ToolResultBlock};
 use crate::types::message::StopReason;
+use crate::types::permissions::ToolPermissionContext;
 
 /// Context for a query execution
 pub struct QueryContext {
@@ -9,6 +12,26 @@ pub struct QueryContext {
     pub system_prompt: Option<Vec<SystemBlock>>,
     pub model: String,
     pub max_tokens: u32,
+    pub permission_ctx: ToolPermissionContext,
+    pub permission_tx: mpsc::UnboundedSender<PermissionAsk>,
+}
+
+/// Sent to the TUI when a tool needs user permission
+pub struct PermissionAsk {
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub description: String,
+    pub reply_tx: tokio::sync::oneshot::Sender<PermissionReply>,
+}
+
+/// User's response to a permission prompt
+pub enum PermissionReply {
+    Allow,
+    AllowAlways {
+        tool_name: String,
+        rule_content: Option<String>,
+    },
+    Deny,
 }
 
 /// Result of a query execution

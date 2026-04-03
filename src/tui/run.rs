@@ -9,16 +9,17 @@ use crossterm::{
 use ratatui::prelude::*;
 use tokio::sync::mpsc;
 
-use super::app::{App, DisplayMessage, DisplayRole};
+use super::app::{App, DisplayMessage, DisplayRole, PermissionDialog};
 use super::ui;
 use crate::commands::registry::CommandRegistry;
 use crate::commands::traits::Command;
 use crate::commands::types::{CommandAction, LocalCommandResult};
-use crate::query::QueryEvent;
+use crate::query::{PermissionAsk, PermissionReply, QueryEvent};
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
+use crate::types::permissions::{PermissionMode, ToolPermissionContext};
 
 /// Run the TUI application
 pub async fn run_app(
@@ -26,6 +27,7 @@ pub async fn run_app(
     _tools: Vec<Box<dyn crate::tool::Tool>>,
     system_prompt: Option<Vec<SystemBlock>>,
     command_registry: CommandRegistry,
+    permission_mode: PermissionMode,
 ) -> io::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -40,6 +42,7 @@ pub async fn run_app(
     let mut app = App::new(model.clone(), command_registry);
 
     let (query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
+    let mut permission_rx: Option<mpsc::UnboundedReceiver<PermissionAsk>> = None;
 
     loop {
         // Render
@@ -73,8 +76,9 @@ pub async fn run_app(
             }
         })?;
 
-        // Use tokio::select! to handle both terminal events and query events concurrently.
-        // Terminal polling is wrapped in spawn_blocking to avoid blocking the tokio runtime.
+        // Use tokio::select! to handle terminal events, query events, and permission
+        // requests concurrently. Terminal polling is wrapped in spawn_blocking to avoid
+        // blocking the tokio runtime.
         tokio::select! {
             // Terminal events via spawn_blocking (doesn't block tokio runtime)
             terminal_event = tokio::task::spawn_blocking(|| {
@@ -87,7 +91,24 @@ pub async fn run_app(
                 if let Ok(Some(ev)) = terminal_event {
                     match ev {
                         Event::Key(key) => {
-                            if app.active_command.is_some() {
+                            // Permission dialog takes priority over all other key handling
+                            if app.permission_dialog.is_some() {
+                                let resolved = app.handle_permission_key(key);
+                                if resolved {
+                                    let dialog = app.permission_dialog.take().unwrap();
+                                    if let Some(reply_tx) = dialog.reply_tx {
+                                        let reply = match dialog.selected {
+                                            0 => PermissionReply::Allow,
+                                            1 => PermissionReply::AllowAlways {
+                                                tool_name: dialog.tool_name.clone(),
+                                                rule_content: None,
+                                            },
+                                            _ => PermissionReply::Deny,
+                                        };
+                                        let _ = reply_tx.send(reply);
+                                    }
+                                }
+                            } else if app.active_command.is_some() {
                                 let cmd_name = app.active_command.as_ref().unwrap().command_name.clone();
                                 if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
                                     let state = &mut app.active_command.as_mut().unwrap().state;
@@ -109,12 +130,12 @@ pub async fn run_app(
                                     app.accept_typeahead();
                                 }
                                 let input = app.take_input();
-                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx).await;
+                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx).await;
                             } else {
                                 let typeahead_accepted = app.handle_key(key);
                                 if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx).await;
                                 }
                             }
                         }
@@ -129,6 +150,21 @@ pub async fn run_app(
             // Query events from the spawned query task
             Some(event) = query_event_rx.recv() => {
                 app.handle_query_event(event);
+            }
+
+            // Permission requests from the query engine
+            Some(ask) = async {
+                match &mut permission_rx {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                app.permission_dialog = Some(PermissionDialog {
+                    tool_name: ask.tool_name,
+                    description: ask.description,
+                    selected: 0,
+                    reply_tx: Some(ask.reply_tx),
+                });
             }
         }
 
@@ -151,6 +187,8 @@ async fn handle_submit(
     provider: &Option<Arc<dyn LlmProvider>>,
     system_prompt: &Option<Vec<SystemBlock>>,
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
+    permission_mode: &PermissionMode,
+    permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
@@ -158,7 +196,7 @@ async fn handle_submit(
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx);
+    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx);
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -307,6 +345,8 @@ fn submit_query(
     provider: &Option<Arc<dyn LlmProvider>>,
     system_prompt: &Option<Vec<SystemBlock>>,
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
+    permission_mode: &PermissionMode,
+    permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
 ) {
     let Some(provider) = provider.clone() else {
         app.push_message(DisplayMessage {
@@ -332,6 +372,10 @@ fn submit_query(
 
     app.is_loading = true;
 
+    // Create permission channel for this query
+    let (perm_tx, perm_rx) = mpsc::unbounded_channel();
+    *permission_rx = Some(perm_rx);
+
     // Build query context
     let ctx = crate::query::QueryContext {
         messages: app.api_messages.clone(),
@@ -339,6 +383,11 @@ fn submit_query(
         system_prompt: system_prompt.clone(),
         model: provider.model_info().id.clone(),
         max_tokens: provider.model_info().max_output_tokens,
+        permission_ctx: ToolPermissionContext {
+            mode: permission_mode.clone(),
+            ..Default::default()
+        },
+        permission_tx: perm_tx,
     };
 
     let event_tx = query_event_tx.clone();

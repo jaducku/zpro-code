@@ -8,8 +8,10 @@ use crate::tool::{ToolCall, ToolProgress, ToolResultBlock, ToolUseContext};
 use crate::tools::find_tool_by_name;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role, StopReason};
+use crate::types::permissions::{PermissionMeta, PermissionRule};
+use crate::utils::permissions::{check_permission, PermissionDecision};
 
-use super::types::{QueryContext, QueryEvent, QueryResult};
+use super::types::{PermissionAsk, PermissionReply, QueryContext, QueryEvent, QueryResult};
 
 /// Maximum number of tool-use loops before forcing stop
 const MAX_TOOL_LOOPS: usize = 50;
@@ -143,9 +145,78 @@ pub async fn query(
             });
         }
 
-        // 5. Execute tools
+        // 5. Execute tools (with permission checks)
         let mut tool_result_blocks = Vec::new();
         for tc in &tool_calls {
+            // Permission check
+            let tool = find_tool_by_name(&ctx.tools, &tc.name);
+            let meta = tool
+                .map(|t| t.permission_metadata(&tc.input))
+                .unwrap_or(PermissionMeta {
+                    file_path: None,
+                    command: None,
+                    url: None,
+                });
+
+            let decision = check_permission(&tc.name, &tc.input, &meta, &ctx.permission_ctx);
+
+            let should_execute = match decision {
+                PermissionDecision::Allow { .. } => true,
+                PermissionDecision::Deny { reason } => {
+                    let block = ToolResultBlock::error(
+                        tc.id.clone(),
+                        format!("Permission denied: {}", reason),
+                    );
+                    let _ = event_tx.send(QueryEvent::ToolCallComplete {
+                        id: tc.id.clone(),
+                        result: block.clone(),
+                    });
+                    tool_result_blocks.push(block);
+                    continue;
+                }
+                PermissionDecision::Ask {
+                    tool_name,
+                    description,
+                } => {
+                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                    let _ = ctx.permission_tx.send(PermissionAsk {
+                        tool_use_id: tc.id.clone(),
+                        tool_name: tool_name.clone(),
+                        description,
+                        reply_tx,
+                    });
+                    match reply_rx.await {
+                        Ok(PermissionReply::Allow) => true,
+                        Ok(PermissionReply::AllowAlways {
+                            tool_name,
+                            rule_content,
+                        }) => {
+                            ctx.permission_ctx
+                                .always_allow_rules
+                                .push(PermissionRule { tool_name, rule_content });
+                            true
+                        }
+                        Ok(PermissionReply::Deny) | Err(_) => {
+                            let block = ToolResultBlock::error(
+                                tc.id.clone(),
+                                "Permission denied by user".into(),
+                            );
+                            let _ = event_tx.send(QueryEvent::ToolCallComplete {
+                                id: tc.id.clone(),
+                                result: block.clone(),
+                            });
+                            tool_result_blocks.push(block);
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            if !should_execute {
+                continue;
+            }
+
+            // Execute tool
             let result = execute_tool(tc, &ctx.tools, &abort_signal).await;
             let block = match result {
                 Ok(tr) => {
@@ -222,7 +293,27 @@ async fn execute_tool(
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use crate::types::permissions::PermissionMeta;
+    use crate::types::permissions::{PermissionMeta, PermissionMode, ToolPermissionContext};
+
+    /// Create a test QueryContext that bypasses all permissions
+    fn test_query_context(
+        messages: Vec<ApiMessage>,
+        tools: Vec<Box<dyn crate::tool::Tool>>,
+    ) -> QueryContext {
+        let (permission_tx, _rx) = mpsc::unbounded_channel();
+        QueryContext {
+            messages,
+            tools,
+            system_prompt: None,
+            model: "test".into(),
+            max_tokens: 4096,
+            permission_ctx: ToolPermissionContext {
+                mode: PermissionMode::BypassPermissions,
+                ..Default::default()
+            },
+            permission_tx,
+        }
+    }
 
     /// Mock provider that returns a fixed response
     struct MockProvider {
@@ -318,18 +409,15 @@ mod tests {
         };
 
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-        let ctx = QueryContext {
-            messages: vec![ApiMessage {
+        let ctx = test_query_context(
+            vec![ApiMessage {
                 role: Role::User,
                 content: vec![ContentBlock::Text {
                     text: "Hi".into(),
                 }],
             }],
-            tools: vec![],
-            system_prompt: None,
-            model: "test".into(),
-            max_tokens: 4096,
-        };
+            vec![],
+        );
 
         let result = query(ctx, &provider, event_tx, CancellationToken::new())
             .await
@@ -436,18 +524,15 @@ mod tests {
 
         let provider = TwoStepProvider { call_count: cc };
         let (event_tx, _event_rx) = mpsc::unbounded_channel();
-        let ctx = QueryContext {
-            messages: vec![ApiMessage {
+        let ctx = test_query_context(
+            vec![ApiMessage {
                 role: Role::User,
                 content: vec![ContentBlock::Text {
                     text: "test".into(),
                 }],
             }],
-            tools: vec![Box::new(EchoTool)],
-            system_prompt: None,
-            model: "test".into(),
-            max_tokens: 4096,
-        };
+            vec![Box::new(EchoTool)],
+        );
 
         let result = query(ctx, &provider, event_tx, CancellationToken::new())
             .await
