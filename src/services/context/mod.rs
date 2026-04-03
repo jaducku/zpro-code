@@ -2,6 +2,58 @@ use std::path::Path;
 
 use crate::services::api::types::SystemBlock;
 
+/// Configuration for system prompt assembly with skill listing.
+pub struct SystemPromptConfig<'a> {
+    pub cwd: &'a Path,
+    pub custom_prompt: Option<&'a str>,
+    pub append_prompt: Option<&'a str>,
+    pub output_style: Option<&'a str>,
+    pub skill_entries: &'a [(String, String, Option<String>)],
+}
+
+const MAX_SKILL_DESC_CHARS: usize = 250;
+
+fn format_skill_listing(entries: &[(String, String, Option<String>)]) -> String {
+    entries
+        .iter()
+        .map(|(name, desc, when_to_use)| {
+            let full_desc = match when_to_use {
+                Some(wtu) => format!("{} - {}", desc, wtu),
+                None => desc.clone(),
+            };
+            let truncated = if full_desc.len() > MAX_SKILL_DESC_CHARS {
+                format!("{}…", &full_desc[..MAX_SKILL_DESC_CHARS - 1])
+            } else {
+                full_desc
+            };
+            format!("- {}: {}", name, truncated)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Assemble system prompt with skill listing included.
+pub fn assemble_system_prompt_with_config(config: &SystemPromptConfig) -> Vec<SystemBlock> {
+    let mut blocks = assemble_system_prompt(
+        config.cwd,
+        config.custom_prompt,
+        config.append_prompt,
+        config.output_style,
+    );
+
+    if !config.skill_entries.is_empty() {
+        let listing = format_skill_listing(config.skill_entries);
+        blocks.push(SystemBlock::Text {
+            text: format!(
+                "<system-reminder>\nThe following skills are available for use with the Skill tool:\n\n{}\n</system-reminder>",
+                listing
+            ),
+        });
+    }
+
+    blocks
+}
+
 /// Assemble the full system prompt from all sources.
 pub fn assemble_system_prompt(
     cwd: &Path,
@@ -238,5 +290,63 @@ mod tests {
         match last {
             SystemBlock::Text { text } => assert!(text.contains("Extra info")),
         }
+    }
+
+    #[test]
+    fn test_format_skill_listing_basic() {
+        let entries = vec![
+            (
+                "commit".to_string(),
+                "Commit changes".to_string(),
+                Some("Use after making changes".to_string()),
+            ),
+            ("review".to_string(), "Review code".to_string(), None),
+        ];
+        let listing = format_skill_listing(&entries);
+        assert!(listing.contains("- commit: Commit changes - Use after making changes"));
+        assert!(listing.contains("- review: Review code"));
+    }
+
+    #[test]
+    fn test_format_skill_listing_truncation() {
+        let long_desc = "x".repeat(300);
+        let entries = vec![("long".to_string(), long_desc, None)];
+        let listing = format_skill_listing(&entries);
+        assert!(listing.len() < 300);
+        assert!(listing.contains('…'));
+    }
+
+    #[test]
+    fn test_format_skill_listing_empty() {
+        let entries: Vec<(String, String, Option<String>)> = vec![];
+        let listing = format_skill_listing(&entries);
+        assert!(listing.is_empty());
+    }
+
+    #[test]
+    fn test_assemble_with_skills() {
+        let dir = TempDir::new().unwrap();
+        let config = SystemPromptConfig {
+            cwd: dir.path(),
+            custom_prompt: None,
+            append_prompt: None,
+            output_style: None,
+            skill_entries: &[(
+                "brainstorming".to_string(),
+                "Creative work".to_string(),
+                Some("Use before features".to_string()),
+            )],
+        };
+        let blocks = assemble_system_prompt_with_config(&config);
+        let full: String = blocks
+            .iter()
+            .map(|b| match b {
+                SystemBlock::Text { text } => text.as_str(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(full.contains("<system-reminder>"));
+        assert!(full.contains("brainstorming"));
+        assert!(full.contains("Skill tool"));
     }
 }

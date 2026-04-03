@@ -6,7 +6,7 @@ use atom_code::commands::CommandRegistry;
 use atom_code::services::api::create_provider;
 use atom_code::services::api::provider::LlmProvider;
 use atom_code::services::config::AtomConfig;
-use atom_code::services::context::assemble_system_prompt;
+use atom_code::services::context::{assemble_system_prompt, assemble_system_prompt_with_config, SystemPromptConfig};
 use atom_code::services::session_transcript::SessionStore;
 use atom_code::tui::run::run_app;
 use atom_code::types::permissions::{PermissionMode, PermissionRule};
@@ -778,12 +778,7 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("Warning: MCP server error: {}", err);
             }
 
-            let system_prompt = Some(assemble_system_prompt(
-                &cwd,
-                cli.system_prompt.as_deref(),
-                cli.append_system_prompt.as_deref(),
-                None,
-            ));
+            // system_prompt is built later, after command_registry is loaded
 
             let permission_mode = if cli.dangerously_skip_permissions {
                 PermissionMode::BypassPermissions
@@ -846,6 +841,28 @@ async fn main() -> anyhow::Result<()> {
 
             let mut command_registry = CommandRegistry::new();
             command_registry.load_skill_dir_commands(&cwd).await?;
+
+            let skill_entries: Vec<(String, String, Option<String>)> = command_registry
+                .skill_tool_commands()
+                .iter()
+                .map(|cmd| {
+                    let meta = cmd.meta();
+                    (
+                        meta.name.to_string(),
+                        meta.description.to_string(),
+                        meta.when_to_use.map(|s| s.to_string()),
+                    )
+                })
+                .collect();
+
+            let system_prompt = Some(assemble_system_prompt_with_config(&SystemPromptConfig {
+                cwd: &cwd,
+                custom_prompt: cli.system_prompt.as_deref(),
+                append_prompt: cli.append_system_prompt.as_deref(),
+                output_style: None,
+                skill_entries: &skill_entries,
+            }));
+
             let command_registry = Arc::new(command_registry);
             run_app(
                 provider,
