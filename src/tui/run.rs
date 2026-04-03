@@ -10,7 +10,7 @@ use futures::StreamExt;
 use ratatui::prelude::*;
 use tokio::sync::mpsc;
 
-use super::app::{App, DisplayMessage, DisplayRole, PermissionDialog};
+use super::app::{App, DisplayMessage, DisplayRole, InputMode};
 use super::ui;
 use crate::commands::registry::CommandRegistry;
 use crate::commands::traits::Command;
@@ -119,22 +119,25 @@ pub async fn run_app(
                 if let Some(Ok(ev)) = maybe_event {
                     match ev {
                         Event::Key(key) => {
-                            // Permission dialog takes priority over all other key handling
-                            if app.permission_dialog.is_some() {
-                                let resolved = app.handle_permission_key(key);
-                                if resolved {
-                                    let dialog = app.permission_dialog.take().unwrap();
-                                    if let Some(reply_tx) = dialog.reply_tx {
-                                        let reply = match dialog.selected {
-                                            0 => PermissionReply::Allow,
-                                            1 => PermissionReply::AllowAlways {
-                                                tool_name: dialog.tool_name.clone(),
-                                                rule_content: None,
-                                            },
-                                            _ => PermissionReply::Deny,
-                                        };
-                                        let _ = reply_tx.send(reply);
+                            // Permission inline prompt takes priority over all other key handling
+                            if let InputMode::Permission { .. } = &app.input_mode {
+                                match key.code {
+                                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                        if let InputMode::Permission { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Allow); }
+                                        }
                                     }
+                                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                                        if let InputMode::Permission { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Deny); }
+                                        }
+                                    }
+                                    KeyCode::Char('a') | KeyCode::Char('A') => {
+                                        if let InputMode::Permission { tool_name, reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::AllowAlways { tool_name, rule_content: None }); }
+                                        }
+                                    }
+                                    _ => {} // ignore other keys in permission mode
                                 }
                             } else if app.active_command.is_some() {
                                 let cmd_name = app.active_command.as_ref().unwrap().command_name.clone();
@@ -226,12 +229,18 @@ pub async fn run_app(
                     None => std::future::pending().await,
                 }
             } => {
-                app.permission_dialog = Some(PermissionDialog {
+                // Show tool action as a chat message
+                app.push_message(DisplayMessage {
+                    role: DisplayRole::Tool,
+                    content: format!("{}: {}", ask.tool_name, ask.description),
+                    tool_name: Some(ask.tool_name.clone()),
+                });
+                // Switch input mode to inline permission prompt
+                app.input_mode = InputMode::Permission {
                     tool_name: ask.tool_name,
                     description: ask.description,
-                    selected: 0,
                     reply_tx: Some(ask.reply_tx),
-                });
+                };
             }
         }
 

@@ -28,10 +28,6 @@ pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect) {
         render_typeahead(frame, chunks[1], ta);
     }
 
-    // Permission dialog overlay
-    if let Some(dialog) = &app.permission_dialog {
-        render_permission_dialog(frame, dialog);
-    }
 }
 
 fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
@@ -180,35 +176,61 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
 }
 
 fn render_input(frame: &mut Frame, area: Rect, app: &App) {
-    let border_style = if app.is_loading {
-        Style::default().fg(Color::DarkGray)
-    } else {
-        Style::default().fg(Color::Cyan)
-    };
+    use super::app::InputMode;
 
-    let input_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(border_style)
-        .title(if app.is_loading {
-            Span::styled(" ... ", Style::default().fg(Color::DarkGray))
-        } else {
-            Span::styled(" > ", Style::default().fg(Color::Cyan).bold())
-        });
+    match &app.input_mode {
+        InputMode::Permission { .. } => {
+            let border_style = Style::default().fg(Color::Yellow);
+            let input_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .title(Span::styled(" Permission ", Style::default().fg(Color::Yellow).bold()));
 
-    let input_text = Paragraph::new(app.input.as_str())
-        .style(Style::default().fg(Color::White))
-        .block(input_block);
+            let prompt = Line::from(vec![
+                Span::styled(" [y]", Style::default().fg(Color::Green).bold()),
+                Span::styled(" Allow  ", Style::default().fg(Color::White)),
+                Span::styled("[n]", Style::default().fg(Color::Red).bold()),
+                Span::styled(" Deny  ", Style::default().fg(Color::White)),
+                Span::styled("[a]", Style::default().fg(Color::Yellow).bold()),
+                Span::styled(" Always allow", Style::default().fg(Color::White)),
+            ]);
 
-    frame.render_widget(input_text, area);
+            let input_text = Paragraph::new(prompt).block(input_block);
+            frame.render_widget(input_text, area);
+        }
+        InputMode::Normal => {
+            let border_style = if app.is_loading {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
 
-    if !app.is_loading {
-        // cursor_pos is char index; for display, compute display width of chars before cursor
-        let display_offset: u16 = app.input.chars()
-            .take(app.cursor_pos)
-            .map(|c| if c.is_ascii() { 1 } else { 2 }) // CJK chars are double-width
-            .sum();
-        frame.set_cursor_position((area.x + display_offset + 1, area.y + 1));
+            let input_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .title(if app.is_loading {
+                    Span::styled(" ... ", Style::default().fg(Color::DarkGray))
+                } else {
+                    Span::styled(" > ", Style::default().fg(Color::Cyan).bold())
+                });
+
+            let input_text = Paragraph::new(app.input.as_str())
+                .style(Style::default().fg(Color::White))
+                .block(input_block);
+
+            frame.render_widget(input_text, area);
+
+            if !app.is_loading {
+                // cursor_pos is char index; for display, compute display width of chars before cursor
+                let display_offset: u16 = app.input.chars()
+                    .take(app.cursor_pos)
+                    .map(|c| if c.is_ascii() { 1 } else { 2 }) // CJK chars are double-width
+                    .sum();
+                frame.set_cursor_position((area.x + display_offset + 1, area.y + 1));
+            }
+        }
     }
 }
 
@@ -234,59 +256,6 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(status_line), area);
 }
 
-fn render_permission_dialog(frame: &mut Frame, dialog: &super::app::PermissionDialog) {
-    let area = centered_rect(60, 30, frame.area());
-
-    frame.render_widget(Clear, area);
-
-    let block = Block::default()
-        .title(Span::styled(
-            " Permission Required ",
-            Style::default().fg(Color::Yellow).bold(),
-        ))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Yellow));
-
-    let btn = |label: &str, idx: usize, selected: usize, active_bg: Color| -> Span<'static> {
-        if selected == idx {
-            Span::styled(
-                format!(" {} ", label),
-                Style::default().fg(Color::Black).bg(active_bg).bold(),
-            )
-        } else {
-            Span::styled(format!(" {} ", label), Style::default().fg(Color::DarkGray))
-        }
-    };
-
-    let text = vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Tool: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                dialog.tool_name.clone(),
-                Style::default().fg(Color::White).bold(),
-            ),
-        ]),
-        Line::from(""),
-        Line::from(format!("  {}", dialog.description)),
-        Line::from(""),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("  "),
-            btn("Allow (y)", 0, dialog.selected, Color::Green),
-            Span::raw("  "),
-            btn("Always Allow (a)", 1, dialog.selected, Color::Cyan),
-            Span::raw("  "),
-            btn("Deny (n)", 2, dialog.selected, Color::Red),
-        ]),
-    ];
-
-    let paragraph = Paragraph::new(text)
-        .block(block)
-        .wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, area);
-}
 
 fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::TypeaheadState) {
     use super::app::TypeaheadKind;
@@ -401,18 +370,3 @@ fn truncate_content(content: &str, max_width: usize) -> String {
     }
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let layout_v = Layout::vertical([
-        Constraint::Percentage((100 - percent_y) / 2),
-        Constraint::Percentage(percent_y),
-        Constraint::Percentage((100 - percent_y) / 2),
-    ]);
-    let layout_h = Layout::horizontal([
-        Constraint::Percentage((100 - percent_x) / 2),
-        Constraint::Percentage(percent_x),
-        Constraint::Percentage((100 - percent_x) / 2),
-    ]);
-    let v_chunks = layout_v.split(area);
-    let h_chunks = layout_h.split(v_chunks[1]);
-    h_chunks[1]
-}

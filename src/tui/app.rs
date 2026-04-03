@@ -37,8 +37,8 @@ pub struct App {
     pub status: String,
     /// Current model name
     pub model: String,
-    /// Permission dialog (if showing)
-    pub permission_dialog: Option<PermissionDialog>,
+    /// Current input mode (normal text or permission prompt)
+    pub input_mode: InputMode,
     /// API messages (conversation history for LLM)
     pub api_messages: Vec<ApiMessage>,
     /// App start time (for animations)
@@ -109,12 +109,16 @@ pub enum DisplayRole {
     Tool,
 }
 
-/// Permission dialog state
-pub struct PermissionDialog {
-    pub tool_name: String,
-    pub description: String,
-    pub selected: usize, // 0=Allow, 1=AlwaysAllow, 2=Deny
-    pub reply_tx: Option<tokio::sync::oneshot::Sender<PermissionReply>>,
+/// What the input area is currently showing
+pub enum InputMode {
+    /// Normal text input
+    Normal,
+    /// Permission prompt inline in chat
+    Permission {
+        tool_name: String,
+        description: String,
+        reply_tx: Option<tokio::sync::oneshot::Sender<PermissionReply>>,
+    },
 }
 
 impl App {
@@ -159,7 +163,7 @@ impl App {
             scroll_offset: 0,
             status: String::new(),
             model,
-            permission_dialog: None,
+            input_mode: InputMode::Normal,
             api_messages: Vec::new(),
             start_time: Instant::now(),
             has_provider,
@@ -277,36 +281,6 @@ impl App {
 
         // Update typeahead after any input change
         self.update_typeahead();
-        false
-    }
-
-    /// Handle a key event while the permission dialog is showing.
-    /// Returns true if the dialog should be resolved (user made a choice).
-    pub fn handle_permission_key(&mut self, key: KeyEvent) -> bool {
-        if let Some(dialog) = &mut self.permission_dialog {
-            match key.code {
-                KeyCode::Left => {
-                    dialog.selected = dialog.selected.saturating_sub(1);
-                }
-                KeyCode::Right => {
-                    dialog.selected = (dialog.selected + 1).min(2);
-                }
-                KeyCode::Enter => return true,
-                KeyCode::Char('y') => {
-                    dialog.selected = 0;
-                    return true;
-                }
-                KeyCode::Char('a') => {
-                    dialog.selected = 1;
-                    return true;
-                }
-                KeyCode::Char('n') | KeyCode::Esc => {
-                    dialog.selected = 2;
-                    return true;
-                }
-                _ => {}
-            }
-        }
         false
     }
 
