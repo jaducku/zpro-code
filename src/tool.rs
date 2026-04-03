@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -61,6 +64,42 @@ pub struct ToolUseContext {
     pub abort_signal: CancellationToken,
     /// Channel for sending UI updates during execution
     pub progress_tx: tokio::sync::mpsc::UnboundedSender<ToolProgress>,
+    // Shared state for sub-agent spawning (SkillTool, AgentTool)
+    pub provider: Arc<dyn crate::services::api::provider::LlmProvider>,
+    pub tools: Arc<Vec<Box<dyn Tool>>>,
+    pub commands: Arc<crate::commands::registry::CommandRegistry>,
+    pub system_prompt: Vec<crate::services::api::types::SystemBlock>,
+    pub cwd: PathBuf,
+    pub permission_ctx: crate::types::permissions::ToolPermissionContext,
+    pub permission_tx: tokio::sync::mpsc::UnboundedSender<crate::query::types::PermissionAsk>,
+    pub event_tx: tokio::sync::mpsc::UnboundedSender<crate::query::types::QueryEvent>,
+    pub model: String,
+}
+
+#[cfg(test)]
+impl ToolUseContext {
+    pub fn test(input: serde_json::Value) -> Self {
+        let (progress_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (permission_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (event_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        Self {
+            input,
+            abort_signal: CancellationToken::new(),
+            progress_tx,
+            provider: Arc::new(crate::services::api::provider::NoopProvider),
+            tools: Arc::new(Vec::new()),
+            commands: Arc::new(crate::commands::registry::CommandRegistry::empty()),
+            system_prompt: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            permission_ctx: crate::types::permissions::ToolPermissionContext {
+                mode: crate::types::permissions::PermissionMode::BypassPermissions,
+                ..Default::default()
+            },
+            permission_tx,
+            event_tx,
+            model: "test".into(),
+        }
+    }
 }
 
 /// Result of tool execution

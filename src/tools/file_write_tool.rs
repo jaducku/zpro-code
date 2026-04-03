@@ -99,15 +99,8 @@ impl Tool for FileWriteTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_util::sync::CancellationToken;
-
     fn make_ctx(input: serde_json::Value) -> ToolUseContext {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        ToolUseContext {
-            input,
-            abort_signal: CancellationToken::new(),
-            progress_tx: tx,
-        }
+        ToolUseContext::test(input)
     }
 
     #[tokio::test]

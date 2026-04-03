@@ -1,7 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use crate::commands::registry::CommandRegistry;
+use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
 use crate::services::hooks::HooksSettings;
 use crate::tool::{Tool, ToolResultBlock};
@@ -23,6 +26,8 @@ pub struct QueryContext {
     pub max_turns: Option<u32>,
     /// Maximum budget in USD. None = unlimited.
     pub max_budget_usd: Option<f64>,
+    pub commands: Arc<CommandRegistry>,
+    pub provider: Arc<dyn LlmProvider>,
 }
 
 /// Sent to the TUI when a tool needs user permission
