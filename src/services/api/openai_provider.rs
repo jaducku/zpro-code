@@ -90,17 +90,18 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 status: None,
             })?;
 
+        // Build HTTP request
+        let mut http_req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json");
+
+        if let Some(ref key) = self.api_key {
+            http_req = http_req.header("Authorization", format!("Bearer {}", key));
+        }
+
         if !request.stream {
             // Non-streaming: single request/response
-            let mut http_req = self
-                .client
-                .post(&url)
-                .header("Content-Type", "application/json");
-
-            if let Some(ref key) = self.api_key {
-                http_req = http_req.header("Authorization", format!("Bearer {}", key));
-            }
-
             let resp = http_req.body(body).send().await?;
             let status = resp.status();
             if !status.is_success() {
@@ -115,21 +116,19 @@ impl LlmProvider for OpenAiCompatibleProvider {
             return Ok(Box::pin(stream::iter(events.into_iter().map(Ok))));
         }
 
-        // Streaming: SSE via reqwest-eventsource
-        let mut req = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json");
-        if let Some(ref key) = self.api_key {
-            req = req.header("Authorization", format!("Bearer {}", key));
+        // Streaming: try SSE first, fall back to non-streaming on error
+        let resp = http_req.body(body).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let error_text = resp.text().await.unwrap_or_default();
+            return Err(AtomError::Api {
+                message: format!("API error {}: {}", status, error_text),
+                status: Some(status.as_u16()),
+            });
         }
 
-        let event_source = EventSource::new(req.body(body)).map_err(|e| AtomError::Api {
-            message: e.to_string(),
-            status: None,
-        })?;
-
-        let stream = sse_to_stream_events(event_source);
+        // Parse SSE from the response body manually
+        let stream = parse_sse_response(resp);
         Ok(Box::pin(stream))
     }
 
@@ -202,7 +201,179 @@ fn non_streaming_to_events(resp: OpenAiResponse) -> Vec<StreamEvent> {
     events
 }
 
-/// Convert SSE event source to StreamEvent stream
+/// Parse SSE from a raw reqwest Response using byte streaming
+fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<StreamEvent>> {
+    struct StreamState {
+        message_id: Option<String>,
+        tool_call_index_map: HashMap<usize, usize>,
+        next_content_index: usize,
+        text_started: bool,
+        tool_ids: HashMap<usize, String>,
+        tool_names: HashMap<usize, String>,
+        buffer: String,
+    }
+
+    let state = std::sync::Arc::new(tokio::sync::Mutex::new(StreamState {
+        message_id: None,
+        tool_call_index_map: HashMap::new(),
+        next_content_index: 0,
+        text_started: false,
+        tool_ids: HashMap::new(),
+        tool_names: HashMap::new(),
+        buffer: String::new(),
+    }));
+
+    let byte_stream = resp.bytes_stream();
+
+    let stream = byte_stream
+        .filter_map(move |chunk_result| {
+            let state = state.clone();
+            async move {
+                let chunk = match chunk_result {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        return Some(vec![Err(AtomError::Api {
+                            message: format!("Stream error: {}", e),
+                            status: None,
+                        })]);
+                    }
+                };
+
+                let text = String::from_utf8_lossy(&chunk);
+                let mut state = state.lock().await;
+                state.buffer.push_str(&text);
+
+                let mut all_events: Vec<Result<StreamEvent>> = Vec::new();
+
+                // Process complete lines from buffer
+                while let Some(line_end) = state.buffer.find('\n') {
+                    let line = state.buffer[..line_end].trim_end_matches('\r').to_string();
+                    state.buffer = state.buffer[line_end + 1..].to_string();
+
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
+                    }
+
+                    let data = if let Some(d) = line.strip_prefix("data: ") {
+                        d
+                    } else if let Some(d) = line.strip_prefix("data:") {
+                        d
+                    } else {
+                        continue;
+                    };
+
+                    if data == "[DONE]" {
+                        continue;
+                    }
+
+                    let chunk: OpenAiStreamChunk = match serde_json::from_str(data) {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+
+                    // Message start
+                    if state.message_id.is_none() {
+                        state.message_id = Some(chunk.id.clone());
+                        all_events.push(Ok(StreamEvent::MessageStart { id: chunk.id.clone() }));
+                    }
+
+                    for choice in &chunk.choices {
+                        // Text delta
+                        if let Some(text) = &choice.delta.content {
+                            if !state.text_started {
+                                state.text_started = true;
+                                all_events.push(Ok(StreamEvent::ContentBlockStart {
+                                    index: state.next_content_index,
+                                    content_block: ContentBlock::Text { text: String::new() },
+                                }));
+                            }
+                            if !text.is_empty() {
+                                all_events.push(Ok(StreamEvent::ContentBlockDelta {
+                                    index: state.next_content_index,
+                                    delta: ContentDelta::TextDelta { text: text.clone() },
+                                }));
+                            }
+                        }
+
+                        // Tool call deltas
+                        if let Some(tool_calls) = &choice.delta.tool_calls {
+                            for tc_delta in tool_calls {
+                                let oi = tc_delta.index;
+                                if !state.tool_call_index_map.contains_key(&oi) {
+                                    if state.text_started && state.tool_call_index_map.is_empty() {
+                                        all_events.push(Ok(StreamEvent::ContentBlockStop {
+                                            index: state.next_content_index,
+                                        }));
+                                        state.next_content_index += 1;
+                                        state.text_started = false;
+                                    }
+                                    let ci = state.next_content_index;
+                                    state.tool_call_index_map.insert(oi, ci);
+                                    state.next_content_index += 1;
+                                    if let Some(id) = &tc_delta.id {
+                                        state.tool_ids.insert(oi, id.clone());
+                                    }
+                                    if let Some(func) = &tc_delta.function {
+                                        if let Some(name) = &func.name {
+                                            state.tool_names.insert(oi, name.clone());
+                                        }
+                                    }
+                                    all_events.push(Ok(StreamEvent::ContentBlockStart {
+                                        index: ci,
+                                        content_block: ContentBlock::ToolUse {
+                                            id: state.tool_ids.get(&oi).cloned().unwrap_or_default(),
+                                            name: state.tool_names.get(&oi).cloned().unwrap_or_default(),
+                                            input: serde_json::Value::Object(serde_json::Map::new()),
+                                        },
+                                    }));
+                                }
+                                if let Some(func) = &tc_delta.function {
+                                    if let Some(args) = &func.arguments {
+                                        let ci = state.tool_call_index_map[&oi];
+                                        all_events.push(Ok(StreamEvent::ContentBlockDelta {
+                                            index: ci,
+                                            delta: ContentDelta::InputJsonDelta { partial_json: args.clone() },
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+
+                        // Finish reason
+                        if let Some(reason) = &choice.finish_reason {
+                            if state.text_started {
+                                all_events.push(Ok(StreamEvent::ContentBlockStop {
+                                    index: state.next_content_index,
+                                }));
+                            }
+                            for &ci in state.tool_call_index_map.values() {
+                                all_events.push(Ok(StreamEvent::ContentBlockStop { index: ci }));
+                            }
+                            all_events.push(Ok(StreamEvent::MessageStop {
+                                stop_reason: from_openai_finish_reason(reason),
+                            }));
+                        }
+                    }
+
+                    if let Some(usage) = &chunk.usage {
+                        all_events.push(Ok(StreamEvent::Usage(from_openai_usage(usage))));
+                    }
+                }
+
+                if all_events.is_empty() {
+                    None
+                } else {
+                    Some(all_events)
+                }
+            }
+        })
+        .flat_map(|events| stream::iter(events));
+
+    stream.boxed()
+}
+
+/// Convert SSE event source to StreamEvent stream (legacy, kept for reference)
+#[allow(dead_code)]
 fn sse_to_stream_events(event_source: EventSource) -> BoxStream<'static, Result<StreamEvent>> {
     // State for accumulating tool call deltas
     struct StreamState {
