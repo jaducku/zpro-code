@@ -1,5 +1,6 @@
 pub mod api;
 pub mod compact;
+pub mod config;
 pub mod context;
 pub mod hooks;
 pub mod mcp;

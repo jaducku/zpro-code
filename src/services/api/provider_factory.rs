@@ -23,7 +23,7 @@ pub fn create_provider(
                 model.into(),
             )))
         }
-        Some("openai") | None => {
+        Some("openai") | Some("openrouter") | Some("ollama") | Some("custom") | None => {
             let base = api_base.ok_or_else(|| {
                 anyhow::anyhow!(
                     "--api-base is required. Example: --api-base https://openrouter.ai/api/v1"

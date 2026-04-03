@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use atom_code::commands::CommandRegistry;
 use atom_code::services::api::create_provider;
 use atom_code::services::api::provider::LlmProvider;
+use atom_code::services::config::AtomConfig;
 use atom_code::services::context::assemble_system_prompt;
 use atom_code::services::session_transcript::SessionStore;
 use atom_code::tui::run::run_app;
@@ -566,6 +567,20 @@ fn parse_tool_spec(spec: &str) -> (String, Option<String>) {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Load config file (CLI flags override config values)
+    let config = AtomConfig::load();
+
+    // Merge CLI flags with config: CLI wins
+    let effective_provider = cli.provider.clone().or_else(|| config.provider.clone());
+    let config_api_base = config.api_base_for_provider();
+    let effective_api_base = cli.api_base.clone().or(config_api_base);
+    let effective_api_key = cli.api_key.clone().or_else(|| config.api_key.clone());
+    let effective_model = cli
+        .model
+        .as_deref()
+        .map(|m| config.resolve_model(m))
+        .or_else(|| config.default_model());
+
     // Warn about unimplemented flags
     if cli.json_schema.is_some() {
         eprintln!("Warning: --json-schema is not yet implemented");
@@ -596,10 +611,10 @@ async fn main() -> anyhow::Result<()> {
         None if cli.print => {
             // Print mode: non-interactive
             let provider: Arc<dyn LlmProvider> = match create_provider(
-                cli.provider.as_deref(),
-                cli.api_base.as_deref(),
-                cli.api_key.as_deref(),
-                cli.model.as_deref(),
+                effective_provider.as_deref(),
+                effective_api_base.as_deref(),
+                effective_api_key.as_deref(),
+                effective_model.as_deref(),
             ) {
                 Ok(p) => Arc::from(p),
                 Err(e) => {
@@ -647,13 +662,13 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {
             let provider: Option<Arc<dyn LlmProvider>> = match create_provider(
-                cli.provider.as_deref(),
-                cli.api_base.as_deref(),
-                cli.api_key.as_deref(),
-                cli.model.as_deref(),
+                effective_provider.as_deref(),
+                effective_api_base.as_deref(),
+                effective_api_key.as_deref(),
+                effective_model.as_deref(),
             ) {
                 Ok(p) => Some(Arc::from(p)),
-                Err(e) if cli.provider.is_some() || cli.api_base.is_some() => {
+                Err(e) if effective_provider.is_some() || effective_api_base.is_some() => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
