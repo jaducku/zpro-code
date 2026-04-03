@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::commands::CommandRegistry;
@@ -49,7 +50,7 @@ pub struct App {
     /// Session cost
     pub session_cost: f64,
     /// Command registry for slash commands
-    pub command_registry: CommandRegistry,
+    pub command_registry: Arc<CommandRegistry>,
     /// Currently active TUI command overlay
     pub active_command: Option<ActiveCommand>,
     /// Typeahead state (for '/' commands or '@' file mentions)
@@ -117,7 +118,7 @@ pub struct PermissionDialog {
 }
 
 impl App {
-    pub fn new(model: String, command_registry: CommandRegistry) -> Self {
+    pub fn new(model: String, command_registry: Arc<CommandRegistry>) -> Self {
         let has_provider = model != "(no provider)";
         let mut messages = vec![
             DisplayMessage {
@@ -751,7 +752,7 @@ mod tests {
     use super::*;
 
     fn test_app(model: &str) -> App {
-        App::new(model.into(), CommandRegistry::empty())
+        App::new(model.into(), Arc::new(CommandRegistry::empty()))
     }
 
     #[test]
@@ -841,7 +842,7 @@ mod tests {
 
     #[test]
     fn test_app_has_registry() {
-        let reg = CommandRegistry::new();
+        let reg = Arc::new(CommandRegistry::new());
         let app = App::new("test".into(), reg);
         assert!(app.command_registry.has("clear"));
         assert!(app.command_registry.has("help"));

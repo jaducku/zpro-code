@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use crate::commands::registry::CommandRegistry;
 use crate::query::types::{QueryContext, QueryEvent};
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
@@ -87,15 +88,16 @@ pub async fn run_print_mode(
         cwd,
         max_turns,
         max_budget_usd,
+        commands: Arc::new(CommandRegistry::empty()),
+        provider: provider.clone(),
     };
 
     // 4. Run query
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<QueryEvent>();
     let cancel = tokio_util::sync::CancellationToken::new();
 
-    let provider_clone = provider.clone();
     let query_handle = tokio::spawn(async move {
-        crate::query::engine::query(ctx, &*provider_clone, event_tx, cancel).await
+        crate::query::engine::query(ctx, event_tx, cancel).await
     });
 
     // 5. Process events based on output format

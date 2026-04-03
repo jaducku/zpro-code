@@ -846,6 +846,7 @@ async fn main() -> anyhow::Result<()> {
 
             let mut command_registry = CommandRegistry::new();
             command_registry.load_skill_dir_commands(&cwd).await?;
+            let command_registry = Arc::new(command_registry);
             run_app(
                 provider,
                 mcp_manager,

@@ -30,7 +30,7 @@ pub async fn run_app(
     provider: Option<Arc<dyn LlmProvider>>,
     mcp_manager: McpConnectionManager,
     system_prompt: Option<Vec<SystemBlock>>,
-    command_registry: CommandRegistry,
+    command_registry: Arc<CommandRegistry>,
     permission_mode: PermissionMode,
     resume_transcript: Option<SessionTranscript>,
     no_session_persistence: bool,
@@ -563,6 +563,8 @@ async fn submit_query(
         cwd,
         max_turns: None,       // TUI mode: no turn limit
         max_budget_usd: None,  // TUI mode: no budget limit
+        commands: app.command_registry.clone(),
+        provider: provider.clone(),
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();
@@ -570,7 +572,7 @@ async fn submit_query(
     // Spawn query as background task
     let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
-        match crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
+        match crate::query::engine::query(ctx, event_tx.clone(), cancel).await {
             Ok(_) => {}
             Err(e) => {
                 let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
@@ -653,12 +655,14 @@ async fn submit_query_skill(
         cwd,
         max_turns: None,
         max_budget_usd: None,
+        commands: app.command_registry.clone(),
+        provider: provider.clone(),
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();
     let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
-        match crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
+        match crate::query::engine::query(ctx, event_tx.clone(), cancel).await {
             Ok(_) => {}
             Err(e) => {
                 let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
