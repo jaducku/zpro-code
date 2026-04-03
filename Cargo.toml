@@ -58,6 +58,7 @@ qrcode = "0.14"
 opentelemetry = "0.27"
 base64 = "0.22"
 hostname = "0.4"
+regex = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"
