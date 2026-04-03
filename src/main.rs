@@ -7,7 +7,6 @@ use atom_code::services::api::create_provider;
 use atom_code::services::api::provider::LlmProvider;
 use atom_code::services::context::assemble_system_prompt;
 use atom_code::services::session_transcript::SessionStore;
-use atom_code::tools::get_builtin_tools;
 use atom_code::tui::run::run_app;
 use atom_code::types::permissions::PermissionMode;
 
@@ -474,8 +473,20 @@ async fn main() -> anyhow::Result<()> {
                 Err(_) => None, // no-provider mode
             };
 
-            let tools = get_builtin_tools();
             let cwd = std::env::current_dir().unwrap_or_default();
+
+            // Load MCP configs and connect servers
+            let mcp_configs = atom_code::services::mcp::load_mcp_configs(
+                &cwd,
+                cli.mcp_config.as_deref().unwrap_or(&[]),
+            );
+
+            let mut mcp_manager = atom_code::services::mcp::McpConnectionManager::new(mcp_configs);
+            let mcp_errors = mcp_manager.connect_all().await;
+            for err in &mcp_errors {
+                eprintln!("Warning: MCP server error: {}", err);
+            }
+
             let system_prompt = Some(assemble_system_prompt(
                 &cwd,
                 cli.system_prompt.as_deref(),
@@ -532,7 +543,7 @@ async fn main() -> anyhow::Result<()> {
             };
 
             let command_registry = CommandRegistry::new();
-            run_app(provider, tools, system_prompt, command_registry, permission_mode, resume_transcript).await?;
+            run_app(provider, mcp_manager, system_prompt, command_registry, permission_mode, resume_transcript).await?;
         }
     }
 

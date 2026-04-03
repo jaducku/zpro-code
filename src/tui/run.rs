@@ -17,7 +17,9 @@ use crate::commands::types::{CommandAction, LocalCommandResult};
 use crate::query::{PermissionAsk, PermissionReply, QueryEvent};
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
+use crate::services::mcp::McpConnectionManager;
 use crate::services::session_transcript::{SessionStore, SessionTranscript};
+use crate::tools::get_builtin_tools;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
 use crate::types::permissions::{PermissionMode, ToolPermissionContext};
@@ -25,7 +27,7 @@ use crate::types::permissions::{PermissionMode, ToolPermissionContext};
 /// Run the TUI application
 pub async fn run_app(
     provider: Option<Arc<dyn LlmProvider>>,
-    _tools: Vec<Box<dyn crate::tool::Tool>>,
+    mcp_manager: McpConnectionManager,
     system_prompt: Option<Vec<SystemBlock>>,
     command_registry: CommandRegistry,
     permission_mode: PermissionMode,
@@ -150,12 +152,12 @@ pub async fn run_app(
                                     app.accept_typeahead();
                                 }
                                 let input = app.take_input();
-                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx).await;
+                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager).await;
                             } else {
                                 let typeahead_accepted = app.handle_key(key);
                                 if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager).await;
                                 }
                             }
                         }
@@ -219,6 +221,7 @@ async fn handle_submit(
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    mcp_manager: &McpConnectionManager,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
@@ -226,7 +229,7 @@ async fn handle_submit(
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx);
+    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager).await;
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -369,7 +372,7 @@ async fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
     }
 }
 
-fn submit_query(
+async fn submit_query(
     app: &mut App,
     input: &str,
     provider: &Option<Arc<dyn LlmProvider>>,
@@ -377,6 +380,7 @@ fn submit_query(
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    mcp_manager: &McpConnectionManager,
 ) {
     let Some(provider) = provider.clone() else {
         app.push_message(DisplayMessage {
@@ -406,12 +410,16 @@ fn submit_query(
     let (perm_tx, perm_rx) = mpsc::unbounded_channel();
     *permission_rx = Some(perm_rx);
 
+    // Gather tools: built-in + MCP
+    let mut tools = get_builtin_tools();
+    tools.extend(mcp_manager.get_all_tools().await);
+
     // Build query context
     let cwd = std::env::current_dir().unwrap_or_default();
     let hooks = crate::services::hooks::load_hooks(&cwd);
     let ctx = crate::query::QueryContext {
         messages: app.api_messages.clone(),
-        tools: vec![], // Tools passed separately in future
+        tools,
         system_prompt: system_prompt.clone(),
         model: provider.model_info().id.clone(),
         max_tokens: provider.model_info().max_output_tokens,
