@@ -48,7 +48,7 @@ pub fn execute_hooks(
     let matching_hooks: Vec<_> = hooks
         .iter()
         .filter(|h| h.hook_type == type_str)
-        .filter(|h| h.tool_name.as_ref().map_or(true, |n| n == tool_name))
+        .filter(|h| h.tool_name.as_ref().is_none_or(|n| n == tool_name))
         .collect();
 
     if matching_hooks.is_empty() {
