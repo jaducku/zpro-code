@@ -4,6 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::*;
+use crate::services::hooks::{execute_hooks, HookResult, HookType};
 use crate::tool::{ToolCall, ToolProgress, ToolResultBlock, ToolUseContext};
 use crate::tools::find_tool_by_name;
 use crate::types::content::ContentBlock;
@@ -216,17 +217,72 @@ pub async fn query(
                 continue;
             }
 
+            // PreToolUse hooks
+            if !ctx.hooks.is_empty() {
+                let hook_result = execute_hooks(
+                    HookType::PreToolUse,
+                    &tc.name,
+                    &tc.input,
+                    None,
+                    &ctx.hooks,
+                    &ctx.cwd,
+                );
+                match hook_result {
+                    HookResult::Allow => {}
+                    HookResult::Deny { reason } => {
+                        let block = ToolResultBlock::error(
+                            tc.id.clone(),
+                            format!("Blocked by hook: {}", reason),
+                        );
+                        let _ = event_tx.send(QueryEvent::ToolCallComplete {
+                            id: tc.id.clone(),
+                            result: block.clone(),
+                        });
+                        tool_result_blocks.push(block);
+                        continue;
+                    }
+                    HookResult::Error { message } => {
+                        let block =
+                            ToolResultBlock::error(tc.id.clone(), format!("Hook error: {}", message));
+                        let _ = event_tx.send(QueryEvent::ToolCallComplete {
+                            id: tc.id.clone(),
+                            result: block.clone(),
+                        });
+                        tool_result_blocks.push(block);
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+
             // Execute tool
             let result = execute_tool(tc, &ctx.tools, &abort_signal).await;
             let block = match result {
                 Ok(tr) => {
-                    let block = ToolResultBlock::success(tc.id.clone(), tr.content.clone());
+                    let mut content = tr.content.clone();
+
+                    // PostToolUse hooks
+                    if !ctx.hooks.is_empty() {
+                        let hook_result = execute_hooks(
+                            HookType::PostToolUse,
+                            &tc.name,
+                            &tc.input,
+                            Some(&content),
+                            &ctx.hooks,
+                            &ctx.cwd,
+                        );
+                        if let HookResult::Modified { output } = hook_result {
+                            content = output;
+                        }
+                    }
+
+                    let block = ToolResultBlock::success(tc.id.clone(), content.clone());
                     let _ = event_tx.send(QueryEvent::ToolCallComplete {
                         id: tc.id.clone(),
                         result: block.clone(),
                     });
                     if tr.is_error {
-                        ToolResultBlock::error(tc.id.clone(), tr.content)
+                        ToolResultBlock::error(tc.id.clone(), content)
                     } else {
                         block
                     }
@@ -312,6 +368,8 @@ mod tests {
                 ..Default::default()
             },
             permission_tx,
+            hooks: Vec::new(),
+            cwd: std::path::PathBuf::from("."),
         }
     }
 

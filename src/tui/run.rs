@@ -405,6 +405,8 @@ fn submit_query(
     *permission_rx = Some(perm_rx);
 
     // Build query context
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let hooks = crate::services::hooks::load_hooks(&cwd);
     let ctx = crate::query::QueryContext {
         messages: app.api_messages.clone(),
         tools: vec![], // Tools passed separately in future
@@ -416,6 +418,8 @@ fn submit_query(
             ..Default::default()
         },
         permission_tx: perm_tx,
+        hooks,
+        cwd,
     };
 
     let event_tx = query_event_tx.clone();
