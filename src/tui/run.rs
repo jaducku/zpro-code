@@ -73,59 +73,62 @@ pub async fn run_app(
             }
         })?;
 
-        // Handle events: drain ALL pending query events first, then check terminal
-        // This ensures streaming responses are processed promptly.
-        loop {
-            match query_event_rx.try_recv() {
-                Ok(event) => app.handle_query_event(event),
-                Err(_) => break,
-            }
-        }
-
-        // Poll terminal events (non-blocking, 50ms timeout)
-        if event::poll(std::time::Duration::from_millis(50)).unwrap_or(false) {
-            if let Ok(ev) = event::read() {
-                match ev {
-                    Event::Key(key) => {
-                        // If a TUI command is active, route keys to it
-                        if app.active_command.is_some() {
-                            let cmd_name = app.active_command.as_ref().unwrap().command_name.clone();
-                            if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
-                                let state = &mut app.active_command.as_mut().unwrap().state;
-                                let action = tui_cmd.handle_key(key, state.as_mut());
-                                match action {
-                                    CommandAction::Done(_) => {
-                                        app.active_command = None;
+        // Use tokio::select! to handle both terminal events and query events concurrently.
+        // Terminal polling is wrapped in spawn_blocking to avoid blocking the tokio runtime.
+        tokio::select! {
+            // Terminal events via spawn_blocking (doesn't block tokio runtime)
+            terminal_event = tokio::task::spawn_blocking(|| {
+                if event::poll(std::time::Duration::from_millis(30)).unwrap_or(false) {
+                    event::read().ok()
+                } else {
+                    None
+                }
+            }) => {
+                if let Ok(Some(ev)) = terminal_event {
+                    match ev {
+                        Event::Key(key) => {
+                            if app.active_command.is_some() {
+                                let cmd_name = app.active_command.as_ref().unwrap().command_name.clone();
+                                if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
+                                    let state = &mut app.active_command.as_mut().unwrap().state;
+                                    let action = tui_cmd.handle_key(key, state.as_mut());
+                                    match action {
+                                        CommandAction::Done(_) => {
+                                            app.active_command = None;
+                                        }
+                                        CommandAction::SetInput(text) => {
+                                            app.input = text;
+                                            app.cursor_pos = app.input.chars().count();
+                                            app.active_command = None;
+                                        }
+                                        CommandAction::Continue => {}
                                     }
-                                    CommandAction::SetInput(text) => {
-                                        app.input = text;
-                                        app.cursor_pos = app.input.chars().count();
-                                        app.active_command = None;
-                                    }
-                                    CommandAction::Continue => {}
                                 }
-                            }
-                        } else if key.code == KeyCode::Enter && !app.is_loading && !app.input.is_empty() {
-                            // If typeahead is open, accept it first; then submit
-                            if app.typeahead.is_some() {
-                                app.accept_typeahead();
-                            }
-                            let input = app.take_input();
-                            handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx).await;
-                        } else {
-                            let typeahead_accepted = app.handle_key(key);
-                            if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
-                                // Typeahead accepted via Enter — submit immediately
+                            } else if key.code == KeyCode::Enter && !app.is_loading && !app.input.is_empty() {
+                                if app.typeahead.is_some() {
+                                    app.accept_typeahead();
+                                }
                                 let input = app.take_input();
                                 handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx).await;
+                            } else {
+                                let typeahead_accepted = app.handle_key(key);
+                                if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
+                                    let input = app.take_input();
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx).await;
+                                }
                             }
                         }
+                        Event::Resize(w, h) => {
+                            app.status = format!("Model: {} | {}x{}", model, w, h);
+                        }
+                        _ => {}
                     }
-                    Event::Resize(w, h) => {
-                        app.status = format!("Model: {} | {}x{}", model, w, h);
-                    }
-                    _ => {}
                 }
+            }
+
+            // Query events from the spawned query task
+            Some(event) = query_event_rx.recv() => {
+                app.handle_query_event(event);
             }
         }
 
