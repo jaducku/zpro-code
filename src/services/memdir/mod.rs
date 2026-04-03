@@ -1,3 +1,4 @@
+pub mod extraction;
 pub mod paths;
 pub mod relevance;
 pub mod scan;
