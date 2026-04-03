@@ -471,7 +471,6 @@ async fn submit_query(
         max_budget_usd: None,  // TUI mode: no budget limit
     };
 
-    let event_tx = query_event_tx.clone();
     let cancel = tokio_util::sync::CancellationToken::new();
 
     // Spawn query as background task
