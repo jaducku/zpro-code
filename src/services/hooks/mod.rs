@@ -1,9 +1,11 @@
+pub mod agent_hook;
 pub mod async_registry;
 pub mod command_hook;
 pub mod compat;
 pub mod executor;
 pub mod http_hook;
 pub mod matcher;
+pub mod prompt_hook;
 pub mod settings;
 pub mod types;
 
