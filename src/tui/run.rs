@@ -259,7 +259,7 @@ async fn handle_submit(
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
-        dispatch_slash_command(app, &name, &args).await;
+        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
         return;
     }
 
@@ -275,7 +275,21 @@ enum FoundCommand {
     NotFound,
 }
 
-async fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_slash_command(
+    app: &mut App,
+    name: &str,
+    args: &str,
+    provider: &Option<Arc<dyn LlmProvider>>,
+    system_prompt: &Option<Vec<SystemBlock>>,
+    query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
+    permission_mode: &PermissionMode,
+    permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    mcp_manager: &McpConnectionManager,
+    allow_rules: &[PermissionRule],
+    deny_rules: &[PermissionRule],
+    tools_filter: &Option<Vec<String>>,
+) {
     // First pass: identify the command kind and extract needed data without
     // holding a mutable borrow on app.
     let found = match app.command_registry.find(name) {
@@ -385,6 +399,12 @@ async fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
             }
         }
         FoundCommand::Prompt { progress } => {
+            use crate::commands::context::{CommandContext, CommandOptions, MessageUpdate, UiEvent};
+            use crate::state::AppState;
+            use std::path::PathBuf;
+            use std::sync::Arc;
+            use tokio::sync::RwLock;
+
             app.push_message(DisplayMessage {
                 role: DisplayRole::User,
                 content: format!("/{}{}", name, if args.is_empty() { String::new() } else { format!(" {}", args) }),
@@ -392,9 +412,64 @@ async fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
             });
             app.push_message(DisplayMessage {
                 role: DisplayRole::System,
-                content: format!("{}... (LLM integration pending)", progress),
+                content: format!("{}...", progress),
                 tool_name: None,
             });
+
+            // Build a CommandContext for get_prompt()
+            let (msg_tx, _msg_rx) = tokio::sync::mpsc::unbounded_channel::<MessageUpdate>();
+            let (ui_tx, _ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let cmd_ctx = CommandContext {
+                app_state: Arc::new(RwLock::new(AppState::default())),
+                abort_signal: tokio_util::sync::CancellationToken::new(),
+                cwd,
+                message_tx: msg_tx,
+                ui_event_tx: ui_tx,
+                options: CommandOptions {
+                    theme: "default".to_string(),
+                },
+            };
+
+            // Re-lookup the command and call get_prompt()
+            let args_owned = args.to_string();
+            let prompt_result = if let Some(Command::Prompt(cmd)) = app.command_registry.find(name) {
+                cmd.get_prompt(&args_owned, &cmd_ctx).await
+            } else {
+                Err(anyhow::anyhow!("Command /{} not found as PromptCommand", name))
+            };
+
+            match prompt_result {
+                Ok(blocks) => {
+                    // Extract text from content blocks
+                    let text: String = blocks
+                        .iter()
+                        .filter_map(|b| match b {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    if text.is_empty() {
+                        app.push_message(DisplayMessage {
+                            role: DisplayRole::System,
+                            content: format!("/{} produced no prompt content.", name),
+                            tool_name: None,
+                        });
+                    } else {
+                        // Submit the prompt text as a regular query
+                        submit_query(app, &text, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+                    }
+                }
+                Err(e) => {
+                    app.push_message(DisplayMessage {
+                        role: DisplayRole::System,
+                        content: format!("Error running /{}: {}", name, e),
+                        tool_name: None,
+                    });
+                }
+            }
         }
         FoundCommand::NotFound => {
             app.push_message(DisplayMessage {
