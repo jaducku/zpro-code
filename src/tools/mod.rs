@@ -6,6 +6,7 @@ pub mod file_write_tool;
 pub mod glob_tool;
 pub mod grep_tool;
 pub mod skill_tool;
+pub mod sleep_tool;
 
 use crate::tool::Tool;
 
@@ -20,6 +21,7 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(glob_tool::GlobTool),
         Box::new(grep_tool::GrepTool),
         Box::new(skill_tool::SkillTool),
+        Box::new(sleep_tool::SleepTool),
     ]
 }
 
