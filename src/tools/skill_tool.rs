@@ -10,7 +10,6 @@ use crate::query::engine::query;
 use crate::query::types::QueryContext;
 use crate::state::AppState;
 use crate::tool::{Tool, ToolResult, ToolUseContext};
-use crate::tools::get_builtin_tools;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
 
@@ -165,7 +164,9 @@ async fn execute_forked_skill(
                 text: prompt_text.to_string(),
             }],
         }],
-        tools: get_builtin_tools(),
+        // Box<dyn Tool> isn't Clone — create fresh tool instances.
+        // TODO: share MCP tools from parent when tool sharing is implemented
+        tools: crate::tools::get_builtin_tools(),
         system_prompt: Some(parent_ctx.system_prompt.clone()),
         model: parent_ctx.model.clone(),
         max_tokens: 16_384,
