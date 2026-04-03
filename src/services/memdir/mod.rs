@@ -1,4 +1,5 @@
 pub mod paths;
+pub mod relevance;
 pub mod scan;
 pub mod truncation;
 pub mod types;
