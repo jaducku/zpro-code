@@ -7,6 +7,7 @@ pub fn assemble_system_prompt(
     cwd: &Path,
     custom_prompt: Option<&str>,
     append_prompt: Option<&str>,
+    output_style: Option<&str>,
 ) -> Vec<SystemBlock> {
     let mut blocks = Vec::new();
 
@@ -28,6 +29,15 @@ pub fn assemble_system_prompt(
         blocks.push(SystemBlock::Text {
             text: format!("# Memory\n\n{}", memory_content),
         });
+    }
+
+    // 3b. Output style
+    if let Some(style_name) = output_style {
+        if let Some(style_config) = crate::services::output_styles::get_output_style_config(cwd, style_name) {
+            blocks.push(SystemBlock::Text {
+                text: format!("# Output Style: {}\n\n{}", style_config.name, style_config.prompt),
+            });
+        }
     }
 
     // 4. Git context
@@ -183,7 +193,7 @@ mod tests {
     #[test]
     fn test_assemble_with_no_agents_md() {
         let dir = TempDir::new().unwrap();
-        let blocks = assemble_system_prompt(dir.path(), None, None);
+        let blocks = assemble_system_prompt(dir.path(), None, None, None);
         assert!(!blocks.is_empty()); // at least core instructions
     }
 
@@ -191,7 +201,7 @@ mod tests {
     fn test_assemble_with_agents_md() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("AGENTS.md"), "Use TypeScript.").unwrap();
-        let blocks = assemble_system_prompt(dir.path(), None, None);
+        let blocks = assemble_system_prompt(dir.path(), None, None, None);
         let full: String = blocks
             .iter()
             .map(|b| match b {
@@ -205,7 +215,7 @@ mod tests {
     #[test]
     fn test_custom_prompt_overrides() {
         let dir = TempDir::new().unwrap();
-        let blocks = assemble_system_prompt(dir.path(), Some("Custom only"), None);
+        let blocks = assemble_system_prompt(dir.path(), Some("Custom only"), None, None);
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             SystemBlock::Text { text } => assert_eq!(text, "Custom only"),
@@ -223,7 +233,7 @@ mod tests {
     #[test]
     fn test_append_prompt() {
         let dir = TempDir::new().unwrap();
-        let blocks = assemble_system_prompt(dir.path(), None, Some("Extra info"));
+        let blocks = assemble_system_prompt(dir.path(), None, Some("Extra info"), None);
         let last = blocks.last().unwrap();
         match last {
             SystemBlock::Text { text } => assert!(text.contains("Extra info")),

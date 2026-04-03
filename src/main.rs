@@ -727,6 +727,7 @@ async fn main() -> anyhow::Result<()> {
                 &cwd,
                 cli.system_prompt.as_deref(),
                 cli.append_system_prompt.as_deref(),
+                None,
             );
 
             let output_format = match cli.output_format {
@@ -781,6 +782,7 @@ async fn main() -> anyhow::Result<()> {
                 &cwd,
                 cli.system_prompt.as_deref(),
                 cli.append_system_prompt.as_deref(),
+                None,
             ));
 
             let permission_mode = if cli.dangerously_skip_permissions {

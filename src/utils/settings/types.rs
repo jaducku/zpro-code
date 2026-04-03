@@ -71,6 +71,14 @@ pub struct SettingsJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_memory_directory: Option<String>,
 
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_style: Option<String>,
+
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled_plugins: Option<HashMap<String, bool>>,
+
     /// Passthrough for unknown fields
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -105,6 +113,8 @@ impl Default for SettingsJson {
             enable_all_project_mcp_servers: None,
             auto_memory_enabled: None,
             auto_memory_directory: None,
+            output_style: None,
+            enabled_plugins: None,
             extra: HashMap::new(),
         }
     }
