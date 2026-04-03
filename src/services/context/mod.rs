@@ -23,7 +23,14 @@ pub fn assemble_system_prompt(
         });
     }
 
-    // 3. Git context
+    // 3. Memory (auto-memory from .memory/ dir)
+    if let Some(memory_content) = crate::services::memdir::load_memory_prompt(cwd) {
+        blocks.push(SystemBlock::Text {
+            text: format!("# Memory\n\n{}", memory_content),
+        });
+    }
+
+    // 4. Git context
     let git_context = gather_git_context(cwd);
     if !git_context.is_empty() {
         blocks.push(SystemBlock::Text {
@@ -31,14 +38,14 @@ pub fn assemble_system_prompt(
         });
     }
 
-    // 4. Custom system prompt (--system-prompt overrides core)
+    // 5. Custom system prompt (--system-prompt overrides core)
     if let Some(custom) = custom_prompt {
         blocks = vec![SystemBlock::Text {
             text: custom.to_string(),
         }];
     }
 
-    // 5. Append prompt (--append-system-prompt adds to end)
+    // 6. Append prompt (--append-system-prompt adds to end)
     if let Some(append) = append_prompt {
         blocks.push(SystemBlock::Text {
             text: append.to_string(),
@@ -203,6 +210,14 @@ mod tests {
         match &blocks[0] {
             SystemBlock::Text { text } => assert_eq!(text, "Custom only"),
         }
+    }
+
+    #[test]
+    fn test_load_memory_prompt_returns_none_without_git() {
+        let dir = TempDir::new().unwrap();
+        // No git repo → get_auto_mem_path returns None → load_memory_prompt returns None
+        let result = crate::services::memdir::load_memory_prompt(dir.path());
+        assert!(result.is_none());
     }
 
     #[test]
