@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use atom_code::commands::CommandRegistry;
 use atom_code::services::api::create_provider;
 use atom_code::services::api::provider::LlmProvider;
-use atom_code::services::api::types::SystemBlock;
+use atom_code::services::context::assemble_system_prompt;
 use atom_code::services::session_transcript::SessionStore;
 use atom_code::tools::get_builtin_tools;
 use atom_code::tui::run::run_app;
@@ -475,8 +475,12 @@ async fn main() -> anyhow::Result<()> {
             };
 
             let tools = get_builtin_tools();
-            let system_prompt =
-                cli.system_prompt.map(|s| vec![SystemBlock::Text { text: s }]);
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let system_prompt = Some(assemble_system_prompt(
+                &cwd,
+                cli.system_prompt.as_deref(),
+                cli.append_system_prompt.as_deref(),
+            ));
 
             let permission_mode = if cli.dangerously_skip_permissions {
                 PermissionMode::BypassPermissions
