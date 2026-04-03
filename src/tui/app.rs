@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use crate::commands::CommandRegistry;
 use crate::query::{PermissionReply, QueryEvent};
+use crate::services::file_index::FileIndex;
 use crate::services::session_transcript::SessionTranscript;
 use crate::types::message::{ApiMessage, Role};
 
@@ -55,6 +56,8 @@ pub struct App {
     pub typeahead: Option<TypeaheadState>,
     /// Working directory for file suggestions
     pub cwd: PathBuf,
+    /// File index for fast @ mention search (built lazily on first use)
+    pub file_index: Option<FileIndex>,
     /// Disable session persistence
     pub no_session_persistence: bool,
     /// Model override (set by /model command for hot-swap)
@@ -161,6 +164,7 @@ impl App {
             active_command: None,
             typeahead: None,
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            file_index: None,
             no_session_persistence: false,
             model_override: None,
         }
@@ -374,8 +378,50 @@ impl App {
         }
     }
 
+    /// Build the file index lazily on first @ trigger using git ls-files.
+    pub fn ensure_file_index(&mut self) {
+        if self.file_index.is_some() {
+            return;
+        }
+        if let Ok(output) = std::process::Command::new("git")
+            .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+            .current_dir(&self.cwd)
+            .output()
+        {
+            if output.status.success() {
+                let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .map(|s| s.to_string())
+                    .collect();
+                let mut index = FileIndex::new();
+                index.load_from_file_list(files);
+                self.file_index = Some(index);
+            }
+        }
+    }
+
     fn update_file_typeahead(&mut self, token_start: usize, query: &str) {
-        let items = get_file_suggestions(&self.cwd, query);
+        self.ensure_file_index();
+
+        let items = if let Some(ref index) = self.file_index {
+            let results = index.search(query, 15);
+            results
+                .into_iter()
+                .map(|r| {
+                    let desc = if r.path.ends_with('/') {
+                        "dir".to_string()
+                    } else {
+                        Path::new(&r.path)
+                            .extension()
+                            .map(|e| e.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "file".to_string())
+                    };
+                    (r.path, desc)
+                })
+                .collect()
+        } else {
+            get_file_suggestions(&self.cwd, query)
+        };
 
         if items.is_empty() {
             self.typeahead = None;
