@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::commands::CommandRegistry;
 use crate::query::QueryEvent;
-use crate::types::message::ApiMessage;
+use crate::types::message::{ApiMessage, Role};
 
 /// State for a currently active TUI command overlay.
 pub struct ActiveCommand {
@@ -413,6 +413,17 @@ impl App {
             }
             QueryEvent::ResponseComplete { .. } => {
                 self.is_loading = false;
+                // Add assistant response to api_messages for conversation continuity
+                if let Some(last) = self.messages.last() {
+                    if last.role == DisplayRole::Assistant {
+                        self.api_messages.push(ApiMessage {
+                            role: Role::Assistant,
+                            content: vec![crate::types::content::ContentBlock::Text {
+                                text: last.content.clone(),
+                            }],
+                        });
+                    }
+                }
             }
             QueryEvent::Error(msg) => {
                 self.messages.push(DisplayMessage {
