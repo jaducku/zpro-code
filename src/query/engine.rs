@@ -1,8 +1,9 @@
+use std::sync::Arc;
+
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::*;
 use crate::services::hooks::{execute_event_hooks, HookOutcome};
 use crate::tool::{ToolCall, ToolProgress, ToolResultBlock, ToolUseContext};
@@ -20,10 +21,10 @@ const MAX_TOOL_LOOPS: usize = 50;
 /// Execute the query loop: LLM call -> tool execution -> repeat until done
 pub async fn query(
     mut ctx: QueryContext,
-    provider: &dyn LlmProvider,
     event_tx: mpsc::UnboundedSender<QueryEvent>,
     abort_signal: CancellationToken,
 ) -> crate::types::Result<QueryResult> {
+    let tools_arc = Arc::new(std::mem::take(&mut ctx.tools));
     let mut loop_count = 0;
     let max_loops = ctx.max_turns.map(|t| t as usize).unwrap_or(MAX_TOOL_LOOPS);
     let mut total_cost: f64 = 0.0;
@@ -78,7 +79,7 @@ pub async fn query(
             model: ctx.model.clone(),
             messages: ctx.messages.clone(),
             tools: Some(
-                ctx.tools
+                tools_arc
                     .iter()
                     .map(|t| crate::tool::ToolDefinition::from(t.as_ref()))
                     .collect(),
@@ -90,7 +91,7 @@ pub async fn query(
         };
 
         // 2. Stream response
-        let mut stream = provider.create_message(request).await?;
+        let mut stream = ctx.provider.create_message(request).await?;
 
         let mut text_content = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
@@ -196,7 +197,7 @@ pub async fn query(
         let mut tool_result_blocks = Vec::new();
         for tc in &tool_calls {
             // Permission check
-            let tool = find_tool_by_name(&ctx.tools, &tc.name);
+            let tool = find_tool_by_name(&tools_arc, &tc.name);
             let meta = tool
                 .map(|t| t.permission_metadata(&tc.input))
                 .unwrap_or(PermissionMeta {
@@ -293,7 +294,7 @@ pub async fn query(
             }
 
             // Execute tool
-            let result = execute_tool(tc, &ctx.tools, &abort_signal).await;
+            let result = execute_tool(tc, &tools_arc, &abort_signal, &ctx, &tools_arc, &event_tx).await;
             let block = match result {
                 Ok(tr) => {
                     let mut content = tr.content.clone();
@@ -376,6 +377,9 @@ async fn execute_tool(
     tc: &ToolCall,
     tools: &[Box<dyn crate::tool::Tool>],
     abort_signal: &CancellationToken,
+    ctx: &QueryContext,
+    tools_arc: &Arc<Vec<Box<dyn crate::tool::Tool>>>,
+    event_tx: &mpsc::UnboundedSender<QueryEvent>,
 ) -> crate::types::Result<crate::tool::ToolResult> {
     let tool = find_tool_by_name(tools, &tc.name).ok_or_else(|| crate::types::AtomError::Tool {
         tool_name: tc.name.clone(),
@@ -384,19 +388,29 @@ async fn execute_tool(
 
     let (progress_tx, _progress_rx) = mpsc::unbounded_channel::<ToolProgress>();
 
-    let ctx = ToolUseContext {
+    let tool_ctx = ToolUseContext {
         input: tc.input.clone(),
         abort_signal: abort_signal.clone(),
         progress_tx,
+        provider: ctx.provider.clone(),
+        tools: tools_arc.clone(),
+        commands: ctx.commands.clone(),
+        system_prompt: ctx.system_prompt.clone().unwrap_or_default(),
+        cwd: ctx.cwd.clone(),
+        permission_ctx: ctx.permission_ctx.clone(),
+        permission_tx: ctx.permission_tx.clone(),
+        event_tx: event_tx.clone(),
+        model: ctx.model.clone(),
     };
 
-    tool.execute(ctx).await
+    tool.execute(tool_ctx).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use crate::services::api::provider::LlmProvider;
     use crate::types::permissions::{PermissionMeta, PermissionMode, ToolPermissionContext};
 
     /// Create a test QueryContext that bypasses all permissions
@@ -420,6 +434,8 @@ mod tests {
             cwd: std::path::PathBuf::from("."),
             max_turns: None,
             max_budget_usd: None,
+            commands: Arc::new(crate::commands::registry::CommandRegistry::empty()),
+            provider: Arc::new(crate::services::api::provider::NoopProvider),
         }
     }
 
@@ -517,7 +533,7 @@ mod tests {
         };
 
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-        let ctx = test_query_context(
+        let mut ctx = test_query_context(
             vec![ApiMessage {
                 role: Role::User,
                 content: vec![ContentBlock::Text {
@@ -526,8 +542,9 @@ mod tests {
             }],
             vec![],
         );
+        ctx.provider = Arc::new(provider);
 
-        let result = query(ctx, &provider, event_tx, CancellationToken::new())
+        let result = query(ctx, event_tx, CancellationToken::new())
             .await
             .unwrap();
 
@@ -630,9 +647,8 @@ mod tests {
             }
         }
 
-        let provider = TwoStepProvider { call_count: cc };
         let (event_tx, _event_rx) = mpsc::unbounded_channel();
-        let ctx = test_query_context(
+        let mut ctx = test_query_context(
             vec![ApiMessage {
                 role: Role::User,
                 content: vec![ContentBlock::Text {
@@ -641,8 +657,9 @@ mod tests {
             }],
             vec![Box::new(EchoTool)],
         );
+        ctx.provider = Arc::new(TwoStepProvider { call_count: cc });
 
-        let result = query(ctx, &provider, event_tx, CancellationToken::new())
+        let result = query(ctx, event_tx, CancellationToken::new())
             .await
             .unwrap();
 
