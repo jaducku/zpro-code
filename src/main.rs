@@ -224,6 +224,12 @@ enum SubCmd {
 
     /// Set up API token interactively
     SetupToken,
+
+    /// Configuration management
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -348,6 +354,27 @@ enum PluginAction {
         #[arg(long)]
         json: bool,
     },
+}
+
+// ---------------------------------------------------------------------------
+// Config sub-actions
+// ---------------------------------------------------------------------------
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Show current config
+    Show,
+    /// Set a config value
+    Set {
+        key: String,
+        value: String,
+    },
+    /// Get a config value
+    Get {
+        key: String,
+    },
+    /// Show config file path
+    Path,
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +566,58 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
         }
         SubCmd::SetupToken => {
             eprintln!("setup-token: interactive token setup (not yet implemented)");
+        }
+        SubCmd::Config { action } => execute_config_action(action).await?,
+    }
+    Ok(())
+}
+
+async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
+    match action {
+        ConfigAction::Show => {
+            let config = AtomConfig::load();
+            println!("{}", serde_json::to_string_pretty(&config)?);
+        }
+        ConfigAction::Path => {
+            println!("{}", atom_code::utils::paths::global_config_dir().join("config.json").display());
+        }
+        ConfigAction::Get { key } => {
+            let config = AtomConfig::load();
+            let value = match key.as_str() {
+                "provider" => config.provider.unwrap_or_default(),
+                "api_key" => "(hidden)".to_string(),
+                "api_base" => config.api_base.unwrap_or_default(),
+                "default_model" => config.default_model.unwrap_or_default(),
+                "permission_mode" => config.permission_mode.unwrap_or_default(),
+                other => {
+                    // Check models map
+                    config.models.get(other)
+                        .cloned()
+                        .unwrap_or_else(|| format!("Unknown key: {}", other))
+                }
+            };
+            println!("{}", value);
+        }
+        ConfigAction::Set { key, value } => {
+            let mut config = AtomConfig::load();
+            match key.as_str() {
+                "provider" => config.provider = Some(value),
+                "api_key" => {
+                    let encrypted = atom_code::services::keychain::encrypt_api_key(&value);
+                    config.api_key = Some(encrypted);
+                    println!("API key encrypted and saved.");
+                }
+                "api_base" => config.api_base = Some(value),
+                "default_model" => config.default_model = Some(value),
+                "permission_mode" => config.permission_mode = Some(value),
+                other => {
+                    // Treat as model alias
+                    config.models.insert(other.to_string(), value.clone());
+                    println!("Model alias '{}' set to '{}'", other, value);
+                }
+            }
+            config.save()?;
+            println!("Config saved.");
         }
     }
     Ok(())
