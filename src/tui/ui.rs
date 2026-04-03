@@ -213,14 +213,11 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         " atom ".into()
     };
 
-    let right = if app.token_count > 0 {
-        format!("tokens: {} | ${:.4} ", app.token_count, app.session_cost)
-    } else {
-        String::new()
-    };
+    let right = format!(" tokens: {} | ${:.4} ", app.token_count, app.session_cost);
 
-    let middle_width = area.width as usize - left.len() - right.len();
-    let middle = " ".repeat(middle_width.max(0));
+    let total_len = left.len() + right.len();
+    let middle_width = (area.width as usize).saturating_sub(total_len);
+    let middle = " ".repeat(middle_width);
 
     let status_line = Line::from(vec![
         Span::styled(&left, Style::default().fg(Color::Cyan).bold().bg(Color::DarkGray)),
