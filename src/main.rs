@@ -456,7 +456,51 @@ async fn main() -> anyhow::Result<()> {
     match cli.subcommand {
         Some(sub) => execute_subcommand(sub).await?,
         None if cli.print => {
-            eprintln!("Print mode not yet implemented");
+            // Print mode: non-interactive
+            let provider: Arc<dyn LlmProvider> = match create_provider(
+                cli.provider.as_deref(),
+                cli.api_base.as_deref(),
+                cli.api_key.as_deref(),
+                cli.model.as_deref(),
+            ) {
+                Ok(p) => Arc::from(p),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let cwd = std::env::current_dir().unwrap_or_default();
+
+            let mcp_configs = atom_code::services::mcp::load_mcp_configs(
+                &cwd,
+                cli.mcp_config.as_deref().unwrap_or(&[]),
+            );
+            let mut mcp_manager = atom_code::services::mcp::McpConnectionManager::new(mcp_configs);
+            let mcp_errors = mcp_manager.connect_all().await;
+            for err in &mcp_errors {
+                eprintln!("Warning: MCP server error: {}", err);
+            }
+
+            let system_prompt = assemble_system_prompt(
+                &cwd,
+                cli.system_prompt.as_deref(),
+                cli.append_system_prompt.as_deref(),
+            );
+
+            let output_format = match cli.output_format {
+                Some(OutputFormat::Json) => atom_code::entrypoints::print::OutputFormat::Json,
+                Some(OutputFormat::StreamJson) => atom_code::entrypoints::print::OutputFormat::StreamJson,
+                _ => atom_code::entrypoints::print::OutputFormat::Text,
+            };
+
+            atom_code::entrypoints::print::run_print_mode(
+                cli.prompt,
+                provider,
+                system_prompt,
+                mcp_manager,
+                output_format,
+            ).await?;
         }
         None => {
             let provider: Option<Arc<dyn LlmProvider>> = match create_provider(
