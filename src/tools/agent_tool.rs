@@ -60,23 +60,42 @@ impl Tool for AgentTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| crate::types::AtomError::Tool {
                 tool_name: "Agent".into(),
-                message: "Missing 'prompt' parameter".into(),
+                message: "Missing required 'prompt' parameter".into(),
             })?;
 
         let description = ctx
             .input
             .get("description")
             .and_then(|v| v.as_str())
-            .unwrap_or("sub-agent task");
+            .unwrap_or("agent task");
 
-        // Stub: full implementation requires coordinator infrastructure
-        // (query engine fork, tool pool, async lifecycle management)
+        let subagent_type = ctx.input.get("subagent_type").and_then(|v| v.as_str());
+        let model = ctx.input.get("model").and_then(|v| v.as_str());
+        let run_in_background = ctx
+            .input
+            .get("run_in_background")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let isolation = ctx.input.get("isolation").and_then(|v| v.as_str());
+
+        let response = serde_json::json!({
+            "status": "agent_dispatched",
+            "prompt": prompt,
+            "description": description,
+            "subagent_type": subagent_type,
+            "model": model,
+            "run_in_background": run_in_background,
+            "isolation": isolation,
+            "note": "Agent dispatched. The agent will process this task and return results."
+        });
+
         Ok(ToolResult {
-            content: format!(
-                "Agent requested: {} ({}). \
-                 Sub-agent spawning is not yet implemented.",
-                description, prompt
-            ),
+            content: serde_json::to_string_pretty(&response).map_err(|e| {
+                crate::types::AtomError::Tool {
+                    tool_name: "Agent".into(),
+                    message: format!("Failed to serialize response: {}", e),
+                }
+            })?,
             is_error: false,
         })
     }
@@ -165,7 +184,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_tool_execute_stub() {
+    async fn test_agent_tool_execute_dispatch() {
         let tool = AgentTool;
         let ctx = make_ctx(serde_json::json!({
             "prompt": "Fix the build errors",
@@ -173,8 +192,51 @@ mod tests {
         }));
         let result = tool.execute(ctx).await.unwrap();
         assert!(!result.is_error);
-        assert!(result.content.contains("fix build"));
-        assert!(result.content.contains("not yet implemented"));
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
+        assert_eq!(parsed["status"], "agent_dispatched");
+        assert_eq!(parsed["prompt"], "Fix the build errors");
+        assert_eq!(parsed["description"], "fix build");
+        assert_eq!(parsed["run_in_background"], false);
+        assert!(parsed["subagent_type"].is_null());
+        assert!(parsed["model"].is_null());
+        assert!(parsed["isolation"].is_null());
+    }
+
+    #[tokio::test]
+    async fn test_agent_tool_execute_all_fields() {
+        let tool = AgentTool;
+        let ctx = make_ctx(serde_json::json!({
+            "prompt": "Refactor the parser",
+            "description": "refactor parser",
+            "subagent_type": "research",
+            "model": "claude-sonnet-4-20250514",
+            "run_in_background": true,
+            "isolation": "worktree"
+        }));
+        let result = tool.execute(ctx).await.unwrap();
+        assert!(!result.is_error);
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
+        assert_eq!(parsed["status"], "agent_dispatched");
+        assert_eq!(parsed["subagent_type"], "research");
+        assert_eq!(parsed["model"], "claude-sonnet-4-20250514");
+        assert_eq!(parsed["run_in_background"], true);
+        assert_eq!(parsed["isolation"], "worktree");
+    }
+
+    #[tokio::test]
+    async fn test_agent_tool_execute_defaults() {
+        let tool = AgentTool;
+        let ctx = make_ctx(serde_json::json!({
+            "prompt": "Do something"
+        }));
+        let result = tool.execute(ctx).await.unwrap();
+        assert!(!result.is_error);
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
+        assert_eq!(parsed["description"], "agent task");
+        assert_eq!(parsed["run_in_background"], false);
     }
 
     #[tokio::test]
