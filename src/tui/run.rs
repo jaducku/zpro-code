@@ -2,10 +2,11 @@ use std::io;
 use std::sync::Arc;
 
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{Event, EventStream, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use futures::StreamExt;
 use ratatui::prelude::*;
 use tokio::sync::mpsc;
 
@@ -70,6 +71,7 @@ pub async fn run_app(
 
     let (query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
     let mut permission_rx: Option<mpsc::UnboundedReceiver<PermissionAsk>> = None;
+    let mut event_stream = EventStream::new();
 
     loop {
         // Render
@@ -104,18 +106,11 @@ pub async fn run_app(
         })?;
 
         // Use tokio::select! to handle terminal events, query events, and permission
-        // requests concurrently. Terminal polling is wrapped in spawn_blocking to avoid
-        // blocking the tokio runtime.
+        // requests concurrently. Uses crossterm's async EventStream for true non-blocking.
         tokio::select! {
-            // Terminal events via spawn_blocking (doesn't block tokio runtime)
-            terminal_event = tokio::task::spawn_blocking(|| {
-                if event::poll(std::time::Duration::from_millis(30)).unwrap_or(false) {
-                    event::read().ok()
-                } else {
-                    None
-                }
-            }) => {
-                if let Ok(Some(ev)) = terminal_event {
+            // Terminal events via async EventStream (truly non-blocking)
+            maybe_event = event_stream.next() => {
+                if let Some(Ok(ev)) = maybe_event {
                     match ev {
                         Event::Key(key) => {
                             // Permission dialog takes priority over all other key handling
@@ -216,6 +211,7 @@ pub async fn run_app(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_submit(
     app: &mut App,
     input: &str,
@@ -378,6 +374,7 @@ async fn dispatch_slash_command(app: &mut App, name: &str, args: &str) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn submit_query(
     app: &mut App,
     input: &str,
