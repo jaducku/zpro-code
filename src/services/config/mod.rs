@@ -27,6 +27,10 @@ pub struct AtomConfig {
     /// Default permission mode
     #[serde(default)]
     pub permission_mode: Option<String>,
+
+    /// Tavily API key for web search
+    #[serde(default)]
+    pub tavily_api_key: Option<String>,
 }
 
 impl AtomConfig {
