@@ -400,6 +400,8 @@ async fn execute_tool(
         permission_ctx: ctx.permission_ctx.clone(),
         permission_tx: ctx.permission_tx.clone(),
         event_tx: event_tx.clone(),
+        tool_use_id: tc.id.clone(),
+        question_tx: ctx.question_tx.clone(),
         model: ctx.model.clone(),
     };
 
@@ -419,6 +421,7 @@ mod tests {
         tools: Vec<Box<dyn crate::tool::Tool>>,
     ) -> QueryContext {
         let (permission_tx, _rx) = mpsc::unbounded_channel();
+        let (question_tx, _qrx) = mpsc::unbounded_channel();
         QueryContext {
             messages,
             tools,
@@ -430,6 +433,7 @@ mod tests {
                 ..Default::default()
             },
             permission_tx,
+            question_tx,
             hooks: std::collections::HashMap::new(),
             cwd: std::path::PathBuf::from("."),
             max_turns: None,

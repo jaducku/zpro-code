@@ -119,6 +119,13 @@ pub enum InputMode {
         description: String,
         reply_tx: Option<tokio::sync::oneshot::Sender<PermissionReply>>,
     },
+    /// User question prompt inline
+    Question {
+        options: Vec<(String, Option<String>)>, // (label, description)
+        selected: usize,
+        text_input: String,
+        reply_tx: Option<tokio::sync::oneshot::Sender<crate::query::types::UserQuestionReply>>,
+    },
 }
 
 impl App {

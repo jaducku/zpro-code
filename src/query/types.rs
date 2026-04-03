@@ -20,6 +20,7 @@ pub struct QueryContext {
     pub max_tokens: u32,
     pub permission_ctx: ToolPermissionContext,
     pub permission_tx: mpsc::UnboundedSender<PermissionAsk>,
+    pub question_tx: mpsc::UnboundedSender<UserQuestionAsk>,
     pub hooks: HooksSettings,
     pub cwd: PathBuf,
     /// Maximum agentic turns (tool-use loops). None = unlimited (default 50 in engine).
@@ -28,6 +29,24 @@ pub struct QueryContext {
     pub max_budget_usd: Option<f64>,
     pub commands: Arc<CommandRegistry>,
     pub provider: Arc<dyn LlmProvider>,
+}
+
+/// Sent to TUI when a tool wants to ask the user a question
+pub struct UserQuestionAsk {
+    pub tool_use_id: String,
+    pub question: String,
+    pub options: Vec<QuestionOption>,
+    pub reply_tx: tokio::sync::oneshot::Sender<UserQuestionReply>,
+}
+
+pub struct QuestionOption {
+    pub label: String,
+    pub description: Option<String>,
+}
+
+pub enum UserQuestionReply {
+    Answer(String),
+    Dismissed,
 }
 
 /// Sent to the TUI when a tool needs user permission

@@ -172,6 +172,7 @@ async fn execute_forked_skill(
         max_tokens: 16_384,
         permission_ctx: parent_ctx.permission_ctx.clone(),
         permission_tx: parent_ctx.permission_tx.clone(),
+        question_tx: parent_ctx.question_tx.clone(),
         hooks: std::collections::HashMap::new(),
         cwd: parent_ctx.cwd.clone(),
         max_turns: Some(25),

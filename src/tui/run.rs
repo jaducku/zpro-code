@@ -15,7 +15,7 @@ use super::ui;
 use crate::commands::registry::CommandRegistry;
 use crate::commands::traits::Command;
 use crate::commands::types::{CommandAction, LocalCommandResult};
-use crate::query::{PermissionAsk, PermissionReply, QueryEvent};
+use crate::query::{PermissionAsk, PermissionReply, QueryEvent, UserQuestionAsk, UserQuestionReply};
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
 use crate::services::mcp::McpConnectionManager;
@@ -71,6 +71,7 @@ pub async fn run_app(
 
     let (query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
     let mut permission_rx: Option<mpsc::UnboundedReceiver<PermissionAsk>> = None;
+    let mut question_rx: Option<mpsc::UnboundedReceiver<UserQuestionAsk>> = None;
     let mut event_stream = EventStream::new();
 
     loop {
@@ -119,8 +120,63 @@ pub async fn run_app(
                 if let Some(Ok(ev)) = maybe_event {
                     match ev {
                         Event::Key(key) => {
+                            // Question inline prompt
+                            if let InputMode::Question { .. } = &app.input_mode {
+                                match key.code {
+                                    KeyCode::Up | KeyCode::Char('k') => {
+                                        if let InputMode::Question { options, selected, .. } = &mut app.input_mode {
+                                            if !options.is_empty() && *selected > 0 {
+                                                *selected -= 1;
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Down | KeyCode::Char('j') => {
+                                        if let InputMode::Question { options, selected, .. } = &mut app.input_mode {
+                                            if !options.is_empty() && *selected + 1 < options.len() {
+                                                *selected += 1;
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Enter => {
+                                        if let InputMode::Question { options, selected, text_input, .. } = &app.input_mode {
+                                            let answer = if options.is_empty() {
+                                                text_input.clone()
+                                            } else {
+                                                options[*selected].0.clone()
+                                            };
+                                            if let InputMode::Question { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                                if let Some(tx) = reply_tx {
+                                                    let _ = tx.send(UserQuestionReply::Answer(answer));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Esc => {
+                                        if let InputMode::Question { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                            if let Some(tx) = reply_tx {
+                                                let _ = tx.send(UserQuestionReply::Dismissed);
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Backspace => {
+                                        if let InputMode::Question { options, text_input, .. } = &mut app.input_mode {
+                                            if options.is_empty() {
+                                                text_input.pop();
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char(c) => {
+                                        if let InputMode::Question { options, text_input, .. } = &mut app.input_mode {
+                                            if options.is_empty() {
+                                                text_input.push(c);
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
                             // Permission inline prompt takes priority over all other key handling
-                            if let InputMode::Permission { .. } = &app.input_mode {
+                            else if let InputMode::Permission { .. } = &app.input_mode {
                                 match key.code {
                                     KeyCode::Char('y') | KeyCode::Char('Y') => {
                                         if let InputMode::Permission { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
@@ -187,12 +243,12 @@ pub async fn run_app(
                                     app.accept_typeahead();
                                 }
                                 let input = app.take_input();
-                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
+                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
                             } else {
                                 let typeahead_accepted = app.handle_key(key);
                                 if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
                                 }
                             }
                         }
@@ -242,6 +298,26 @@ pub async fn run_app(
                     reply_tx: Some(ask.reply_tx),
                 };
             }
+
+            // Question requests from tools (AskUserQuestionTool)
+            Some(ask) = async {
+                match &mut question_rx {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                app.push_message(DisplayMessage {
+                    role: DisplayRole::System,
+                    content: ask.question.clone(),
+                    tool_name: None,
+                });
+                app.input_mode = InputMode::Question {
+                    options: ask.options.into_iter().map(|o| (o.label, o.description)).collect(),
+                    selected: 0,
+                    text_input: String::new(),
+                    reply_tx: Some(ask.reply_tx),
+                };
+            }
         }
 
         if app.should_quit {
@@ -266,6 +342,7 @@ async fn handle_submit(
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    question_rx: &mut Option<mpsc::UnboundedReceiver<UserQuestionAsk>>,
     mcp_manager: &McpConnectionManager,
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
@@ -273,11 +350,11 @@ async fn handle_submit(
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
-        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -299,6 +376,7 @@ async fn dispatch_slash_command(
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    question_rx: &mut Option<mpsc::UnboundedReceiver<UserQuestionAsk>>,
     mcp_manager: &McpConnectionManager,
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
@@ -474,7 +552,7 @@ async fn dispatch_slash_command(
                     } else {
                         // Submit the prompt text as a query — but DON'T show the raw skill content
                         // submit_query_hidden sends to LLM without displaying the prompt in chat
-                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
                     }
                 }
                 Err(e) => {
@@ -506,6 +584,7 @@ async fn submit_query(
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    question_rx: &mut Option<mpsc::UnboundedReceiver<UserQuestionAsk>>,
     mcp_manager: &McpConnectionManager,
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
@@ -539,6 +618,10 @@ async fn submit_query(
     let (perm_tx, perm_rx) = mpsc::unbounded_channel();
     *permission_rx = Some(perm_rx);
 
+    // Create question channel for this query
+    let (q_tx, q_rx) = mpsc::unbounded_channel();
+    *question_rx = Some(q_rx);
+
     // Gather tools: built-in + MCP
     let mut tools = get_builtin_tools();
     tools.extend(mcp_manager.get_all_tools().await);
@@ -568,6 +651,7 @@ async fn submit_query(
             ..Default::default()
         },
         permission_tx: perm_tx,
+        question_tx: q_tx,
         hooks,
         cwd,
         max_turns: None,       // TUI mode: no turn limit
@@ -603,6 +687,7 @@ async fn submit_query_skill(
     query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
     permission_mode: &PermissionMode,
     permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    question_rx: &mut Option<mpsc::UnboundedReceiver<UserQuestionAsk>>,
     mcp_manager: &McpConnectionManager,
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
@@ -633,6 +718,10 @@ async fn submit_query_skill(
     let (perm_tx, perm_rx_new) = mpsc::unbounded_channel();
     *permission_rx = Some(perm_rx_new);
 
+    // Create question channel for this query
+    let (q_tx, q_rx) = mpsc::unbounded_channel();
+    *question_rx = Some(q_rx);
+
     // Gather tools: built-in + MCP
     let mut tools = get_builtin_tools();
     tools.extend(mcp_manager.get_all_tools().await);
@@ -660,6 +749,7 @@ async fn submit_query_skill(
             ..Default::default()
         },
         permission_tx: perm_tx,
+        question_tx: q_tx,
         hooks,
         cwd,
         max_turns: None,

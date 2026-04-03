@@ -73,6 +73,8 @@ pub struct ToolUseContext {
     pub permission_ctx: crate::types::permissions::ToolPermissionContext,
     pub permission_tx: tokio::sync::mpsc::UnboundedSender<crate::query::types::PermissionAsk>,
     pub event_tx: tokio::sync::mpsc::UnboundedSender<crate::query::types::QueryEvent>,
+    pub tool_use_id: String,
+    pub question_tx: tokio::sync::mpsc::UnboundedSender<crate::query::types::UserQuestionAsk>,
     pub model: String,
 }
 
@@ -82,6 +84,7 @@ impl ToolUseContext {
         let (progress_tx, _) = tokio::sync::mpsc::unbounded_channel();
         let (permission_tx, _) = tokio::sync::mpsc::unbounded_channel();
         let (event_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (question_tx, _) = tokio::sync::mpsc::unbounded_channel();
         Self {
             input,
             abort_signal: CancellationToken::new(),
@@ -97,6 +100,8 @@ impl ToolUseContext {
             },
             permission_tx,
             event_tx,
+            tool_use_id: String::new(),
+            question_tx,
             model: "test".into(),
         }
     }

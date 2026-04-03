@@ -199,6 +199,49 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             let input_text = Paragraph::new(prompt).block(input_block);
             frame.render_widget(input_text, area);
         }
+        InputMode::Question { options, selected, text_input, .. } => {
+            let border_style = Style::default().fg(Color::Blue);
+            let input_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .title(Span::styled(" Question ", Style::default().fg(Color::Blue).bold()));
+
+            if options.is_empty() {
+                // Free text input
+                let prompt = Line::from(vec![
+                    Span::styled("> ", Style::default().fg(Color::Blue).bold()),
+                    Span::styled(text_input.clone(), Style::default().fg(Color::White)),
+                    Span::styled("_", Style::default().fg(Color::DarkGray)),
+                ]);
+                let help = Line::from(Span::styled(
+                    " Enter to submit, Esc to dismiss",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                let content = vec![prompt, help];
+                let input_text = Paragraph::new(content).block(input_block);
+                frame.render_widget(input_text, area);
+            } else {
+                // Options list
+                let mut spans: Vec<Span> = Vec::new();
+                for (i, (label, desc)) in options.iter().enumerate() {
+                    let marker = if i == *selected { "▸ " } else { "  " };
+                    let style = if i == *selected {
+                        Style::default().fg(Color::Blue).bold()
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    spans.push(Span::styled(format!("{}{}", marker, label), style));
+                    if let Some(d) = desc {
+                        spans.push(Span::styled(format!(" ({})", d), Style::default().fg(Color::DarkGray)));
+                    }
+                    spans.push(Span::raw("  "));
+                }
+                let prompt = Line::from(spans);
+                let input_text = Paragraph::new(prompt).block(input_block);
+                frame.render_widget(input_text, area);
+            }
+        }
         InputMode::Normal => {
             let border_style = if app.is_loading {
                 Style::default().fg(Color::DarkGray)

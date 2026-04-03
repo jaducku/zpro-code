@@ -65,6 +65,7 @@ pub async fn run_print_mode(
 
     // 3. Build query context (bypass permissions -- no TUI for dialogs)
     let (perm_tx, _perm_rx) = mpsc::unbounded_channel();
+    let (question_tx, _question_rx) = mpsc::unbounded_channel();
     let cwd = std::env::current_dir().unwrap_or_default();
     let hooks = crate::services::hooks::load_all_hooks(&cwd);
 
@@ -84,6 +85,7 @@ pub async fn run_print_mode(
             ..Default::default()
         },
         permission_tx: perm_tx,
+        question_tx,
         hooks,
         cwd,
         max_turns,
