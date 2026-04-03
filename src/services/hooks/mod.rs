@@ -1,5 +1,7 @@
 pub mod command_hook;
 pub mod compat;
+pub mod executor;
+pub mod http_hook;
 pub mod matcher;
 pub mod settings;
 pub mod types;
