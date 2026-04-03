@@ -55,7 +55,9 @@ impl OpenAiCompatibleProvider {
 
     fn build_request(&self, request: &CreateMessageRequest) -> OpenAiRequest {
         let messages = to_openai_messages(&request.messages, request.system.as_deref());
-        let tools = request.tools.as_ref().map(|t| to_openai_tools(t));
+        let tools = request.tools.as_ref()
+            .map(|t| to_openai_tools(t))
+            .filter(|t| !t.is_empty());
 
         OpenAiRequest {
             model: request.model.clone(),
