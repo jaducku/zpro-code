@@ -1,4 +1,6 @@
+pub mod compat;
 pub mod matcher;
+pub mod settings;
 pub mod types;
 
 use serde::{Deserialize, Serialize};
