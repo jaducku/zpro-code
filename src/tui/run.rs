@@ -344,8 +344,11 @@ fn submit_query(
 
     // Spawn query as background task
     tokio::spawn(async move {
-        if let Err(e) = crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
-            let _ = event_tx.send(crate::query::QueryEvent::Error(e.to_string()));
+        match crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
+            Ok(_) => {}
+            Err(e) => {
+                let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
+            }
         }
     });
 }
