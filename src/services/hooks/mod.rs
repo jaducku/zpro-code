@@ -1,3 +1,4 @@
+pub mod command_hook;
 pub mod compat;
 pub mod matcher;
 pub mod settings;
