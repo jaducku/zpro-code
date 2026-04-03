@@ -67,20 +67,45 @@ fn setup_openrouter(config: &mut AtomConfig) {
         }
     }
 
-    // Default models
-    config.default_model = Some("fast".into());
-    config.models.insert("fast".into(), "google/gemma-3-27b-it:free".into());
-    config.models.insert("smart".into(), "anthropic/claude-sonnet-4-20250514".into());
-    config.models.insert("code".into(), "deepseek/deepseek-chat-v3-0324:free".into());
+    // Register models interactively
+    eprintln!();
+    eprintln!("  Register models (alias → model ID). Empty alias to finish.");
+    eprintln!("  Browse models at: https://openrouter.ai/models");
+    eprintln!();
 
-    eprintln!();
-    eprintln!("  Registered models:");
-    eprintln!("    fast  → google/gemma-3-27b-it:free (default)");
-    eprintln!("    smart → anthropic/claude-sonnet-4-20250514");
-    eprintln!("    code  → deepseek/deepseek-chat-v3-0324:free");
-    eprintln!();
-    eprintln!("  Change default: atom --model smart");
-    eprintln!("  Add more: edit ~/.atom/config.json");
+    let mut first = true;
+    loop {
+        eprint!("  Model alias{}: ", if first { " (e.g. fast, smart, code)" } else { "" });
+        io::stderr().flush().ok();
+        let mut alias = String::new();
+        if io::stdin().read_line(&mut alias).is_err() { break; }
+        let alias = alias.trim().to_string();
+        if alias.is_empty() { break; }
+
+        eprint!("  Model ID for '{}': ", alias);
+        io::stderr().flush().ok();
+        let mut model_id = String::new();
+        if io::stdin().read_line(&mut model_id).is_err() { break; }
+        let model_id = model_id.trim().to_string();
+        if model_id.is_empty() { continue; }
+
+        config.models.insert(alias.clone(), model_id.clone());
+        eprintln!("  ✓ {} → {}", alias, model_id);
+        eprintln!();
+
+        if first {
+            config.default_model = Some(alias);
+            first = false;
+        }
+    }
+
+    if config.models.is_empty() {
+        eprintln!("  No models registered. Add them later in ~/.atom/config.json");
+    } else {
+        eprintln!();
+        eprintln!("  Default model: {}", config.default_model.as_deref().unwrap_or("(none)"));
+        eprintln!("  Add more: edit ~/.atom/config.json");
+    }
 }
 
 fn setup_custom(config: &mut AtomConfig) {
