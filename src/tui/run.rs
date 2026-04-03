@@ -107,7 +107,13 @@ pub async fn run_app(
 
         // Use tokio::select! to handle terminal events, query events, and permission
         // requests concurrently. Uses crossterm's async EventStream for true non-blocking.
+        // The tick branch ensures periodic re-renders (for loading spinner, dialog appearance).
         tokio::select! {
+            // Periodic tick for re-rendering (30ms)
+            _ = tokio::time::sleep(std::time::Duration::from_millis(30)) => {
+                // Just re-render (terminal.draw at top of loop)
+            }
+
             // Terminal events via async EventStream (truly non-blocking)
             maybe_event = event_stream.next() => {
                 if let Some(Ok(ev)) = maybe_event {

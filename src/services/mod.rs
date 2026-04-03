@@ -3,6 +3,7 @@ pub mod compact;
 pub mod config;
 pub mod context;
 pub mod hooks;
+pub mod keychain;
 pub mod mcp;
 pub mod session_transcript;
 pub mod skills;

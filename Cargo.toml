@@ -56,6 +56,8 @@ image = "0.25"
 plist = "1"
 qrcode = "0.14"
 opentelemetry = "0.27"
+base64 = "0.22"
+hostname = "0.4"
 
 [dev-dependencies]
 tokio-test = "0.4"

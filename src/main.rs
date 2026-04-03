@@ -579,7 +579,11 @@ async fn main() -> anyhow::Result<()> {
     let effective_provider = cli.provider.clone().or_else(|| config.provider.clone());
     let config_api_base = config.api_base_for_provider();
     let effective_api_base = cli.api_base.clone().or(config_api_base);
-    let effective_api_key = cli.api_key.clone().or_else(|| config.api_key.clone());
+    let effective_api_key = cli.api_key.clone().or_else(|| {
+        config.api_key.as_ref().and_then(|k| {
+            atom_code::services::keychain::decrypt_api_key(k)
+        })
+    });
     let effective_model = cli
         .model
         .as_deref()
@@ -703,17 +707,17 @@ async fn main() -> anyhow::Result<()> {
             let permission_mode = if cli.dangerously_skip_permissions {
                 PermissionMode::BypassPermissions
             } else {
-                cli.permission_mode
-                    .as_deref()
-                    .map(|s| match s {
-                        "default" => PermissionMode::Default,
-                        "plan" => PermissionMode::Plan,
-                        "acceptEdits" => PermissionMode::AcceptEdits,
-                        "bypassPermissions" => PermissionMode::BypassPermissions,
-                        "auto" => PermissionMode::Auto,
-                        _ => PermissionMode::Default,
-                    })
-                    .unwrap_or(PermissionMode::Default)
+                // CLI > config > default (Auto)
+                let mode_str = cli.permission_mode.as_deref()
+                    .or(config.permission_mode.as_deref());
+                match mode_str {
+                    Some("default") => PermissionMode::Default,
+                    Some("plan") => PermissionMode::Plan,
+                    Some("acceptEdits") => PermissionMode::AcceptEdits,
+                    Some("bypassPermissions") => PermissionMode::BypassPermissions,
+                    Some("auto") => PermissionMode::Auto,
+                    _ => PermissionMode::Auto, // default to Auto
+                }
             };
 
             // Load a previous session if --continue or --resume is used

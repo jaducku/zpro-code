@@ -63,7 +63,9 @@ fn setup_openrouter(config: &mut AtomConfig) {
     if io::stdin().read_line(&mut key).is_ok() {
         let key = key.trim().to_string();
         if !key.is_empty() {
-            config.api_key = Some(key);
+            let encrypted = crate::services::keychain::encrypt_api_key(&key);
+            config.api_key = Some(encrypted);
+            eprintln!("  ✓ API key encrypted and saved to config");
         }
     }
 
