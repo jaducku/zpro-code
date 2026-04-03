@@ -142,7 +142,21 @@ pub async fn run_app(
                                     let state = &mut app.active_command.as_mut().unwrap().state;
                                     let action = tui_cmd.handle_key(key, state.as_mut());
                                     match action {
-                                        CommandAction::Done(_) => {
+                                        CommandAction::Done(result) => {
+                                            // Handle command results (e.g., /model selection)
+                                            if cmd_name == "model" {
+                                                if let Some(ref r) = result {
+                                                    if let Some(ref model_id) = r.text {
+                                                        app.model_override = Some(model_id.clone());
+                                                        app.model = model_id.clone();
+                                                        app.push_message(DisplayMessage {
+                                                            role: DisplayRole::System,
+                                                            content: format!("Model switched to: {}", model_id),
+                                                            tool_name: None,
+                                                        });
+                                                    }
+                                                }
+                                            }
                                             app.active_command = None;
                                         }
                                         CommandAction::SetInput(text) => {
@@ -442,7 +456,7 @@ async fn submit_query(
         messages: app.api_messages.clone(),
         tools,
         system_prompt: system_prompt.clone(),
-        model: provider.model_info().id.clone(),
+        model: app.active_model().to_string(),
         max_tokens: provider.model_info().max_output_tokens,
         permission_ctx: ToolPermissionContext {
             mode: permission_mode.clone(),

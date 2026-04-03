@@ -57,6 +57,8 @@ pub struct App {
     pub cwd: PathBuf,
     /// Disable session persistence
     pub no_session_persistence: bool,
+    /// Model override (set by /model command for hot-swap)
+    pub model_override: Option<String>,
 }
 
 /// What kind of typeahead is active
@@ -160,6 +162,7 @@ impl App {
             typeahead: None,
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             no_session_persistence: false,
+            model_override: None,
         }
     }
 
@@ -294,6 +297,11 @@ impl App {
             }
         }
         false
+    }
+
+    /// Get the active model (override or default)
+    pub fn active_model(&self) -> &str {
+        self.model_override.as_deref().unwrap_or(&self.model)
     }
 
     /// Take the current input (clears it)

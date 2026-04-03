@@ -181,12 +181,9 @@ impl TuiCommand for ModelCommand {
                 CommandAction::Continue
             }
             KeyCode::Enter => {
-                if let Some((alias, full_id, _)) = state.models.get(state.selected) {
+                if let Some((_alias, full_id, _)) = state.models.get(state.selected) {
                     CommandAction::Done(Some(CommandDoneResult {
-                        text: Some(format!("Switched model to {alias} ({full_id})")),
-                        meta_messages: vec![format!(
-                            "Model changed to: {full_id} (alias: {alias})"
-                        )],
+                        text: Some(full_id.clone()), // actual model ID for hot-swap
                         ..Default::default()
                     }))
                 } else {

@@ -208,7 +208,7 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     let left = if app.has_provider {
-        format!(" {} ", app.model)
+        format!(" {} ", app.active_model())
     } else {
         " atom ".into()
     };
