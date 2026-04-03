@@ -34,6 +34,11 @@ pub fn user_agents_md_path() -> PathBuf {
     global_config_dir().join("AGENTS.md")
 }
 
+/// Base directory for per-project memory: ~/.atom/projects/
+pub fn user_memory_base_dir() -> PathBuf {
+    global_config_dir().join("projects")
+}
+
 /// Project-level config directory name
 pub const PROJECT_CONFIG_DIR: &str = ".agents";
 

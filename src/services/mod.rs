@@ -6,6 +6,7 @@ pub mod file_index;
 pub mod hooks;
 pub mod keychain;
 pub mod mcp;
+pub mod memdir;
 pub mod session_transcript;
 pub mod skills;
 pub mod token_estimation;
