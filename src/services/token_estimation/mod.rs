@@ -7,7 +7,7 @@ pub fn estimate_tokens(text: &str) -> u64 {
     if len == 0 {
         return 0;
     }
-    (len + 3) / 4
+    len.div_ceil(4)
 }
 
 /// Estimate total tokens for API messages.

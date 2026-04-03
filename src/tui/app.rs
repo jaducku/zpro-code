@@ -460,10 +460,10 @@ fn find_at_token(input: &str, cursor_pos: usize) -> Option<(usize, String)> {
     let after_at = &input[start + 1..]; // text after '@'
 
     // Extract the query: everything until whitespace (or end), supporting quoted paths
-    let query = if after_at.starts_with('"') {
+    let query = if let Some(stripped) = after_at.strip_prefix('"') {
         // Quoted path: @"some path" — extract until closing quote
-        let end = after_at[1..].find('"').map(|i| i + 2).unwrap_or(after_at.len());
-        after_at[1..end.min(after_at.len()).saturating_sub(1)].to_string()
+        let end = stripped.find('"').unwrap_or(stripped.len());
+        stripped[..end].to_string()
     } else {
         // Unquoted: take until whitespace
         let end = after_at

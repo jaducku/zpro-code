@@ -346,7 +346,7 @@ fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::Typeah
             let icon = match &ta.kind {
                 TypeaheadKind::Command => "",
                 TypeaheadKind::FileMention { .. } => {
-                    if name.ends_with('/') { " " } else { " " }
+                    if name.ends_with('/') { "[d] " } else { "[f] " }
                 }
             };
 
