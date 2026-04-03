@@ -35,6 +35,32 @@ pub async fn query(
         }
         loop_count += 1;
 
+        // 0. Check token budget — auto-compact if needed
+        let estimated_tokens = crate::services::token_estimation::estimate_message_tokens(&ctx.messages);
+        let context_window = 128_000; // TODO: get from provider.model_info()
+        if crate::services::compact::needs_compaction(estimated_tokens, context_window) && ctx.messages.len() > 4 {
+            // Simple compaction: keep system context + last N messages
+            let keep_last = 6; // keep last 3 turns (6 messages: user+assistant pairs)
+            if ctx.messages.len() > keep_last {
+                let summary_msg = crate::types::message::ApiMessage {
+                    role: crate::types::message::Role::System,
+                    content: vec![ContentBlock::Text {
+                        text: format!(
+                            "[Context compacted: {} earlier messages summarized. {} tokens estimated]",
+                            ctx.messages.len() - keep_last,
+                            estimated_tokens
+                        ),
+                    }],
+                };
+                let kept = ctx.messages.split_off(ctx.messages.len() - keep_last);
+                ctx.messages = vec![summary_msg];
+                ctx.messages.extend(kept);
+                let _ = event_tx.send(QueryEvent::TextDelta(
+                    "\n[Context auto-compacted to fit token budget]\n".into(),
+                ));
+            }
+        }
+
         // 1. Build request
         let request = CreateMessageRequest {
             model: ctx.model.clone(),
@@ -108,6 +134,12 @@ pub async fn query(
                 }
                 StreamEvent::MessageStop { stop_reason: sr } => {
                     stop_reason = sr;
+                }
+                StreamEvent::Usage(usage) => {
+                    let _ = event_tx.send(QueryEvent::Usage {
+                        input_tokens: usage.input_tokens,
+                        output_tokens: usage.output_tokens,
+                    });
                 }
                 _ => {}
             }

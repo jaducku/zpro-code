@@ -513,6 +513,11 @@ impl App {
                     }
                 }
             }
+            QueryEvent::Usage { input_tokens, output_tokens } => {
+                self.token_count += input_tokens + output_tokens;
+                // Simple cost estimate: ~$0.01 per 1K tokens (rough average)
+                self.session_cost += (input_tokens + output_tokens) as f64 * 0.00001;
+            }
             QueryEvent::Error(msg) => {
                 self.messages.push(DisplayMessage {
                     role: DisplayRole::System,

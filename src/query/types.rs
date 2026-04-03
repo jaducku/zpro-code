@@ -57,6 +57,8 @@ pub enum QueryEvent {
     ToolCallComplete { id: String, result: ToolResultBlock },
     /// LLM response complete
     ResponseComplete { stop_reason: StopReason },
+    /// Token usage update
+    Usage { input_tokens: u64, output_tokens: u64 },
     /// Error occurred
     Error(String),
 }
