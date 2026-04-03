@@ -8,6 +8,7 @@ pub mod grep_tool;
 pub mod notebook_edit_tool;
 pub mod skill_tool;
 pub mod sleep_tool;
+pub mod web_fetch_tool;
 
 use crate::tool::Tool;
 
@@ -24,6 +25,7 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(notebook_edit_tool::NotebookEditTool),
         Box::new(skill_tool::SkillTool),
         Box::new(sleep_tool::SleepTool),
+        Box::new(web_fetch_tool::WebFetchTool),
     ]
 }
 

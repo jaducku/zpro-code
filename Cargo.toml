@@ -61,6 +61,7 @@ hostname = "0.4"
 regex = "1"
 readability = "0.3"
 htmd = "0.5"
+url = "2"
 
 [dev-dependencies]
 tokio-test = "0.4"
