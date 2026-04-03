@@ -455,14 +455,11 @@ async fn submit_query(
     let cancel = tokio_util::sync::CancellationToken::new();
 
     // Spawn query as background task
+    let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
         match crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
-            Ok(_) => {
-                // Signal completion (event already sent via ResponseComplete in engine)
-            }
+            Ok(_) => {}
             Err(e) => {
-                // Write error to file for debugging (TUI swallows stderr)
-                let _ = std::fs::write("/tmp/atom-query-error.log", format!("{:?}", e));
                 let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
             }
         }

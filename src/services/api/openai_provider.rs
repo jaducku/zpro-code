@@ -85,15 +85,25 @@ impl LlmProvider for OpenAiCompatibleProvider {
             self.base_url.trim_end_matches('/')
         );
 
-        // Try with system role first, retry with system-as-user on 400
+        // Try with full features, auto-retry with fallbacks on errors
         let result = self.send_request(&url, &request, false).await;
 
         match result {
-            Err(AtomError::Api { status: Some(400), message })
-                if message.contains("instruction") || message.contains("system") =>
+            Err(AtomError::Api { status: Some(s), ref message })
+                if (s == 400 || s == 404)
+                    && (message.contains("instruction") || message.contains("system")) =>
             {
-                // Model doesn't support system role — retry with system prompt as user message
+                // Model doesn't support system role — retry with system-as-user
                 self.send_request(&url, &request, true).await
+            }
+            Err(AtomError::Api { status: Some(s), ref message })
+                if (s == 400 || s == 404)
+                    && (message.contains("tool") || message.contains("function")) =>
+            {
+                // Model doesn't support tool use — retry without tools
+                let mut request_no_tools = request.clone();
+                request_no_tools.tools = None;
+                self.send_request(&url, &request_no_tools, false).await
             }
             other => other,
         }
