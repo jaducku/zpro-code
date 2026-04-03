@@ -1,3 +1,4 @@
+pub mod async_registry;
 pub mod command_hook;
 pub mod compat;
 pub mod executor;

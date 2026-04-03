@@ -114,7 +114,7 @@ pub struct HookMatcher {
 pub type HooksSettings = HashMap<String, Vec<HookMatcher>>;
 
 /// Output from a synchronous hook execution, parsed from JSON.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct SyncHookOutput {
     #[serde(rename = "continue")]
     pub r#continue: Option<bool>,
