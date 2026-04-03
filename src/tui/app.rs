@@ -504,6 +504,11 @@ impl App {
                 // Add assistant response to api_messages for conversation continuity
                 if let Some(last) = self.messages.last() {
                     if last.role == DisplayRole::Assistant {
+                        // Estimate tokens if provider didn't send usage
+                        if self.token_count == 0 {
+                            let estimated = crate::services::token_estimation::estimate_tokens(&last.content);
+                            self.token_count = estimated;
+                        }
                         self.api_messages.push(ApiMessage {
                             role: Role::Assistant,
                             content: vec![crate::types::content::ContentBlock::Text {
