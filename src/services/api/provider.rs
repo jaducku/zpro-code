@@ -23,8 +23,10 @@ pub trait LlmProvider: Send + Sync {
 }
 
 /// No-op provider for tests. Returns an empty stream immediately.
+#[cfg(test)]
 pub struct NoopProvider;
 
+#[cfg(test)]
 #[async_trait]
 impl LlmProvider for NoopProvider {
     async fn create_message(
