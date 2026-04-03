@@ -1,174 +1,137 @@
 use crate::types::permissions::*;
 
-/// Check permission for a tool call
+use super::auto_classify::auto_classify;
+use super::PermissionDecision;
+
+/// Check permission for a tool call.
+///
+/// Flow:
+/// 1. Bypass/DontAsk mode -> Allow
+/// 2. Plan mode -> Deny
+/// 3. Deny rules match -> Deny
+/// 4. Allow rules match -> Allow
+/// 5. AcceptEdits + edit tool -> Allow
+/// 6. Auto mode -> auto_classify
+/// 7. Default -> Ask
 pub fn check_permission(
     tool_name: &str,
-    meta: &PermissionMeta,
-    context: &ToolPermissionContext,
-) -> PermissionResult {
-    // 1. Bypass mode — allow everything
-    if context.mode == PermissionMode::BypassPermissions {
-        return PermissionResult::Allowed;
+    tool_input: &serde_json::Value,
+    permission_meta: &PermissionMeta,
+    ctx: &ToolPermissionContext,
+) -> PermissionDecision {
+    // 1. Bypass/DontAsk -> Allow
+    if ctx.mode == PermissionMode::BypassPermissions || ctx.mode == PermissionMode::DontAsk {
+        return PermissionDecision::Allow {
+            reason: format!("mode:{:?}", ctx.mode),
+        };
     }
 
-    // 2. Check deny rules
-    for rule in &context.always_deny_rules {
-        if matches_rule(tool_name, meta, rule) {
-            return PermissionResult::Denied;
-        }
+    // 2. Plan mode -> Deny
+    if ctx.mode == PermissionMode::Plan {
+        return PermissionDecision::Deny {
+            reason: "plan mode denies all tool use".into(),
+        };
     }
 
-    // 3. Check allow rules
-    for rule in &context.always_allow_rules {
-        if matches_rule(tool_name, meta, rule) {
-            return PermissionResult::Allowed;
-        }
+    // 3. Deny rules
+    if matches_any_rule(tool_name, permission_meta, &ctx.always_deny_rules) {
+        return PermissionDecision::Deny {
+            reason: "matched deny rule".into(),
+        };
     }
 
-    // 4. Auto mode — use YOLO classifier for safe operations
-    if (context.mode == PermissionMode::Auto || context.mode == PermissionMode::AcceptEdits)
-        && is_safe_operation(tool_name, meta)
-    {
-        return PermissionResult::Allowed;
+    // 4. Allow rules
+    if matches_any_rule(tool_name, permission_meta, &ctx.always_allow_rules) {
+        return PermissionDecision::Allow {
+            reason: "matched allow rule".into(),
+        };
     }
 
-    // 5. Plan mode — deny non-read operations
-    if context.mode == PermissionMode::Plan {
-        if is_read_only_tool(tool_name) {
-            return PermissionResult::Allowed;
-        }
-        return PermissionResult::Denied;
+    // 5. AcceptEdits + edit tool -> Allow
+    if ctx.mode == PermissionMode::AcceptEdits && is_edit_tool(tool_name) {
+        return PermissionDecision::Allow {
+            reason: "acceptEdits mode allows edit tools".into(),
+        };
     }
 
-    // 6. Default — ask user
-    PermissionResult::Ask(PermissionRequest {
+    // 6. Auto mode -> auto_classify
+    if ctx.mode == PermissionMode::Auto {
+        let behavior = auto_classify(tool_name, tool_input);
+        return match behavior {
+            PermissionBehavior::Allow => PermissionDecision::Allow {
+                reason: "auto-classified as safe".into(),
+            },
+            PermissionBehavior::Ask | PermissionBehavior::Deny => PermissionDecision::Ask {
+                tool_name: tool_name.to_string(),
+                description: format_tool_description(tool_name, permission_meta),
+            },
+        };
+    }
+
+    // 7. Default -> Ask
+    PermissionDecision::Ask {
         tool_name: tool_name.to_string(),
-        description: format_permission_description(tool_name, meta),
-        metadata: meta.clone(),
+        description: format_tool_description(tool_name, permission_meta),
+    }
+}
+
+/// Check if a tool is an edit/write tool.
+fn is_edit_tool(tool_name: &str) -> bool {
+    matches!(tool_name, "Edit" | "Write" | "NotebookEdit")
+}
+
+/// Check if any rule in the list matches the given tool + metadata.
+fn matches_any_rule(
+    tool_name: &str,
+    meta: &PermissionMeta,
+    rules: &[PermissionRule],
+) -> bool {
+    rules.iter().any(|rule| {
+        if rule.tool_name != tool_name && rule.tool_name != "*" {
+            return false;
+        }
+        match &rule.rule_content {
+            None => true,
+            Some(pattern) => match_rule_content(pattern, meta),
+        }
     })
 }
 
-/// Check if a rule matches the tool + metadata
-fn matches_rule(tool_name: &str, meta: &PermissionMeta, rule: &PermissionRule) -> bool {
-    if rule.tool_name != tool_name && rule.tool_name != "*" {
-        return false;
-    }
+/// Match a rule_content pattern against the relevant metadata field.
+///
+/// Pattern format: simple glob with `*` suffix (e.g. `git:*` matches commands
+/// starting with "git:"). A bare `*` matches everything.
+fn match_rule_content(pattern: &str, meta: &PermissionMeta) -> bool {
+    let text = meta
+        .command
+        .as_deref()
+        .or(meta.file_path.as_deref())
+        .or(meta.url.as_deref())
+        .unwrap_or("");
 
-    match &rule.rule_content {
-        None => true, // No pattern = matches all invocations of this tool
-        Some(pattern) => {
-            // Match against the relevant metadata field
-            if let Some(cmd) = &meta.command {
-                glob_match(pattern, cmd)
-            } else if let Some(path) = &meta.file_path {
-                glob_match(pattern, path)
-            } else {
-                false
-            }
-        }
-    }
-}
-
-/// Simple glob matching (supports * and **)
-fn glob_match(pattern: &str, text: &str) -> bool {
     if pattern == "*" {
         return true;
-    }
-
-    // Simple prefix/suffix matching for common patterns
-    if let Some(suffix) = pattern.strip_prefix('*') {
-        return text.ends_with(suffix);
     }
     if let Some(prefix) = pattern.strip_suffix('*') {
         return text.starts_with(prefix);
     }
-
-    // Exact match fallback
+    if let Some(suffix) = pattern.strip_prefix('*') {
+        return text.ends_with(suffix);
+    }
     pattern == text
 }
 
-/// YOLO classifier — determine if an operation is safe to auto-approve
-fn is_safe_operation(tool_name: &str, meta: &PermissionMeta) -> bool {
-    match tool_name {
-        // Read-only tools are always safe
-        "Read" | "Glob" | "Grep" | "WebSearch" | "WebFetch" => true,
-
-        // Bash: only safe for simple read commands
-        "Bash" => {
-            if let Some(cmd) = &meta.command {
-                is_safe_bash_command(cmd)
-            } else {
-                false
-            }
-        }
-
-        // File operations: safe within project directory
-        "Write" | "Edit" => {
-            if let Some(path) = &meta.file_path {
-                !is_sensitive_path(path)
-            } else {
-                false
-            }
-        }
-
-        _ => false,
-    }
-}
-
-/// Check if a bash command is safe (no destructive operations)
-fn is_safe_bash_command(cmd: &str) -> bool {
-    let dangerous_patterns = [
-        "rm ", "rm\t", "rmdir", "sudo", "chmod", "chown", "mv ", "mv\t", "> /", ">> /", "kill",
-        "pkill", "dd ", "mkfs", "curl", "wget", "eval", "exec", "|", ";", "&&", "||", "`", "$(",
-        "${",
-    ];
-
-    let cmd_lower = cmd.to_lowercase();
-    !dangerous_patterns.iter().any(|p| cmd_lower.contains(p))
-}
-
-/// Check if a file path is sensitive
-fn is_sensitive_path(path: &str) -> bool {
-    let sensitive = [
-        ".env",
-        "credentials",
-        ".ssh",
-        "/etc/",
-        "/usr/",
-        "/bin/",
-        "id_rsa",
-        "id_ed25519",
-        ".git/config",
-    ];
-    sensitive.iter().any(|s| path.contains(s))
-}
-
-/// Check if a tool is read-only by name
-fn is_read_only_tool(tool_name: &str) -> bool {
-    matches!(
-        tool_name,
-        "Read"
-            | "Glob"
-            | "Grep"
-            | "WebSearch"
-            | "WebFetch"
-            | "ListMcpResources"
-            | "ReadMcpResource"
-            | "TaskGet"
-            | "TaskList"
-    )
-}
-
-fn format_permission_description(tool_name: &str, meta: &PermissionMeta) -> String {
+/// Format a human-readable description for the permission prompt.
+fn format_tool_description(tool_name: &str, meta: &PermissionMeta) -> String {
     match tool_name {
         "Bash" => format!(
             "Run command: {}",
-            meta.command.as_deref().unwrap_or("?")
+            meta.command.as_deref().unwrap_or("(unknown)")
         ),
         "Write" | "Edit" | "Read" => format!(
             "{} file: {}",
             tool_name,
-            meta.file_path.as_deref().unwrap_or("?")
+            meta.file_path.as_deref().unwrap_or("(unknown)")
         ),
         _ => format!("Use tool: {}", tool_name),
     }
@@ -178,218 +141,254 @@ fn format_permission_description(tool_name: &str, meta: &PermissionMeta) -> Stri
 mod tests {
     use super::*;
 
-    fn default_ctx() -> ToolPermissionContext {
-        ToolPermissionContext::default()
+    fn empty_input() -> serde_json::Value {
+        serde_json::json!({})
     }
 
-    fn bypass_ctx() -> ToolPermissionContext {
-        ToolPermissionContext {
-            mode: PermissionMode::BypassPermissions,
-            ..Default::default()
+    fn bash_input(cmd: &str) -> serde_json::Value {
+        serde_json::json!({ "command": cmd })
+    }
+
+    fn meta_cmd(cmd: &str) -> PermissionMeta {
+        PermissionMeta {
+            command: Some(cmd.into()),
+            file_path: None,
+            url: None,
         }
     }
 
-    fn auto_ctx() -> ToolPermissionContext {
+    fn meta_file(path: &str) -> PermissionMeta {
+        PermissionMeta {
+            command: None,
+            file_path: Some(path.into()),
+            url: None,
+        }
+    }
+
+    fn meta_empty() -> PermissionMeta {
+        PermissionMeta {
+            command: None,
+            file_path: None,
+            url: None,
+        }
+    }
+
+    fn ctx_with_mode(mode: PermissionMode) -> ToolPermissionContext {
         ToolPermissionContext {
-            mode: PermissionMode::Auto,
+            mode,
             ..Default::default()
         }
     }
 
     #[test]
     fn test_bypass_allows_everything() {
-        let meta = PermissionMeta {
-            command: Some("rm -rf /".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &bypass_ctx()),
-            PermissionResult::Allowed
-        ));
+        let result = check_permission(
+            "Bash",
+            &bash_input("rm -rf /"),
+            &meta_cmd("rm -rf /"),
+            &ctx_with_mode(PermissionMode::BypassPermissions),
+        );
+        assert!(matches!(result, PermissionDecision::Allow { .. }));
     }
 
     #[test]
-    fn test_deny_rule() {
+    fn test_plan_denies_everything() {
+        let result = check_permission(
+            "Bash",
+            &bash_input("ls"),
+            &meta_cmd("ls"),
+            &ctx_with_mode(PermissionMode::Plan),
+        );
+        assert!(matches!(result, PermissionDecision::Deny { .. }));
+
+        // Even read tools are denied in plan mode
+        let result = check_permission(
+            "Read",
+            &empty_input(),
+            &meta_file("/tmp/test.rs"),
+            &ctx_with_mode(PermissionMode::Plan),
+        );
+        assert!(matches!(result, PermissionDecision::Deny { .. }));
+    }
+
+    #[test]
+    fn test_deny_rule_matches() {
         let ctx = ToolPermissionContext {
+            mode: PermissionMode::Default,
+            always_deny_rules: vec![PermissionRule {
+                tool_name: "Bash".into(),
+                rule_content: Some("rm*".into()),
+            }],
+            ..Default::default()
+        };
+        let result = check_permission("Bash", &bash_input("rm -rf /"), &meta_cmd("rm -rf /"), &ctx);
+        assert!(matches!(result, PermissionDecision::Deny { .. }));
+    }
+
+    #[test]
+    fn test_allow_rule_matches() {
+        let ctx = ToolPermissionContext {
+            mode: PermissionMode::Default,
+            always_allow_rules: vec![PermissionRule {
+                tool_name: "Bash".into(),
+                rule_content: Some("git *".into()),
+            }],
+            ..Default::default()
+        };
+        let result = check_permission(
+            "Bash",
+            &bash_input("git status"),
+            &meta_cmd("git status"),
+            &ctx,
+        );
+        assert!(matches!(result, PermissionDecision::Allow { .. }));
+    }
+
+    #[test]
+    fn test_accept_edits_allows_edit() {
+        let result = check_permission(
+            "Edit",
+            &empty_input(),
+            &meta_file("/tmp/foo.rs"),
+            &ctx_with_mode(PermissionMode::AcceptEdits),
+        );
+        assert!(matches!(result, PermissionDecision::Allow { .. }));
+
+        // Write is also an edit tool
+        let result = check_permission(
+            "Write",
+            &empty_input(),
+            &meta_file("/tmp/bar.rs"),
+            &ctx_with_mode(PermissionMode::AcceptEdits),
+        );
+        assert!(matches!(result, PermissionDecision::Allow { .. }));
+    }
+
+    #[test]
+    fn test_accept_edits_asks_bash() {
+        let result = check_permission(
+            "Bash",
+            &bash_input("npm install"),
+            &meta_cmd("npm install"),
+            &ctx_with_mode(PermissionMode::AcceptEdits),
+        );
+        assert!(matches!(result, PermissionDecision::Ask { .. }));
+    }
+
+    #[test]
+    fn test_auto_allows_read() {
+        let result = check_permission(
+            "Read",
+            &empty_input(),
+            &meta_file("/tmp/test.rs"),
+            &ctx_with_mode(PermissionMode::Auto),
+        );
+        assert!(matches!(result, PermissionDecision::Allow { .. }));
+    }
+
+    #[test]
+    fn test_auto_allows_readonly_bash() {
+        let result = check_permission(
+            "Bash",
+            &bash_input("git status"),
+            &meta_cmd("git status"),
+            &ctx_with_mode(PermissionMode::Auto),
+        );
+        assert!(matches!(result, PermissionDecision::Allow { .. }));
+    }
+
+    #[test]
+    fn test_auto_asks_mutating_bash() {
+        let result = check_permission(
+            "Bash",
+            &bash_input("npm install"),
+            &meta_cmd("npm install"),
+            &ctx_with_mode(PermissionMode::Auto),
+        );
+        assert!(matches!(result, PermissionDecision::Ask { .. }));
+    }
+
+    #[test]
+    fn test_default_always_asks() {
+        // Bash asks
+        let result = check_permission(
+            "Bash",
+            &bash_input("ls"),
+            &meta_cmd("ls"),
+            &ctx_with_mode(PermissionMode::Default),
+        );
+        assert!(matches!(result, PermissionDecision::Ask { .. }));
+
+        // Read asks
+        let result = check_permission(
+            "Read",
+            &empty_input(),
+            &meta_file("/tmp/test.rs"),
+            &ctx_with_mode(PermissionMode::Default),
+        );
+        assert!(matches!(result, PermissionDecision::Ask { .. }));
+
+        // Write asks
+        let result = check_permission(
+            "Write",
+            &empty_input(),
+            &meta_file("/tmp/test.rs"),
+            &ctx_with_mode(PermissionMode::Default),
+        );
+        assert!(matches!(result, PermissionDecision::Ask { .. }));
+    }
+
+    #[test]
+    fn test_deny_rules_before_allow_rules() {
+        let ctx = ToolPermissionContext {
+            mode: PermissionMode::Default,
             always_deny_rules: vec![PermissionRule {
                 tool_name: "Bash".into(),
                 rule_content: None,
             }],
-            ..Default::default()
-        };
-        let meta = PermissionMeta {
-            command: Some("ls".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &ctx),
-            PermissionResult::Denied
-        ));
-    }
-
-    #[test]
-    fn test_allow_rule() {
-        let ctx = ToolPermissionContext {
-            always_allow_rules: vec![PermissionRule {
-                tool_name: "Bash".into(),
-                rule_content: Some("ls*".into()),
-            }],
-            ..Default::default()
-        };
-        let meta = PermissionMeta {
-            command: Some("ls -la".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &ctx),
-            PermissionResult::Allowed
-        ));
-    }
-
-    #[test]
-    fn test_deny_before_allow() {
-        let ctx = ToolPermissionContext {
-            always_deny_rules: vec![PermissionRule {
-                tool_name: "Bash".into(),
-                rule_content: None,
-            }],
             always_allow_rules: vec![PermissionRule {
                 tool_name: "Bash".into(),
                 rule_content: None,
             }],
             ..Default::default()
         };
-        let meta = PermissionMeta {
-            command: Some("ls".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &ctx),
-            PermissionResult::Denied
-        ));
+        let result = check_permission("Bash", &bash_input("ls"), &meta_cmd("ls"), &ctx);
+        assert!(matches!(result, PermissionDecision::Deny { .. }));
     }
 
     #[test]
-    fn test_auto_mode_safe_read() {
-        let meta = PermissionMeta {
-            command: None,
-            file_path: Some("/tmp/test.txt".into()),
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Read", &meta, &auto_ctx()),
-            PermissionResult::Allowed
-        ));
+    fn test_dontask_allows_everything() {
+        let result = check_permission(
+            "Bash",
+            &bash_input("rm -rf /"),
+            &meta_cmd("rm -rf /"),
+            &ctx_with_mode(PermissionMode::DontAsk),
+        );
+        assert!(matches!(result, PermissionDecision::Allow { .. }));
     }
 
     #[test]
-    fn test_auto_mode_safe_bash() {
-        let meta = PermissionMeta {
-            command: Some("ls -la".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &auto_ctx()),
-            PermissionResult::Allowed
-        ));
+    fn test_match_rule_content_glob() {
+        let meta = meta_cmd("git status");
+        assert!(match_rule_content("git *", &meta));
+        assert!(match_rule_content("git status", &meta));
+        assert!(!match_rule_content("npm*", &meta));
+        assert!(match_rule_content("*", &meta));
     }
 
     #[test]
-    fn test_auto_mode_dangerous_bash() {
-        let meta = PermissionMeta {
-            command: Some("rm -rf /".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &auto_ctx()),
-            PermissionResult::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn test_default_mode_asks() {
-        let meta = PermissionMeta {
-            command: Some("ls".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &default_ctx()),
-            PermissionResult::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn test_sensitive_path() {
-        assert!(is_sensitive_path("/home/user/.env"));
-        assert!(is_sensitive_path("/home/user/.ssh/id_rsa"));
-        assert!(!is_sensitive_path("/home/user/project/src/main.rs"));
-    }
-
-    #[test]
-    fn test_safe_bash_command() {
-        assert!(is_safe_bash_command("ls -la"));
-        assert!(is_safe_bash_command("cat file.txt"));
-        assert!(is_safe_bash_command("git status"));
-        assert!(!is_safe_bash_command("rm -rf /"));
-        assert!(!is_safe_bash_command("sudo apt install"));
-        assert!(!is_safe_bash_command("echo hi | cat"));
-        assert!(!is_safe_bash_command("ls && rm foo"));
-    }
-
-    #[test]
-    fn test_plan_mode() {
-        let ctx = ToolPermissionContext {
-            mode: PermissionMode::Plan,
-            ..Default::default()
-        };
-        let read_meta = PermissionMeta {
-            file_path: Some("test.rs".into()),
-            command: None,
-            url: None,
-        };
-        let write_meta = PermissionMeta {
-            file_path: Some("test.rs".into()),
-            command: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Read", &read_meta, &ctx),
-            PermissionResult::Allowed
-        ));
-        assert!(matches!(
-            check_permission("Write", &write_meta, &ctx),
-            PermissionResult::Denied
-        ));
-    }
-
-    #[test]
-    fn test_wildcard_rule() {
-        let ctx = ToolPermissionContext {
-            always_allow_rules: vec![PermissionRule {
-                tool_name: "*".into(),
-                rule_content: None,
-            }],
-            ..Default::default()
-        };
-        let meta = PermissionMeta {
-            command: Some("anything".into()),
-            file_path: None,
-            url: None,
-        };
-        assert!(matches!(
-            check_permission("Bash", &meta, &ctx),
-            PermissionResult::Allowed
-        ));
-        assert!(matches!(
-            check_permission("Write", &meta, &ctx),
-            PermissionResult::Allowed
-        ));
+    fn test_format_tool_description() {
+        assert_eq!(
+            format_tool_description("Bash", &meta_cmd("ls -la")),
+            "Run command: ls -la"
+        );
+        assert_eq!(
+            format_tool_description("Edit", &meta_file("/tmp/foo.rs")),
+            "Edit file: /tmp/foo.rs"
+        );
+        assert_eq!(
+            format_tool_description("SomeTool", &meta_empty()),
+            "Use tool: SomeTool"
+        );
     }
 }
