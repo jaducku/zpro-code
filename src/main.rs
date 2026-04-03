@@ -8,6 +8,7 @@ use atom_code::services::api::provider::LlmProvider;
 use atom_code::services::api::types::SystemBlock;
 use atom_code::tools::get_builtin_tools;
 use atom_code::tui::run::run_app;
+use atom_code::types::permissions::PermissionMode;
 
 // ---------------------------------------------------------------------------
 // Output / Input format enums
@@ -476,8 +477,24 @@ async fn main() -> anyhow::Result<()> {
             let system_prompt =
                 cli.system_prompt.map(|s| vec![SystemBlock::Text { text: s }]);
 
+            let permission_mode = if cli.dangerously_skip_permissions {
+                PermissionMode::BypassPermissions
+            } else {
+                cli.permission_mode
+                    .as_deref()
+                    .map(|s| match s {
+                        "default" => PermissionMode::Default,
+                        "plan" => PermissionMode::Plan,
+                        "acceptEdits" => PermissionMode::AcceptEdits,
+                        "bypassPermissions" => PermissionMode::BypassPermissions,
+                        "auto" => PermissionMode::Auto,
+                        _ => PermissionMode::Default,
+                    })
+                    .unwrap_or(PermissionMode::Default)
+            };
+
             let command_registry = CommandRegistry::new();
-            run_app(provider, tools, system_prompt, command_registry).await?;
+            run_app(provider, tools, system_prompt, command_registry, permission_mode).await?;
         }
     }
 
