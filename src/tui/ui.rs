@@ -197,7 +197,12 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(input_text, area);
 
     if !app.is_loading {
-        frame.set_cursor_position((area.x + app.cursor_pos as u16 + 1, area.y + 1));
+        // cursor_pos is char index; for display, compute display width of chars before cursor
+        let display_offset: u16 = app.input.chars()
+            .take(app.cursor_pos)
+            .map(|c| if c.is_ascii() { 1 } else { 2 }) // CJK chars are double-width
+            .sum();
+        frame.set_cursor_position((area.x + display_offset + 1, area.y + 1));
     }
 }
 

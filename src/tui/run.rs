@@ -93,7 +93,7 @@ pub async fn run_app(
                                             }
                                             CommandAction::SetInput(text) => {
                                                 app.input = text;
-                                                app.cursor_pos = app.input.len();
+                                                app.cursor_pos = app.input.chars().count();
                                                 app.active_command = None;
                                             }
                                             CommandAction::Continue => {}

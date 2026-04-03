@@ -201,18 +201,22 @@ impl App {
 
         match key.code {
             KeyCode::Char(c) => {
-                self.input.insert(self.cursor_pos, c);
+                let byte_pos = char_to_byte_pos(&self.input, self.cursor_pos);
+                self.input.insert(byte_pos, c);
                 self.cursor_pos += 1;
             }
             KeyCode::Backspace => {
                 if self.cursor_pos > 0 {
                     self.cursor_pos -= 1;
-                    self.input.remove(self.cursor_pos);
+                    let byte_pos = char_to_byte_pos(&self.input, self.cursor_pos);
+                    self.input.remove(byte_pos);
                 }
             }
             KeyCode::Delete => {
-                if self.cursor_pos < self.input.len() {
-                    self.input.remove(self.cursor_pos);
+                let char_count = self.input.chars().count();
+                if self.cursor_pos < char_count {
+                    let byte_pos = char_to_byte_pos(&self.input, self.cursor_pos);
+                    self.input.remove(byte_pos);
                 }
             }
             KeyCode::Left => {
@@ -221,7 +225,8 @@ impl App {
                 }
             }
             KeyCode::Right => {
-                if self.cursor_pos < self.input.len() {
+                let char_count = self.input.chars().count();
+                if self.cursor_pos < char_count {
                     self.cursor_pos += 1;
                 }
             }
@@ -229,7 +234,7 @@ impl App {
                 self.cursor_pos = 0;
             }
             KeyCode::End => {
-                self.cursor_pos = self.input.len();
+                self.cursor_pos = self.input.chars().count();
             }
             KeyCode::Up => {
                 if self.scroll_offset > 0 {
@@ -345,7 +350,7 @@ impl App {
                 match &ta.kind {
                     TypeaheadKind::Command => {
                         self.input = format!("/{}", name);
-                        self.cursor_pos = self.input.len();
+                        self.cursor_pos = self.input.chars().count();
                     }
                     TypeaheadKind::FileMention { token_start, .. } => {
                         let start = *token_start;
@@ -360,7 +365,7 @@ impl App {
                         let after_at = &self.input[start..];
                         let token_end = start + at_token_len(after_at);
                         self.input.replace_range(start..token_end, &replacement);
-                        self.cursor_pos = start + replacement.len();
+                        self.cursor_pos = start + replacement.chars().count();
                     }
                 }
             }
@@ -437,11 +442,21 @@ impl App {
     }
 }
 
-/// Find the '@' token at or before the cursor position.
-/// Returns (token_start_index, query_after_at) if found.
+/// Convert a char index to a byte position in a string.
+fn char_to_byte_pos(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(byte_pos, _)| byte_pos)
+        .unwrap_or(s.len())
+}
+
+/// Find the '@' token at or before the cursor position (char index).
+/// Returns (byte_start_index, query_after_at) if found.
 fn find_at_token(input: &str, cursor_pos: usize) -> Option<(usize, String)> {
+    // Convert char-based cursor_pos to byte offset
+    let byte_cursor = char_to_byte_pos(input, cursor_pos);
     // Look backwards from cursor to find '@'
-    let before_cursor = &input[..cursor_pos.min(input.len())];
+    let before_cursor = &input[..byte_cursor];
 
     // Find the last '@' that's either at start or preceded by whitespace
     let mut at_pos = None;
