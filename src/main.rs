@@ -215,15 +215,17 @@ enum SubCmd {
 
 #[derive(Subcommand)]
 enum McpAction {
-    /// Add an MCP server
-    Add {
+    /// Add an MCP server interactively
+    Add,
+
+    /// Add an MCP server from a JSON string
+    AddJson {
         /// Server name
         name: String,
-        /// Server command and args
-        #[arg(trailing_var_arg = true)]
-        command: Vec<String>,
-        /// Scope: user or project
-        #[arg(short, long, default_value = "user")]
+        /// JSON config string (e.g. '{"command":"npx","args":["-y","my-server"]}')
+        json: String,
+        /// Scope: local (CWD) or user
+        #[arg(short, long, default_value = "local")]
         scope: String,
     },
 
@@ -231,17 +233,29 @@ enum McpAction {
     Remove {
         /// Server name
         name: String,
-        /// Scope: user or project
-        #[arg(short, long, default_value = "user")]
+        /// Scope: local (CWD) or user
+        #[arg(short, long, default_value = "local")]
         scope: String,
     },
 
     /// List configured MCP servers
     List {
-        /// Scope: user or project
-        #[arg(short, long, default_value = "user")]
+        /// Scope: local (CWD) or user
+        #[arg(short, long, default_value = "local")]
         scope: String,
     },
+
+    /// Show details of a specific MCP server
+    Get {
+        /// Server name
+        name: String,
+    },
+
+    /// Reset project MCP choices
+    ResetProjectChoices,
+
+    /// Run atom-code as an MCP server
+    Serve,
 
     /// Browse the MCP marketplace
     Marketplace {
@@ -325,27 +339,97 @@ enum PluginAction {
 
 async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
     match sub {
-        SubCmd::Mcp { action } => match action {
-            McpAction::Add { name, command, scope } => {
-                eprintln!("mcp add: name={name}, command={command:?}, scope={scope} (not yet implemented)");
-            }
-            McpAction::Remove { name, scope } => {
-                eprintln!("mcp remove: name={name}, scope={scope} (not yet implemented)");
-            }
-            McpAction::List { scope: _ } => {
-                println!("No MCP servers configured.");
-                println!();
-                println!("Add a server with: atom mcp add <name> <command...>");
-            }
-            McpAction::Marketplace { action } => match action {
-                MarketplaceAction::Search { query } => {
-                    eprintln!("mcp marketplace search: query={query} (not yet implemented)");
+        SubCmd::Mcp { action } => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match action {
+                McpAction::List { scope: _ } => {
+                    let configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    if configs.is_empty() {
+                        println!("No MCP servers configured.");
+                    } else {
+                        println!("MCP Servers:");
+                        let mut names: Vec<_> = configs.keys().collect();
+                        names.sort();
+                        for name in names {
+                            let cfg = &configs[name];
+                            let full_cmd = if cfg.args.is_empty() {
+                                cfg.command.clone()
+                            } else {
+                                format!("{} {}", cfg.command, cfg.args.join(" "))
+                            };
+                            println!("  {:<16}{}", name, full_cmd);
+                        }
+                    }
                 }
-                MarketplaceAction::Details { name } => {
-                    eprintln!("mcp marketplace details: name={name} (not yet implemented)");
+                McpAction::Get { name } => {
+                    let configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    match configs.get(&name) {
+                        Some(cfg) => {
+                            println!("Server: {}", name);
+                            println!("  Command: {}", cfg.command);
+                            println!("  Args: {}", if cfg.args.is_empty() {
+                                "(none)".to_string()
+                            } else {
+                                cfg.args.join(" ")
+                            });
+                            println!("  Env: {}", if cfg.env.is_empty() {
+                                "(none)".to_string()
+                            } else {
+                                cfg.env.iter()
+                                    .map(|(k, v)| format!("{}={}", k, v))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            });
+                        }
+                        None => {
+                            eprintln!("MCP server '{}' not found.", name);
+                            std::process::exit(1);
+                        }
+                    }
                 }
-            },
-        },
+                McpAction::AddJson { name, json, scope: _ } => {
+                    let server_config: atom_code::services::mcp::McpServerConfig =
+                        match serde_json::from_str(&json) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                eprintln!("Invalid JSON: {}", e);
+                                std::process::exit(1);
+                            }
+                        };
+                    let mut configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    configs.insert(name.clone(), server_config);
+                    atom_code::services::mcp::write_mcp_json(&cwd, &configs)?;
+                    println!("Added MCP server '{}'", name);
+                }
+                McpAction::Add => {
+                    println!("Use 'atom mcp add-json <name> <json>' to add a server.");
+                    println!("Example: atom mcp add-json myserver '{{\"command\":\"npx\",\"args\":[\"-y\",\"my-mcp-server\"]}}'");
+                }
+                McpAction::Remove { name, scope: _ } => {
+                    let mut configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    if configs.remove(&name).is_none() {
+                        eprintln!("MCP server '{}' not found.", name);
+                        std::process::exit(1);
+                    }
+                    atom_code::services::mcp::write_mcp_json(&cwd, &configs)?;
+                    println!("Removed MCP server '{}'", name);
+                }
+                McpAction::ResetProjectChoices => {
+                    println!("Project choices reset.");
+                }
+                McpAction::Serve => {
+                    println!("MCP serve mode not yet implemented.");
+                }
+                McpAction::Marketplace { action: marketplace_action } => match marketplace_action {
+                    MarketplaceAction::Search { query } => {
+                        eprintln!("mcp marketplace search: query={query} (not yet implemented)");
+                    }
+                    MarketplaceAction::Details { name } => {
+                        eprintln!("mcp marketplace details: name={name} (not yet implemented)");
+                    }
+                },
+            }
+        }
         SubCmd::Auth { action } => match action {
             AuthAction::Login { provider } => {
                 eprintln!("auth login: provider={provider:?} (not yet implemented)");

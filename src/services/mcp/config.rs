@@ -4,7 +4,7 @@ use std::path::Path;
 use super::types::McpServerConfig;
 
 /// MCP config file format (matches .mcp.json)
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct McpJsonConfig {
     #[serde(rename = "mcpServers")]
     pub mcp_servers: HashMap<String, McpServerConfig>,
@@ -50,10 +50,27 @@ pub fn load_mcp_configs(cwd: &Path, extra_paths: &[String]) -> HashMap<String, M
     configs
 }
 
-fn parse_mcp_json(path: &Path) -> Option<HashMap<String, McpServerConfig>> {
+pub fn parse_mcp_json(path: &Path) -> Option<HashMap<String, McpServerConfig>> {
     let content = std::fs::read_to_string(path).ok()?;
     let config: McpJsonConfig = serde_json::from_str(&content).ok()?;
     Some(config.mcp_servers)
+}
+
+/// Read MCP config from .mcp.json in the given directory, returning empty map if missing.
+pub fn read_mcp_json(dir: &Path) -> HashMap<String, McpServerConfig> {
+    let path = dir.join(".mcp.json");
+    parse_mcp_json(&path).unwrap_or_default()
+}
+
+/// Write MCP config to .mcp.json in the given directory.
+pub fn write_mcp_json(dir: &Path, configs: &HashMap<String, McpServerConfig>) -> anyhow::Result<()> {
+    let path = dir.join(".mcp.json");
+    let config = McpJsonConfig {
+        mcp_servers: configs.clone(),
+    };
+    let json = serde_json::to_string_pretty(&config)?;
+    std::fs::write(path, json)?;
+    Ok(())
 }
 
 #[cfg(test)]
