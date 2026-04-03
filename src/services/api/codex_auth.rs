@@ -37,7 +37,25 @@ pub fn read_codex_token() -> anyhow::Result<String> {
 fn read_token_from_file(path: &str) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-    json["access_token"].as_str().map(|s| s.to_string())
+
+    // Try nested: { "tokens": { "access_token": "..." } } (Codex CLI format)
+    if let Some(token) = json["tokens"]["access_token"].as_str() {
+        return Some(token.to_string());
+    }
+
+    // Try flat: { "access_token": "..." }
+    if let Some(token) = json["access_token"].as_str() {
+        return Some(token.to_string());
+    }
+
+    // Try API key: { "OPENAI_API_KEY": "..." }
+    if let Some(key) = json["OPENAI_API_KEY"].as_str() {
+        if !key.is_empty() {
+            return Some(key.to_string());
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
