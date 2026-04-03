@@ -1,3 +1,4 @@
+pub mod codex_auth;
 pub mod convert;
 pub mod openai_provider;
 pub mod openai_types;
