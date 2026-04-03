@@ -2,6 +2,7 @@ pub mod api;
 pub mod compact;
 pub mod config;
 pub mod context;
+pub mod file_index;
 pub mod hooks;
 pub mod keychain;
 pub mod mcp;
