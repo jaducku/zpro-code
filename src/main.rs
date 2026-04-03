@@ -6,6 +6,7 @@ use atom_code::commands::CommandRegistry;
 use atom_code::services::api::create_provider;
 use atom_code::services::api::provider::LlmProvider;
 use atom_code::services::api::types::SystemBlock;
+use atom_code::services::session_transcript::SessionStore;
 use atom_code::tools::get_builtin_tools;
 use atom_code::tui::run::run_app;
 use atom_code::types::permissions::PermissionMode;
@@ -493,8 +494,41 @@ async fn main() -> anyhow::Result<()> {
                     .unwrap_or(PermissionMode::Default)
             };
 
+            // Load a previous session if --continue or --resume is used
+            let resume_transcript = if cli.continue_session {
+                let store = SessionStore::new()?;
+                let mut sessions = store.list()?;
+                sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                match sessions.first() {
+                    Some(latest) => Some(store.load(&latest.session_id)?),
+                    None => {
+                        eprintln!("No previous sessions found.");
+                        None
+                    }
+                }
+            } else if let Some(resume_val) = &cli.resume {
+                let store = SessionStore::new()?;
+                if resume_val.is_empty() {
+                    // --resume with no value: load most recent
+                    let mut sessions = store.list()?;
+                    sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                    match sessions.first() {
+                        Some(latest) => Some(store.load(&latest.session_id)?),
+                        None => {
+                            eprintln!("No previous sessions found.");
+                            None
+                        }
+                    }
+                } else {
+                    // --resume <session-id>: load specific session
+                    Some(store.load(resume_val)?)
+                }
+            } else {
+                None
+            };
+
             let command_registry = CommandRegistry::new();
-            run_app(provider, tools, system_prompt, command_registry, permission_mode, None).await?;
+            run_app(provider, tools, system_prompt, command_registry, permission_mode, resume_transcript).await?;
         }
     }
 
