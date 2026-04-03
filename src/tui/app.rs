@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use crate::commands::CommandRegistry;
 use crate::query::{PermissionReply, QueryEvent};
+use crate::services::session_transcript::SessionTranscript;
 use crate::types::message::{ApiMessage, Role};
 
 /// State for a currently active TUI command overlay.
@@ -14,6 +15,10 @@ pub struct ActiveCommand {
 
 /// Application state
 pub struct App {
+    /// Unique session identifier
+    pub session_id: String,
+    /// When the session was created
+    pub created_at: chrono::DateTime<chrono::Utc>,
     /// Conversation messages for display
     pub messages: Vec<DisplayMessage>,
     /// Current input text
@@ -132,6 +137,8 @@ impl App {
         });
 
         Self {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            created_at: chrono::Utc::now(),
             messages,
             input: String::new(),
             cursor_pos: 0,
@@ -415,6 +422,51 @@ impl App {
             Some((name, args)) => Some((name.to_string(), args.trim().to_string())),
             None => Some((without_slash.to_string(), String::new())),
         }
+    }
+
+    /// Build a `SessionTranscript` from the current app state.
+    pub fn build_transcript(&self) -> SessionTranscript {
+        SessionTranscript {
+            session_id: self.session_id.clone(),
+            messages: self.api_messages.clone(),
+            model: self.model.clone(),
+            created_at: self.created_at,
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    /// Restore display messages from a loaded transcript's API messages.
+    pub fn restore_display_messages(api_messages: &[ApiMessage]) -> Vec<DisplayMessage> {
+        api_messages
+            .iter()
+            .filter_map(|msg| {
+                let content = msg
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        crate::types::content::ContentBlock::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                if content.is_empty() {
+                    return None;
+                }
+
+                let role = match msg.role {
+                    Role::User => DisplayRole::User,
+                    Role::Assistant => DisplayRole::Assistant,
+                    _ => DisplayRole::System,
+                };
+
+                Some(DisplayMessage {
+                    role,
+                    content,
+                    tool_name: None,
+                })
+            })
+            .collect()
     }
 
     /// Handle a query event (streaming update)

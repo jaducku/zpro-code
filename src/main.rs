@@ -494,7 +494,7 @@ async fn main() -> anyhow::Result<()> {
             };
 
             let command_registry = CommandRegistry::new();
-            run_app(provider, tools, system_prompt, command_registry, permission_mode).await?;
+            run_app(provider, tools, system_prompt, command_registry, permission_mode, None).await?;
         }
     }
 

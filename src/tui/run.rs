@@ -17,6 +17,7 @@ use crate::commands::types::{CommandAction, LocalCommandResult};
 use crate::query::{PermissionAsk, PermissionReply, QueryEvent};
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
+use crate::services::session_transcript::{SessionStore, SessionTranscript};
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
 use crate::types::permissions::{PermissionMode, ToolPermissionContext};
@@ -28,6 +29,7 @@ pub async fn run_app(
     system_prompt: Option<Vec<SystemBlock>>,
     command_registry: CommandRegistry,
     permission_mode: PermissionMode,
+    resume_transcript: Option<SessionTranscript>,
 ) -> io::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -40,6 +42,24 @@ pub async fn run_app(
         .map(|p| p.model_info().id.clone())
         .unwrap_or_else(|| "(no provider)".into());
     let mut app = App::new(model.clone(), command_registry);
+
+    // Restore session if resuming
+    if let Some(transcript) = resume_transcript {
+        let msg_count = transcript.messages.len();
+        app.session_id = transcript.session_id.clone();
+        app.created_at = transcript.created_at;
+        let restored = App::restore_display_messages(&transcript.messages);
+        app.messages.extend(restored);
+        app.api_messages = transcript.messages;
+        app.messages.push(DisplayMessage {
+            role: DisplayRole::System,
+            content: format!(
+                "Resumed session {} ({} messages)",
+                transcript.session_id, msg_count
+            ),
+            tool_name: None,
+        });
+    }
 
     let (query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
     let mut permission_rx: Option<mpsc::UnboundedReceiver<PermissionAsk>> = None;
@@ -149,7 +169,15 @@ pub async fn run_app(
 
             // Query events from the spawned query task
             Some(event) = query_event_rx.recv() => {
+                let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
                 app.handle_query_event(event);
+
+                // Auto-save session after each completed response
+                if is_response_complete {
+                    if let Ok(store) = SessionStore::new() {
+                        let _ = store.save(&app.build_transcript());
+                    }
+                }
             }
 
             // Permission requests from the query engine
