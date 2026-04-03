@@ -126,15 +126,81 @@ async fn execute_single_hook(
                 },
             }
         }
-        // Stubs for types implemented in later tasks
-        HookCommand::Http { .. } | HookCommand::Prompt { .. } | HookCommand::Agent { .. } => {
-            HookExecutionResult {
-                outcome: HookOutcome::Success,
-                additional_contexts: Vec::new(),
-                watch_paths: Vec::new(),
-                hook_specific: None,
+        HookCommand::Http {
+            url,
+            headers,
+            allowed_env_vars,
+            timeout,
+            ..
+        } => {
+            let input_json = serde_json::to_string(&serde_json::json!({
+                "hook_event": env.get("ATOM_HOOK_TYPE").unwrap_or(&String::new()),
+                "tool_name": env.get("ATOM_TOOL_NAME").unwrap_or(&String::new()),
+                "tool_input": env.get("ATOM_TOOL_INPUT").unwrap_or(&String::new()),
+            }))
+            .unwrap_or_default();
+
+            let hdrs = headers.as_ref().cloned().unwrap_or_default();
+            let allowed = allowed_env_vars.as_ref().cloned().unwrap_or_default();
+
+            match crate::services::hooks::http_hook::execute_http_hook(
+                url, &hdrs, &allowed, env, &input_json, *timeout,
+            )
+            .await
+            {
+                Ok(result) => {
+                    if result.status >= 200 && result.status < 300 {
+                        let parsed = parse_hook_output(&result.body);
+                        HookExecutionResult {
+                            outcome: if parsed.decision.as_deref() == Some("block") {
+                                HookOutcome::Blocking {
+                                    reason: parsed
+                                        .reason
+                                        .unwrap_or_else(|| "Blocked by HTTP hook".to_string()),
+                                }
+                            } else {
+                                HookOutcome::Success
+                            },
+                            additional_contexts: Vec::new(),
+                            watch_paths: Vec::new(),
+                            hook_specific: parsed.hook_specific_output,
+                        }
+                    } else {
+                        HookExecutionResult {
+                            outcome: HookOutcome::Blocking {
+                                reason: format!("HTTP hook returned status {}", result.status),
+                            },
+                            additional_contexts: Vec::new(),
+                            watch_paths: Vec::new(),
+                            hook_specific: None,
+                        }
+                    }
+                }
+                Err(e) => HookExecutionResult {
+                    outcome: HookOutcome::NonBlockingError { message: e },
+                    additional_contexts: Vec::new(),
+                    watch_paths: Vec::new(),
+                    hook_specific: None,
+                },
             }
         }
+        HookCommand::Prompt { .. } => HookExecutionResult {
+            outcome: HookOutcome::NonBlockingError {
+                message: "Prompt hooks require LLM provider (not yet wired)".to_string(),
+            },
+            additional_contexts: Vec::new(),
+            watch_paths: Vec::new(),
+            hook_specific: None,
+        },
+        HookCommand::Agent { .. } => HookExecutionResult {
+            outcome: HookOutcome::NonBlockingError {
+                message: "Agent hooks require multi-turn agent infrastructure (not yet implemented)"
+                    .to_string(),
+            },
+            additional_contexts: Vec::new(),
+            watch_paths: Vec::new(),
+            hook_specific: None,
+        },
     }
 }
 
