@@ -206,6 +206,11 @@ pub async fn run_app(
                 let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
                 app.handle_query_event(event);
 
+                // Clear loading label when response is complete
+                if is_response_complete {
+                    app.loading_label = None;
+                }
+
                 // Auto-save session after each completed response
                 if is_response_complete && !app.no_session_persistence {
                     if let Ok(store) = SessionStore::new() {
@@ -405,16 +410,15 @@ async fn dispatch_slash_command(
             use std::sync::Arc;
             use tokio::sync::RwLock;
 
+            // Show skill usage (not the full prompt content)
             app.push_message(DisplayMessage {
                 role: DisplayRole::User,
                 content: format!("/{}{}", name, if args.is_empty() { String::new() } else { format!(" {}", args) }),
                 tool_name: None,
             });
-            app.push_message(DisplayMessage {
-                role: DisplayRole::System,
-                content: format!("{}...", progress),
-                tool_name: None,
-            });
+
+            // Set loading label to show which skill is being used
+            app.loading_label = Some(format!("{} 스킬 사용", name));
 
             // Build a CommandContext for get_prompt()
             let (msg_tx, _msg_rx) = tokio::sync::mpsc::unbounded_channel::<MessageUpdate>();
@@ -452,17 +456,20 @@ async fn dispatch_slash_command(
                         .join("\n");
 
                     if text.is_empty() {
+                        app.loading_label = None;
                         app.push_message(DisplayMessage {
                             role: DisplayRole::System,
                             content: format!("/{} produced no prompt content.", name),
                             tool_name: None,
                         });
                     } else {
-                        // Submit the prompt text as a regular query
-                        submit_query(app, &text, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+                        // Submit the prompt text as a query — but DON'T show the raw skill content
+                        // submit_query_hidden sends to LLM without displaying the prompt in chat
+                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
                     }
                 }
                 Err(e) => {
+                    app.loading_label = None;
                     app.push_message(DisplayMessage {
                         role: DisplayRole::System,
                         content: format!("Error running /{}: {}", name, e),
@@ -561,6 +568,94 @@ async fn submit_query(
     let cancel = tokio_util::sync::CancellationToken::new();
 
     // Spawn query as background task
+    let event_tx = query_event_tx.clone();
+    tokio::spawn(async move {
+        match crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
+            Ok(_) => {}
+            Err(e) => {
+                let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
+            }
+        }
+    });
+}
+
+/// Submit a skill/prompt command to the LLM. Unlike submit_query, this does NOT
+/// display the full prompt text in chat — only shows the skill name.
+/// The full prompt is sent to the LLM as a user message but hidden from the UI.
+#[allow(clippy::too_many_arguments)]
+async fn submit_query_skill(
+    app: &mut App,
+    prompt_text: &str,
+    _skill_name: &str,
+    provider: &Option<Arc<dyn LlmProvider>>,
+    system_prompt: &Option<Vec<SystemBlock>>,
+    query_event_tx: &mpsc::UnboundedSender<QueryEvent>,
+    permission_mode: &PermissionMode,
+    permission_rx: &mut Option<mpsc::UnboundedReceiver<PermissionAsk>>,
+    mcp_manager: &McpConnectionManager,
+    allow_rules: &[PermissionRule],
+    deny_rules: &[PermissionRule],
+    tools_filter: &Option<Vec<String>>,
+) {
+    let Some(provider) = provider.clone() else {
+        app.loading_label = None;
+        app.push_message(DisplayMessage {
+            role: DisplayRole::System,
+            content: "No LLM provider connected. Use --provider or --api-base.".into(),
+            tool_name: None,
+        });
+        return;
+    };
+
+    // Add prompt to API messages (sent to LLM) but NOT to display messages
+    // The user already sees "/{skill_name}" in chat — no need to show the full prompt
+    app.api_messages.push(ApiMessage {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: prompt_text.to_string(),
+        }],
+    });
+
+    app.is_loading = true;
+
+    // Create permission channel for this query
+    let (perm_tx, perm_rx_new) = mpsc::unbounded_channel();
+    *permission_rx = Some(perm_rx_new);
+
+    // Gather tools: built-in + MCP
+    let mut tools = get_builtin_tools();
+    tools.extend(mcp_manager.get_all_tools().await);
+
+    if let Some(ref filter) = tools_filter {
+        if filter.is_empty() || (filter.len() == 1 && filter[0].is_empty()) {
+            tools.clear();
+        } else if !filter.contains(&"default".to_string()) {
+            tools.retain(|t| filter.iter().any(|f| t.name() == f));
+        }
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let hooks = crate::services::hooks::load_all_hooks(&cwd);
+    let ctx = crate::query::QueryContext {
+        messages: app.api_messages.clone(),
+        tools,
+        system_prompt: system_prompt.clone(),
+        model: app.active_model().to_string(),
+        max_tokens: provider.model_info().max_output_tokens,
+        permission_ctx: ToolPermissionContext {
+            mode: permission_mode.clone(),
+            always_allow_rules: allow_rules.to_vec(),
+            always_deny_rules: deny_rules.to_vec(),
+            ..Default::default()
+        },
+        permission_tx: perm_tx,
+        hooks,
+        cwd,
+        max_turns: None,
+        max_budget_usd: None,
+    };
+
+    let cancel = tokio_util::sync::CancellationToken::new();
     let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
         match crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {

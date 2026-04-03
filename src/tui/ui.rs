@@ -167,9 +167,15 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
         let spinner = SPINNER_FRAMES[frame_idx];
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            format!("  {} Thinking...", spinner),
+            format!("  {} Working...", spinner),
             Style::default().fg(Color::Cyan),
         )));
+        if let Some(ref label) = app.loading_label {
+            lines.push(Line::from(Span::styled(
+                format!("    {}", label),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
     }
 }
 

@@ -64,6 +64,8 @@ pub struct App {
     pub model_override: Option<String>,
     /// Active output style name (e.g. "default", "concise", etc.)
     pub output_style: String,
+    /// Loading spinner label (e.g. "Working..." or "brainstorming 스킬 사용")
+    pub loading_label: Option<String>,
 }
 
 /// What kind of typeahead is active
@@ -170,6 +172,7 @@ impl App {
             no_session_persistence: false,
             model_override: None,
             output_style: "default".to_string(),
+            loading_label: None,
         }
     }
 
