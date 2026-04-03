@@ -567,6 +567,11 @@ fn parse_tool_spec(spec: &str) -> (String, Option<String>) {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // First-time setup (only if no config.json and no CLI flags)
+    if cli.subcommand.is_none() && !cli.print {
+        atom_code::entrypoints::setup::run_setup_if_needed();
+    }
+
     // Load config file (CLI flags override config values)
     let config = AtomConfig::load();
 
