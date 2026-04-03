@@ -180,7 +180,7 @@ fn html_to_markdown(url_str: &str, html_bytes: &[u8]) -> String {
 
     if let Some(product) = readability_result {
         let body_md =
-            htmd::convert(&product.content).unwrap_or_else(|_| product.text);
+            htmd::convert(&product.content).unwrap_or(product.text);
         if !product.title.is_empty() {
             format!("# {}\n\n{}", product.title, body_md)
         } else {

@@ -38,7 +38,7 @@ impl Tool for SleepTool {
                 message: "Missing 'duration_ms' parameter".into(),
             })?;
 
-        let clamped = duration_ms.min(60_000) as u64;
+        let clamped = duration_ms.min(60_000);
 
         let slept = tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(clamped)) => true,
