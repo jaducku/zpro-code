@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::commands::CommandRegistry;
-use crate::query::QueryEvent;
+use crate::query::{PermissionReply, QueryEvent};
 use crate::types::message::{ApiMessage, Role};
 
 /// State for a currently active TUI command overlay.
@@ -96,7 +96,8 @@ pub enum DisplayRole {
 pub struct PermissionDialog {
     pub tool_name: String,
     pub description: String,
-    pub selected: bool, // true = allow, false = deny
+    pub selected: usize, // 0=Allow, 1=AlwaysAllow, 2=Deny
+    pub reply_tx: Option<tokio::sync::oneshot::Sender<PermissionReply>>,
 }
 
 impl App {
@@ -252,6 +253,36 @@ impl App {
 
         // Update typeahead after any input change
         self.update_typeahead();
+        false
+    }
+
+    /// Handle a key event while the permission dialog is showing.
+    /// Returns true if the dialog should be resolved (user made a choice).
+    pub fn handle_permission_key(&mut self, key: KeyEvent) -> bool {
+        if let Some(dialog) = &mut self.permission_dialog {
+            match key.code {
+                KeyCode::Left => {
+                    dialog.selected = dialog.selected.saturating_sub(1);
+                }
+                KeyCode::Right => {
+                    dialog.selected = (dialog.selected + 1).min(2);
+                }
+                KeyCode::Enter => return true,
+                KeyCode::Char('y') => {
+                    dialog.selected = 0;
+                    return true;
+                }
+                KeyCode::Char('a') => {
+                    dialog.selected = 1;
+                    return true;
+                }
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    dialog.selected = 2;
+                    return true;
+                }
+                _ => {}
+            }
+        }
         false
     }
 

@@ -245,11 +245,25 @@ fn render_permission_dialog(frame: &mut Frame, dialog: &super::app::PermissionDi
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::Yellow));
 
+    let btn = |label: &str, idx: usize, selected: usize, active_bg: Color| -> Span<'static> {
+        if selected == idx {
+            Span::styled(
+                format!(" {} ", label),
+                Style::default().fg(Color::Black).bg(active_bg).bold(),
+            )
+        } else {
+            Span::styled(format!(" {} ", label), Style::default().fg(Color::DarkGray))
+        }
+    };
+
     let text = vec![
         Line::from(""),
         Line::from(vec![
             Span::styled("  Tool: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(&dialog.tool_name, Style::default().fg(Color::White).bold()),
+            Span::styled(
+                dialog.tool_name.clone(),
+                Style::default().fg(Color::White).bold(),
+            ),
         ]),
         Line::from(""),
         Line::from(format!("  {}", dialog.description)),
@@ -257,17 +271,11 @@ fn render_permission_dialog(frame: &mut Frame, dialog: &super::app::PermissionDi
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            if dialog.selected {
-                Span::styled(" Allow ", Style::default().fg(Color::Black).bg(Color::Green).bold())
-            } else {
-                Span::styled(" Allow ", Style::default().fg(Color::DarkGray))
-            },
-            Span::raw("   "),
-            if !dialog.selected {
-                Span::styled(" Deny ", Style::default().fg(Color::Black).bg(Color::Red).bold())
-            } else {
-                Span::styled(" Deny ", Style::default().fg(Color::DarkGray))
-            },
+            btn("Allow (y)", 0, dialog.selected, Color::Green),
+            Span::raw("  "),
+            btn("Always Allow (a)", 1, dialog.selected, Color::Cyan),
+            Span::raw("  "),
+            btn("Deny (n)", 2, dialog.selected, Color::Red),
         ]),
     ];
 
