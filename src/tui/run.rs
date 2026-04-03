@@ -157,6 +157,18 @@ pub async fn run_app(
                                                     }
                                                 }
                                             }
+                                            if cmd_name == "output-style" {
+                                                if let Some(ref r) = result {
+                                                    if let Some(ref style_name) = r.text {
+                                                        app.output_style = style_name.clone();
+                                                        app.push_message(DisplayMessage {
+                                                            role: DisplayRole::System,
+                                                            content: format!("Output style set to: {}", style_name),
+                                                            tool_name: None,
+                                                        });
+                                                    }
+                                                }
+                                            }
                                             app.active_command = None;
                                         }
                                         CommandAction::SetInput(text) => {

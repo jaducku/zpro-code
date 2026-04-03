@@ -45,13 +45,18 @@ impl TuiCommand for OutputStyleCommand {
         &Self::META
     }
 
-    fn create_state(&self, _ctx: &CommandContext) -> Box<dyn Any + Send> {
-        let styles = vec![
-            "default".to_string(),
-            "concise".to_string(),
-            "verbose".to_string(),
-            "json".to_string(),
-        ];
+    fn create_state(&self, ctx: &CommandContext) -> Box<dyn Any + Send> {
+        let all = crate::services::output_styles::get_all_output_styles(&ctx.cwd);
+        let mut styles: Vec<String> = all.into_keys().collect();
+        styles.sort();
+        // Ensure "default" is first if present
+        if let Some(pos) = styles.iter().position(|s| s == "default") {
+            styles.remove(pos);
+            styles.insert(0, "default".to_string());
+        }
+        if styles.is_empty() {
+            styles.push("default".to_string());
+        }
         Box::new(OutputStyleState { styles, selected: 0 })
     }
 

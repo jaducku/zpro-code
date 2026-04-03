@@ -62,6 +62,8 @@ pub struct App {
     pub no_session_persistence: bool,
     /// Model override (set by /model command for hot-swap)
     pub model_override: Option<String>,
+    /// Active output style name (e.g. "default", "concise", etc.)
+    pub output_style: String,
 }
 
 /// What kind of typeahead is active
@@ -167,6 +169,7 @@ impl App {
             file_index: None,
             no_session_persistence: false,
             model_override: None,
+            output_style: "default".to_string(),
         }
     }
 
