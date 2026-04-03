@@ -1,3 +1,4 @@
+pub mod agent_tool;
 pub mod bash_tool;
 pub mod file_edit_tool;
 pub mod file_read_tool;
@@ -10,6 +11,7 @@ use crate::tool::Tool;
 /// Collect all built-in tools
 pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
     vec![
+        Box::new(agent_tool::AgentTool),
         Box::new(bash_tool::BashTool),
         Box::new(file_read_tool::FileReadTool),
         Box::new(file_edit_tool::FileEditTool),
