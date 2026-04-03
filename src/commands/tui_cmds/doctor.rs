@@ -58,10 +58,8 @@ impl TuiCommand for DoctorCommand {
         let rust_ok = check_command("rustc");
         let git_ok = check_command("git");
         let cwd_ok = ctx.cwd.exists();
-        let home = std::env::var("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_default();
-        let config_ok = home.join(".claude").join("settings.json").exists();
+        let config_dir = crate::utils::paths::global_config_dir();
+        let config_ok = config_dir.exists();
 
         let cwd_label = format!("Working directory ({})", ctx.cwd.display());
 
@@ -69,7 +67,7 @@ impl TuiCommand for DoctorCommand {
             ("Rust toolchain".to_string(), rust_ok),
             ("Git available".to_string(), git_ok),
             (cwd_label, cwd_ok),
-            ("Config file (~/.claude/settings.json)".to_string(), config_ok),
+            ("Config dir (~/.atom)".to_string(), config_ok),
         ];
 
         Box::new(DoctorState { checks })

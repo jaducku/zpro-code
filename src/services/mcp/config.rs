@@ -12,15 +12,15 @@ pub struct McpJsonConfig {
 
 /// Load MCP server configs from .mcp.json files.
 /// Discovery order (later overrides earlier):
-/// 1. ~/.config/agents/.mcp.json (user-level)
+/// 1. ~/.atom/.mcp.json (user-level)
 /// 2. CWD/.mcp.json (project-level)
 /// 3. --mcp-config CLI paths
 pub fn load_mcp_configs(cwd: &Path, extra_paths: &[String]) -> HashMap<String, McpServerConfig> {
     let mut configs = HashMap::new();
 
     // 1. User-level
-    if let Ok(home) = std::env::var("HOME") {
-        let user_config = std::path::PathBuf::from(&home).join(".config/agents/.mcp.json");
+    {
+        let user_config = crate::utils::paths::user_mcp_config_path();
         if let Some(parsed) = parse_mcp_json(&user_config) {
             configs.extend(parsed);
         }

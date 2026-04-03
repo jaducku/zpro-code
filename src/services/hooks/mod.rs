@@ -126,8 +126,8 @@ pub fn load_hooks(cwd: &Path) -> Vec<HookConfig> {
     }
 
     // Check user-level
-    if let Ok(home) = std::env::var("HOME") {
-        let user_hooks = std::path::PathBuf::from(home).join(".config/agents/hooks.json");
+    {
+        let user_hooks = crate::utils::paths::user_hooks_path();
         if let Ok(content) = std::fs::read_to_string(&user_hooks) {
             if let Ok(parsed) = serde_json::from_str::<Vec<HookConfig>>(&content) {
                 hooks.extend(parsed);

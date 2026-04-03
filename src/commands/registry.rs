@@ -153,11 +153,16 @@ impl CommandRegistry {
         self.dynamic.clear();
     }
 
-    /// Load commands from `.skill` directories relative to the given working directory.
+    /// Load skill commands from `.agents/skills/` directories.
     ///
-    /// Implemented in Phase 9 (services).
-    #[allow(unused_variables)]
+    /// Discovers skills by walking from `cwd` up to the git root (project-level)
+    /// and from `~/.atom/skills/` (user-level). Each skill with a unique
+    /// name is registered via `register_dynamic_skill` (first-found wins).
     pub async fn load_skill_dir_commands(&mut self, cwd: &std::path::Path) -> anyhow::Result<()> {
+        let skills = crate::services::skills::load_skills(cwd);
+        for skill in skills {
+            self.register_dynamic_skill(skill);
+        }
         Ok(())
     }
 

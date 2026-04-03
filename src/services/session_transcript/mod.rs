@@ -25,9 +25,7 @@ pub struct SessionStore {
 
 impl SessionStore {
     pub fn new() -> anyhow::Result<Self> {
-        let home = std::env::var("HOME")
-            .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
-        let base_dir = PathBuf::from(home).join(".claude").join("sessions");
+        let base_dir = crate::utils::paths::sessions_dir();
         std::fs::create_dir_all(&base_dir)?;
         Ok(Self { base_dir })
     }

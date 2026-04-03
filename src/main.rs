@@ -487,9 +487,7 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             );
 
             // Check config directory
-            let config_dir = std::env::var("HOME")
-                .map(|h| std::path::PathBuf::from(h).join(".claude"))
-                .unwrap_or_default();
+            let config_dir = atom_code::utils::paths::global_config_dir();
             let config_exists = config_dir.exists();
             println!(
                 "  {} config directory: {}",
@@ -670,7 +668,8 @@ async fn main() -> anyhow::Result<()> {
                 None
             };
 
-            let command_registry = CommandRegistry::new();
+            let mut command_registry = CommandRegistry::new();
+            command_registry.load_skill_dir_commands(&cwd).await?;
             run_app(provider, mcp_manager, system_prompt, command_registry, permission_mode, resume_transcript).await?;
         }
     }

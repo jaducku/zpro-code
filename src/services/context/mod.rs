@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::services::api::types::SystemBlock;
 
@@ -66,15 +66,15 @@ You have access to tools for reading files, writing files, running commands, and
 /// Discover and load AGENTS.md files.
 ///
 /// Discovery order:
-/// 1. `~/.config/agents/AGENTS.md` (global user)
+/// 1. `~/.atom/AGENTS.md` (global user)
 /// 2. From CWD upward to git root (or filesystem root): `AGENTS.md`, `.agents/AGENTS.md`
 /// 3. `AGENTS.local.md` in CWD (private, project-level)
 fn load_agents_md(cwd: &Path) -> String {
     let mut contents = Vec::new();
 
     // 1. Global user AGENTS.md
-    if let Ok(home) = std::env::var("HOME") {
-        let global = PathBuf::from(&home).join(".config/agents/AGENTS.md");
+    {
+        let global = crate::utils::paths::user_agents_md_path();
         if let Ok(content) = std::fs::read_to_string(&global) {
             contents.push(format!("## Global Instructions\n{}", content));
         }
