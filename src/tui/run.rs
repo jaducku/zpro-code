@@ -451,7 +451,7 @@ async fn submit_query(
 
     // Build query context
     let cwd = std::env::current_dir().unwrap_or_default();
-    let hooks = crate::services::hooks::load_hooks(&cwd);
+    let hooks = crate::services::hooks::load_all_hooks(&cwd);
     let ctx = crate::query::QueryContext {
         messages: app.api_messages.clone(),
         tools,

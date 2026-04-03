@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::services::api::types::SystemBlock;
-use crate::services::hooks::HookConfig;
+use crate::services::hooks::HooksSettings;
 use crate::tool::{Tool, ToolResultBlock};
 use crate::types::message::StopReason;
 use crate::types::permissions::ToolPermissionContext;
@@ -17,7 +17,7 @@ pub struct QueryContext {
     pub max_tokens: u32,
     pub permission_ctx: ToolPermissionContext,
     pub permission_tx: mpsc::UnboundedSender<PermissionAsk>,
-    pub hooks: Vec<HookConfig>,
+    pub hooks: HooksSettings,
     pub cwd: PathBuf,
     /// Maximum agentic turns (tool-use loops). None = unlimited (default 50 in engine).
     pub max_turns: Option<u32>,

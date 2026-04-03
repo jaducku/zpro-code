@@ -65,7 +65,7 @@ pub async fn run_print_mode(
     // 3. Build query context (bypass permissions -- no TUI for dialogs)
     let (perm_tx, _perm_rx) = mpsc::unbounded_channel();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let hooks = crate::services::hooks::load_hooks(&cwd);
+    let hooks = crate::services::hooks::load_all_hooks(&cwd);
 
     let ctx = QueryContext {
         messages: vec![ApiMessage {
