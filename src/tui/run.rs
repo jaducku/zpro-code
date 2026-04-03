@@ -169,6 +169,8 @@ pub async fn run_app(
 
             // Query events from the spawned query task
             Some(event) = query_event_rx.recv() => {
+                let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/atom-events.log")
+                    .and_then(|mut f| { use std::io::Write; writeln!(f, "event: {:?}", std::mem::discriminant(&event)) });
                 let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
                 app.handle_query_event(event);
 
@@ -428,8 +430,12 @@ fn submit_query(
     // Spawn query as background task
     tokio::spawn(async move {
         match crate::query::engine::query(ctx, &*provider, event_tx.clone(), cancel).await {
-            Ok(_) => {}
+            Ok(_) => {
+                // Signal completion (event already sent via ResponseComplete in engine)
+            }
             Err(e) => {
+                // Write error to file for debugging (TUI swallows stderr)
+                let _ = std::fs::write("/tmp/atom-query-error.log", format!("{:?}", e));
                 let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
             }
         }

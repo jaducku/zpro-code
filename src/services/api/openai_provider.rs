@@ -80,11 +80,46 @@ impl OpenAiCompatibleProvider {
 #[async_trait]
 impl LlmProvider for OpenAiCompatibleProvider {
     async fn create_message(&self, request: CreateMessageRequest) -> Result<MessageStream> {
-        let openai_req = self.build_request(&request);
         let url = format!(
             "{}/chat/completions",
             self.base_url.trim_end_matches('/')
         );
+
+        // Try with system role first, retry with system-as-user on 400
+        let result = self.send_request(&url, &request, false).await;
+
+        match result {
+            Err(AtomError::Api { status: Some(400), message })
+                if message.contains("instruction") || message.contains("system") =>
+            {
+                // Model doesn't support system role — retry with system prompt as user message
+                self.send_request(&url, &request, true).await
+            }
+            other => other,
+        }
+    }
+
+    fn model_info(&self) -> &ModelInfo {
+        &self.model_info
+    }
+
+    fn capabilities(&self) -> &Capabilities {
+        &self.model_info.capabilities
+    }
+}
+
+impl OpenAiCompatibleProvider {
+    async fn send_request(
+        &self,
+        url: &str,
+        request: &CreateMessageRequest,
+        system_as_user: bool,
+    ) -> Result<MessageStream> {
+        let openai_req = if system_as_user {
+            self.build_request_system_as_user(request)
+        } else {
+            self.build_request(request)
+        };
 
         let body = serde_json::to_string(&openai_req)
             .map_err(|e| AtomError::Api {
@@ -92,10 +127,9 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 status: None,
             })?;
 
-        // Build HTTP request
         let mut http_req = self
             .client
-            .post(&url)
+            .post(url)
             .header("Content-Type", "application/json");
 
         if let Some(ref key) = self.api_key {
@@ -103,7 +137,6 @@ impl LlmProvider for OpenAiCompatibleProvider {
         }
 
         if !request.stream {
-            // Non-streaming: single request/response
             let resp = http_req.body(body).send().await?;
             let status = resp.status();
             if !status.is_success() {
@@ -118,7 +151,6 @@ impl LlmProvider for OpenAiCompatibleProvider {
             return Ok(Box::pin(stream::iter(events.into_iter().map(Ok))));
         }
 
-        // Streaming: try SSE first, fall back to non-streaming on error
         let resp = http_req.body(body).send().await?;
         let status = resp.status();
         if !status.is_success() {
@@ -129,18 +161,62 @@ impl LlmProvider for OpenAiCompatibleProvider {
             });
         }
 
-        // Parse SSE from the response body manually
         let stream = parse_sse_response(resp);
         Ok(Box::pin(stream))
     }
 
-    fn model_info(&self) -> &ModelInfo {
-        &self.model_info
+    /// Build request with system prompt as user message (for models that don't support system role)
+    fn build_request_system_as_user(&self, request: &CreateMessageRequest) -> OpenAiRequest {
+        let mut messages = Vec::new();
+
+        // Inject system prompt as first user message
+        if let Some(system) = &request.system {
+            let text: String = system
+                .iter()
+                .map(|b| match b { SystemBlock::Text { text } => text.as_str() })
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            if !text.is_empty() {
+                messages.push(OpenAiMessage {
+                    role: "user".into(),
+                    content: Some(OpenAiContent::Text(format!("[System Instructions]\n{}", text))),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                });
+                messages.push(OpenAiMessage {
+                    role: "assistant".into(),
+                    content: Some(OpenAiContent::Text("Understood. I'll follow these instructions.".into())),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                });
+            }
+        }
+
+        // Add regular messages (without system)
+        let regular = to_openai_messages(&request.messages, None);
+        messages.extend(regular);
+
+        let tools = request.tools.as_ref()
+            .map(|t| to_openai_tools(t))
+            .filter(|t| !t.is_empty());
+
+        OpenAiRequest {
+            model: request.model.clone(),
+            messages,
+            tools,
+            max_tokens: Some(request.max_tokens),
+            temperature: request.temperature,
+            stream: Some(request.stream),
+            stream_options: if request.stream {
+                Some(StreamOptions { include_usage: true })
+            } else {
+                None
+            },
+        }
     }
 
-    fn capabilities(&self) -> &Capabilities {
-        &self.model_info.capabilities
-    }
 }
 
 /// Convert non-streaming response to stream events
