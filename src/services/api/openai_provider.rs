@@ -367,7 +367,7 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                 }
             }
         })
-        .flat_map(|events| stream::iter(events));
+        .flat_map(stream::iter);
 
     stream.boxed()
 }
