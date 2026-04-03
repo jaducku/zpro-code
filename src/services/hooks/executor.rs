@@ -7,6 +7,9 @@ use crate::services::hooks::types::{
     HookCommand, HookExecutionResult, HookMatcher, HookOutcome, HooksSettings, SyncHookOutput,
 };
 
+/// Events that are always emitted (used for documentation/future filtering at a higher level).
+const ALWAYS_EMITTED: &[&str] = &["SessionStart", "Setup"];
+
 /// Build base environment variables for hook execution.
 fn build_base_env(event: &str, cwd: &Path) -> HookEnv {
     let mut env = HashMap::new();
@@ -195,6 +198,11 @@ pub async fn execute_event_hooks(
                 matching_hooks.push(hook);
             }
         }
+    }
+
+    // Filter out HTTP hooks for SessionStart/Setup events (deadlock prevention)
+    if ALWAYS_EMITTED.contains(&event) {
+        matching_hooks.retain(|hook| !matches!(hook, HookCommand::Http { .. }));
     }
 
     if matching_hooks.is_empty() {
@@ -461,5 +469,37 @@ more output"#;
         assert_eq!(env.get("ATOM_CWD").unwrap(), "/tmp/test");
         assert_eq!(env.get("ATOM_SESSION_ID").unwrap(), "");
         assert_eq!(env.get("ATOM_AGENT_ID").unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn test_http_hooks_filtered_for_session_start() {
+        let dir = TempDir::new().unwrap();
+        let settings = settings_with_hook(
+            "SessionStart",
+            None,
+            HookCommand::Http {
+                url: "https://example.com/hook".to_string(),
+                headers: None,
+                allowed_env_vars: None,
+                timeout: None,
+                status_message: None,
+                once: None,
+                r#if: None,
+            },
+        );
+        let result = execute_event_hooks(
+            "SessionStart",
+            "",
+            &serde_json::json!({}),
+            &settings,
+            dir.path(),
+        )
+        .await;
+        // HTTP hook should be filtered out, resulting in Success (no hooks executed)
+        assert!(
+            matches!(result.outcome, HookOutcome::Success),
+            "Expected Success (HTTP hook filtered), got {:?}",
+            result.outcome
+        );
     }
 }
