@@ -222,7 +222,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     let status_line = Line::from(vec![
         Span::styled(&left, Style::default().fg(Color::Cyan).bold().bg(Color::DarkGray)),
         Span::styled(middle, Style::default().bg(Color::DarkGray)),
-        Span::styled(&right, Style::default().fg(Color::DarkGray).bg(Color::DarkGray)),
+        Span::styled(&right, Style::default().fg(Color::White).bg(Color::DarkGray)),
     ]);
 
     frame.render_widget(Paragraph::new(status_line), area);
