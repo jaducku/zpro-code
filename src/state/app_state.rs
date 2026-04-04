@@ -158,7 +158,7 @@ pub struct AppState {
     pub agent_message_queues: HashMap<String, Vec<serde_json::Value>>,
     /// Active worktree session (set by EnterWorktree, cleared by ExitWorktree)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_worktree_session: Option<serde_json::Value>,
+    pub current_worktree_session: Option<crate::services::worktree::WorktreeSession>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
