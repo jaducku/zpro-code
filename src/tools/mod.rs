@@ -4,6 +4,7 @@ pub mod bash_tool;
 pub mod brief_tool;
 pub mod enter_plan_mode_tool;
 pub mod enter_worktree_tool;
+pub mod exit_plan_mode_tool;
 pub mod file_edit_tool;
 pub mod file_read_tool;
 pub mod file_write_tool;
@@ -52,6 +53,7 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(tool_search_tool::ToolSearchTool),
         Box::new(brief_tool::BriefTool),
         Box::new(enter_plan_mode_tool::EnterPlanModeTool),
+        Box::new(exit_plan_mode_tool::ExitPlanModeTool),
         Box::new(enter_worktree_tool::EnterWorktreeTool),
         Box::new(web_fetch_tool::WebFetchTool),
         Box::new(web_search_tool::WebSearchTool),
@@ -108,7 +110,7 @@ mod tests {
     fn test_deferred_tools() {
         let tools = get_builtin_tools();
         // Tools that opt into deferral via should_defer()
-        let expected_deferred = &["SendMessage", "EnterPlanMode", "EnterWorktree"];
+        let expected_deferred = &["SendMessage", "EnterPlanMode", "ExitPlanMode", "EnterWorktree"];
         for tool in &tools {
             let deferred = is_deferred_tool(tool.as_ref());
             if expected_deferred.contains(&tool.name()) {
