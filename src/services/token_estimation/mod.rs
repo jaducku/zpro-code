@@ -34,6 +34,7 @@ pub fn estimate_message_tokens(messages: &[ApiMessage]) -> u64 {
                     },
                     ContentBlock::Image { .. } => 1000,
                     ContentBlock::Thinking { thinking, .. } => estimate_tokens(thinking),
+                    ContentBlock::ToolReference { tool_name } => estimate_tokens(tool_name),
                 })
                 .sum::<u64>()
         })

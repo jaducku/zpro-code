@@ -53,6 +53,7 @@ impl Tool for WebSearchTool {
                 return Ok(ToolResult {
                     content: "Missing required parameter: 'query'".into(),
                     is_error: true,
+                    content_blocks: None,
                 });
             }
         };
@@ -70,6 +71,7 @@ impl Tool for WebSearchTool {
                 return Ok(ToolResult {
                     content: "Tavily API key not configured. Add \"tavily_api_key\": \"tvly-...\" to ~/.atom/config.json".into(),
                     is_error: true,
+                    content_blocks: None,
                 });
             }
         };
@@ -102,6 +104,7 @@ impl Tool for WebSearchTool {
                         return Ok(ToolResult {
                             content: format!("Search request failed: {}", e),
                             is_error: true,
+                            content_blocks: None,
                         });
                     }
                 }
@@ -116,6 +119,7 @@ impl Tool for WebSearchTool {
             return Ok(ToolResult {
                 content: format!("Tavily API error: HTTP {}", status),
                 is_error: true,
+                content_blocks: None,
             });
         }
 
@@ -127,6 +131,7 @@ impl Tool for WebSearchTool {
                         return Ok(ToolResult {
                             content: format!("Failed to parse Tavily response: {}", e),
                             is_error: true,
+                            content_blocks: None,
                         });
                     }
                 }
@@ -140,6 +145,7 @@ impl Tool for WebSearchTool {
             return Ok(ToolResult {
                 content: format!("No results found for '{}'", query),
                 is_error: false,
+                content_blocks: None,
             });
         }
 
@@ -153,6 +159,7 @@ impl Tool for WebSearchTool {
         Ok(ToolResult {
             content: formatted,
             is_error: false,
+            content_blocks: None,
         })
     }
 

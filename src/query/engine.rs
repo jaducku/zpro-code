@@ -325,13 +325,23 @@ pub async fn query(
                         }
                     }
 
-                    let block = ToolResultBlock::success(tc.id.clone(), content.clone());
+                    let block = ToolResultBlock {
+                        tool_use_id: tc.id.clone(),
+                        content: content.clone(),
+                        is_error: false,
+                        content_blocks: tr.content_blocks.clone(),
+                    };
                     let _ = event_tx.send(QueryEvent::ToolCallComplete {
                         id: tc.id.clone(),
                         result: block.clone(),
                     });
                     if tr.is_error {
-                        ToolResultBlock::error(tc.id.clone(), content)
+                        ToolResultBlock {
+                            tool_use_id: tc.id.clone(),
+                            content,
+                            is_error: true,
+                            content_blocks: tr.content_blocks.clone(),
+                        }
                     } else {
                         block
                     }
@@ -353,7 +363,11 @@ pub async fn query(
             .iter()
             .map(|b| ContentBlock::ToolResult {
                 tool_use_id: b.tool_use_id.clone(),
-                content: crate::types::content::ToolResultContent::Text(b.content.clone()),
+                content: if let Some(ref blocks) = b.content_blocks {
+                    crate::types::content::ToolResultContent::Blocks(blocks.clone())
+                } else {
+                    crate::types::content::ToolResultContent::Text(b.content.clone())
+                },
                 is_error: b.is_error,
             })
             .collect();
@@ -501,6 +515,7 @@ mod tests {
             Ok(crate::tool::ToolResult {
                 content: format!("Echo: {}", msg),
                 is_error: false,
+                content_blocks: None,
             })
         }
         fn permission_metadata(&self, _input: &serde_json::Value) -> PermissionMeta {

@@ -59,6 +59,7 @@ impl Tool for McpToolWrapper {
         Ok(ToolResult {
             content,
             is_error: result.is_error,
+            content_blocks: None,
         })
     }
 

@@ -86,6 +86,7 @@ impl Tool for SkillTool {
                         skill_name
                     ),
                     is_error: true,
+                    content_blocks: None,
                 });
             }
         };
@@ -112,6 +113,7 @@ impl Tool for SkillTool {
                 return Ok(ToolResult {
                     content: format!("Failed to load skill '{}': {}", skill_name, e),
                     is_error: true,
+                    content_blocks: None,
                 });
             }
         };
@@ -129,6 +131,7 @@ impl Tool for SkillTool {
             return Ok(ToolResult {
                 content: format!("Skill '{}' produced no content.", skill_name),
                 is_error: true,
+                content_blocks: None,
             });
         }
 
@@ -139,6 +142,7 @@ impl Tool for SkillTool {
                     skill_name, prompt_text
                 ),
                 is_error: false,
+                content_blocks: None,
             }),
             ContextMode::Fork => execute_forked_skill(skill_name, &prompt_text, &ctx).await,
         }
@@ -203,11 +207,13 @@ async fn execute_forked_skill(
             Ok(ToolResult {
                 content: text,
                 is_error: false,
+                content_blocks: None,
             })
         }
         Err(e) => Ok(ToolResult {
             content: format!("Skill '{}' failed: {}", skill_name, e),
             is_error: true,
+            content_blocks: None,
         }),
     }
 }

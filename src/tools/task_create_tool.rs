@@ -84,6 +84,7 @@ impl Tool for TaskCreateTool {
         Ok(ToolResult {
             content: result.to_string(),
             is_error: false,
+            content_blocks: None,
         })
     }
 

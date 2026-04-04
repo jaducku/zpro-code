@@ -121,11 +121,13 @@ impl Tool for GrepTool {
             Ok(ToolResult {
                 content: format!("No matches found for pattern '{}'", pattern),
                 is_error: false,
+                content_blocks: None,
             })
         } else {
             Ok(ToolResult {
                 content: stdout,
                 is_error: false,
+                content_blocks: None,
             })
         }
     }

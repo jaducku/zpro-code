@@ -62,6 +62,7 @@ impl Tool for TaskOutputTool {
         Ok(ToolResult {
             content,
             is_error: false,
+            content_blocks: None,
         })
     }
 

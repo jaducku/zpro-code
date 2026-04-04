@@ -52,6 +52,7 @@ impl Tool for WebFetchTool {
             return Ok(ToolResult {
                 content: "Invalid URL: must start with http:// or https://".into(),
                 is_error: true,
+                content_blocks: None,
             });
         }
 
@@ -72,6 +73,7 @@ impl Tool for WebFetchTool {
                         return Ok(ToolResult {
                             content: format!("Fetch failed: {}", e),
                             is_error: true,
+                            content_blocks: None,
                         });
                     }
                 }
@@ -86,6 +88,7 @@ impl Tool for WebFetchTool {
             return Ok(ToolResult {
                 content: format!("HTTP error: status {}", status),
                 is_error: true,
+                content_blocks: None,
             });
         }
 
@@ -104,6 +107,7 @@ impl Tool for WebFetchTool {
             return Ok(ToolResult {
                 content: format!("Cannot process binary content type: {}", content_type),
                 is_error: true,
+                content_blocks: None,
             });
         }
 
@@ -115,6 +119,7 @@ impl Tool for WebFetchTool {
                         return Ok(ToolResult {
                             content: format!("Failed to read response body: {}", e),
                             is_error: true,
+                            content_blocks: None,
                         });
                     }
                 }
@@ -128,6 +133,7 @@ impl Tool for WebFetchTool {
             return Ok(ToolResult {
                 content: format!("Response too large: {} bytes (max {})", bytes.len(), MAX_BODY_SIZE),
                 is_error: true,
+                content_blocks: None,
             });
         }
 
@@ -151,6 +157,7 @@ impl Tool for WebFetchTool {
         Ok(ToolResult {
             content,
             is_error: false,
+            content_blocks: None,
         })
     }
 

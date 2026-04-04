@@ -31,6 +31,9 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+
+    #[serde(rename = "tool_reference")]
+    ToolReference { tool_name: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -123,5 +126,18 @@ mod tests {
         };
         let json = serde_json::to_value(&block).unwrap();
         assert_eq!(json["type"], "thinking");
+    }
+
+    #[test]
+    fn test_tool_reference_serde_roundtrip() {
+        let block = ContentBlock::ToolReference {
+            tool_name: "BashTool".into(),
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert_eq!(json["type"], "tool_reference");
+        assert_eq!(json["tool_name"], "BashTool");
+
+        let parsed: ContentBlock = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, block);
     }
 }

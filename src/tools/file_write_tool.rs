@@ -64,6 +64,7 @@ impl Tool for FileWriteTool {
                             e
                         ),
                         is_error: true,
+                        content_blocks: None,
                     });
                 }
             }
@@ -75,11 +76,13 @@ impl Tool for FileWriteTool {
                 Ok(ToolResult {
                     content: format!("Successfully wrote {} lines to {}", line_count, file_path),
                     is_error: false,
+                    content_blocks: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 content: format!("Failed to write to '{}': {}", file_path, e),
                 is_error: true,
+                content_blocks: None,
             }),
         }
     }

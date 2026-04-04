@@ -77,6 +77,7 @@ impl Tool for BashTool {
                 return Ok(ToolResult {
                     content: format!("Command timed out after {}ms", timeout_ms),
                     is_error: true,
+                    content_blocks: None,
                 });
             }
             _ = ctx.abort_signal.cancelled() => {
@@ -103,11 +104,13 @@ impl Tool for BashTool {
                 Ok(ToolResult {
                     content: output,
                     is_error: exit_code != 0,
+                    content_blocks: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 content: format!("Failed to execute command: {}", e),
                 is_error: true,
+                content_blocks: None,
             }),
         }
     }
@@ -200,6 +203,7 @@ impl BashTool {
             })
             .to_string(),
             is_error: false,
+            content_blocks: None,
         })
     }
 }

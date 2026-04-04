@@ -97,6 +97,7 @@ impl Tool for TaskUpdateTool {
             return Ok(ToolResult {
                 content: result.to_string(),
                 is_error: false,
+                content_blocks: None,
             });
         }
 
@@ -199,6 +200,7 @@ impl Tool for TaskUpdateTool {
         Ok(ToolResult {
             content: result.to_string(),
             is_error: false,
+            content_blocks: None,
         })
     }
 

@@ -56,6 +56,21 @@ pub trait Tool: Send + Sync {
     fn is_mcp(&self) -> bool {
         false
     }
+
+    /// Whether this tool should have its schema deferred (not sent upfront)
+    fn should_defer(&self) -> bool {
+        false
+    }
+
+    /// Whether this tool should always be loaded (never deferred)
+    fn always_load(&self) -> bool {
+        false
+    }
+
+    /// Hint for ToolSearch to match this tool
+    fn search_hint(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Context passed to tool execution
@@ -115,6 +130,8 @@ pub struct ToolResult {
     pub content: String,
     #[serde(default)]
     pub is_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_blocks: Option<Vec<crate::types::content::ContentBlock>>,
 }
 
 /// Progress update from a running tool
@@ -133,12 +150,18 @@ pub enum ValidationResult {
     Error(String),
 }
 
+fn is_false(v: &bool) -> bool {
+    !v
+}
+
 /// Tool definition sent to LLM API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub defer_loading: bool,
 }
 
 /// A tool call extracted from assistant response
@@ -156,6 +179,8 @@ pub struct ToolResultBlock {
     pub content: String,
     #[serde(default)]
     pub is_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_blocks: Option<Vec<crate::types::content::ContentBlock>>,
 }
 
 impl ToolResultBlock {
@@ -164,6 +189,7 @@ impl ToolResultBlock {
             tool_use_id,
             content,
             is_error: false,
+            content_blocks: None,
         }
     }
 
@@ -172,6 +198,7 @@ impl ToolResultBlock {
             tool_use_id,
             content: message,
             is_error: true,
+            content_blocks: None,
         }
     }
 }
@@ -182,6 +209,7 @@ impl From<&dyn Tool> for ToolDefinition {
             name: tool.name().to_string(),
             description: tool.description().to_string(),
             input_schema: tool.input_schema(),
+            defer_loading: crate::tools::is_deferred_tool(tool),
         }
     }
 }
@@ -216,10 +244,37 @@ mod tests {
                 },
                 "required": ["command"]
             }),
+            defer_loading: false,
         };
         let json = serde_json::to_value(&def).unwrap();
         assert_eq!(json["name"], "BashTool");
         assert_eq!(json["input_schema"]["type"], "object");
+        // defer_loading=false should be omitted from serialization
+        assert!(json.get("defer_loading").is_none());
+    }
+
+    #[test]
+    fn test_tool_definition_defer_loading_true() {
+        let def = ToolDefinition {
+            name: "SomeTool".into(),
+            description: "A deferred tool".into(),
+            input_schema: serde_json::json!({"type": "object"}),
+            defer_loading: true,
+        };
+        let json = serde_json::to_value(&def).unwrap();
+        assert_eq!(json["defer_loading"], true);
+    }
+
+    #[test]
+    fn test_tool_definition_defer_loading_false_omitted() {
+        let def = ToolDefinition {
+            name: "SomeTool".into(),
+            description: "A non-deferred tool".into(),
+            input_schema: serde_json::json!({"type": "object"}),
+            defer_loading: false,
+        };
+        let json = serde_json::to_value(&def).unwrap();
+        assert!(json.get("defer_loading").is_none(), "defer_loading=false should be omitted from JSON");
     }
 
     #[test]

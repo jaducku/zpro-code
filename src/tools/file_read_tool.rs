@@ -83,11 +83,13 @@ impl Tool for FileReadTool {
                 Ok(ToolResult {
                     content: result,
                     is_error: false,
+                    content_blocks: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 content: format!("Error reading file '{}': {}", file_path, e),
                 is_error: true,
+                content_blocks: None,
             }),
         }
     }

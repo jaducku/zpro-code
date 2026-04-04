@@ -71,6 +71,7 @@ impl Tool for TaskListTool {
         Ok(ToolResult {
             content: json,
             is_error: false,
+            content_blocks: None,
         })
     }
 

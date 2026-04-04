@@ -97,6 +97,7 @@ impl Tool for AgentTool {
                 }
             })?,
             is_error: false,
+            content_blocks: None,
         })
     }
 

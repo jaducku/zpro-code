@@ -82,14 +82,17 @@ impl Tool for AskUserQuestionTool {
             Ok(UserQuestionReply::Answer(a)) => Ok(ToolResult {
                 content: a,
                 is_error: false,
+                content_blocks: None,
             }),
             Ok(UserQuestionReply::Dismissed) => Ok(ToolResult {
                 content: "User dismissed".into(),
                 is_error: true,
+                content_blocks: None,
             }),
             Err(_) => Ok(ToolResult {
                 content: "Channel closed".into(),
                 is_error: true,
+                content_blocks: None,
             }),
         }
     }

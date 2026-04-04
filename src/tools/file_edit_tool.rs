@@ -82,6 +82,7 @@ impl Tool for FileEditTool {
                 return Ok(ToolResult {
                     content: format!("Error reading file '{}': {}", file_path, e),
                     is_error: true,
+                    content_blocks: None,
                 })
             }
         };
@@ -94,6 +95,7 @@ impl Tool for FileEditTool {
                     file_path
                 ),
                 is_error: true,
+                content_blocks: None,
             });
         }
 
@@ -107,6 +109,7 @@ impl Tool for FileEditTool {
                         count, file_path
                     ),
                     is_error: true,
+                    content_blocks: None,
                 });
             }
         }
@@ -123,10 +126,12 @@ impl Tool for FileEditTool {
             Ok(()) => Ok(ToolResult {
                 content: format!("Successfully edited {}", file_path),
                 is_error: false,
+                content_blocks: None,
             }),
             Err(e) => Ok(ToolResult {
                 content: format!("Error writing file '{}': {}", file_path, e),
                 is_error: true,
+                content_blocks: None,
             }),
         }
     }

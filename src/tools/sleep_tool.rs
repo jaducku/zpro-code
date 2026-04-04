@@ -49,11 +49,13 @@ impl Tool for SleepTool {
             Ok(ToolResult {
                 content: format!("Slept for {}ms", clamped),
                 is_error: false,
+                content_blocks: None,
             })
         } else {
             Ok(ToolResult {
                 content: "Sleep interrupted".into(),
                 is_error: false,
+                content_blocks: None,
             })
         }
     }

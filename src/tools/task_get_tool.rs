@@ -56,11 +56,13 @@ impl Tool for TaskGetTool {
                 Ok(ToolResult {
                     content: json,
                     is_error: false,
+                    content_blocks: None,
                 })
             }
             None => Ok(ToolResult {
                 content: format!("Task not found: {}", task_id),
                 is_error: true,
+                content_blocks: None,
             }),
         }
     }

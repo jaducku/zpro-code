@@ -70,11 +70,13 @@ impl Tool for GlobTool {
             Ok(ToolResult {
                 content: format!("No files matched pattern '{}'", pattern),
                 is_error: false,
+                content_blocks: None,
             })
         } else {
             Ok(ToolResult {
                 content: files.join("\n"),
                 is_error: false,
+                content_blocks: None,
             })
         }
     }

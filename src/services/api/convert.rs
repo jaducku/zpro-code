@@ -304,6 +304,7 @@ mod tests {
             name: "BashTool".into(),
             description: "Run bash".into(),
             input_schema: serde_json::json!({"type": "object", "properties": {"command": {"type": "string"}}}),
+            defer_loading: false,
         }];
         let result = to_openai_tools(&tools);
         assert_eq!(result.len(), 1);

@@ -128,6 +128,7 @@ impl Tool for NotebookEditTool {
                 return Ok(ToolResult {
                     content: format!("Failed to read notebook '{}': {}", notebook_path, e),
                     is_error: true,
+                    content_blocks: None,
                 })
             }
         };
@@ -139,6 +140,7 @@ impl Tool for NotebookEditTool {
                 return Ok(ToolResult {
                     content: format!("Invalid JSON in notebook '{}': {}", notebook_path, e),
                     is_error: true,
+                    content_blocks: None,
                 })
             }
         };
@@ -153,6 +155,7 @@ impl Tool for NotebookEditTool {
                         notebook_path
                     ),
                     is_error: true,
+                    content_blocks: None,
                 })
             }
         };
@@ -170,6 +173,7 @@ impl Tool for NotebookEditTool {
                         return Ok(ToolResult {
                             content: "Missing 'source' parameter for insert command".into(),
                             is_error: true,
+                            content_blocks: None,
                         })
                     }
                 };
@@ -186,6 +190,7 @@ impl Tool for NotebookEditTool {
                             cells.len()
                         ),
                         is_error: true,
+                        content_blocks: None,
                     });
                 }
                 let source = match ctx.input.get("source").and_then(|v| v.as_str()) {
@@ -194,6 +199,7 @@ impl Tool for NotebookEditTool {
                         return Ok(ToolResult {
                             content: "Missing 'source' parameter for replace command".into(),
                             is_error: true,
+                            content_blocks: None,
                         })
                     }
                 };
@@ -215,6 +221,7 @@ impl Tool for NotebookEditTool {
                             cells.len()
                         ),
                         is_error: true,
+                        content_blocks: None,
                     });
                 }
                 cells.remove(cell_index);
@@ -226,6 +233,7 @@ impl Tool for NotebookEditTool {
                         other
                     ),
                     is_error: true,
+                    content_blocks: None,
                 })
             }
         }
@@ -237,6 +245,7 @@ impl Tool for NotebookEditTool {
                 return Ok(ToolResult {
                     content: format!("Failed to serialize notebook: {}", e),
                     is_error: true,
+                    content_blocks: None,
                 })
             }
         };
@@ -248,10 +257,12 @@ impl Tool for NotebookEditTool {
                     command, notebook_path
                 ),
                 is_error: false,
+                content_blocks: None,
             }),
             Err(e) => Ok(ToolResult {
                 content: format!("Failed to write notebook '{}': {}", notebook_path, e),
                 is_error: true,
+                content_blocks: None,
             }),
         }
     }
