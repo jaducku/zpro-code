@@ -38,11 +38,49 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+    #[serde(skip_serializing_if = "is_false")]
     pub defer_loading: bool,  // NEW — signals API to omit full schema
 }
+
+fn is_false(v: &bool) -> bool { !v }
 ```
 
 `From<&dyn Tool>` sets `defer_loading` based on `is_deferred_tool()`.
+`defer_loading: false` is omitted from serialization to keep the wire format clean.
+
+### ToolResultBlock extension for tool_reference
+
+ToolSearchTool returns `tool_reference` content blocks so the API can inject tool schemas.
+Extend `ToolResultBlock` to support structured content:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolResultBlock {
+    pub tool_use_id: String,
+    pub content: ToolResultContent,
+    #[serde(default)]
+    pub is_error: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolResultContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_reference")]
+    ToolReference { tool_name: String },
+}
+```
+
+This is backward-compatible: existing tools return `ToolResultContent::Text(string)`,
+ToolSearchTool returns `ToolResultContent::Blocks(vec![ContentBlock::ToolReference { ... }])`.
 
 ---
 
@@ -59,11 +97,13 @@ pub struct ToolDefinition {
 
 ### Query modes
 
-1. **`select:Name1,Name2`** — exact name match from `ctx.tools`
-2. **`+required optional`** — `+` prefix terms must all match, rest ranked by score
-3. **keyword search** — all terms optional, ranked by score
+1. **`select:Name1,Name2`** — exact name match from `ctx.tools` (deferred or not)
+2. **Exact name fast path** — if query exactly matches a tool name (case-insensitive), return it immediately
+3. **`mcp__` prefix match** — if query starts with `mcp__`, find tools by prefix
+4. **`+required optional`** — `+` prefix terms must all match, rest ranked by score
+5. **keyword search** — all terms optional, ranked by score
 
-### Scoring (deferred tools only)
+### Scoring (deferred tools only for keyword search)
 
 | Match location | Full word | Partial |
 |----------------|-----------|---------|
@@ -72,13 +112,35 @@ pub struct ToolDefinition {
 | search_hint | +4 | — |
 | description | +2 | — |
 
-### Output format
+### Output
 
-```xml
-<functions>
-<function>{"description": "...", "name": "...", "parameters": {...}}</function>
-</functions>
+Returns `tool_reference` content blocks via `ToolResultContent::Blocks`:
+
+```rust
+ToolResult {
+    content: ToolResultContent::Blocks(
+        matched_names.iter().map(|name| ContentBlock::ToolReference {
+            tool_name: name.clone(),
+        }).collect()
+    ),
+    is_error: false,
+}
 ```
+
+The API expands `tool_reference` blocks into full tool schemas server-side.
+
+Additionally includes metadata as a text block:
+```json
+{ "query": "...", "total_deferred_tools": 12, "matches": ["Read", "Edit"] }
+```
+
+### search_hint values for new tools
+
+| Tool | search_hint |
+|------|-------------|
+| SendMessageTool | `"send messages to agent teammates (swarm protocol)"` |
+| SyntheticOutputTool | `"return the final response as structured JSON"` |
+| BriefTool | `"send a visible message to the user"` |
 
 ### Properties
 
@@ -101,6 +163,16 @@ pub struct ToolDefinition {
 | `message` | string or StructuredMessage | yes | Content to send |
 | `summary` | string | no | 5-10 word preview (required for plain text) |
 
+### Input validation rules
+
+- `to` must not be empty
+- `to` must not contain `@` (reserved)
+- `summary` is required when `message` is a plain string
+- Structured messages cannot be broadcast (`to: "*"`)
+- Structured messages cannot cross sessions (`uds:` / `bridge:`)
+- `shutdown_response` must target the team lead
+- Rejection (`approve: false`) requires a `reason` / `feedback`
+
 ### StructuredMessage types
 
 ```rust
@@ -119,16 +191,32 @@ Defined in `src/services/mailbox/types.rs`.
 
 | `to` pattern | Route | Mechanism |
 |--------------|-------|-----------|
-| agent name | In-process | `agent_name_registry` → BackgroundTask → message queue. Auto-resume if stopped. |
+| agent name | In-process | See "In-process routing" below |
 | `*` | Broadcast | Enumerate team file → write to each inbox |
 | teammate name | File mailbox | `~/.atom/teams/{team}/inboxes/{name}.json` |
 | `uds:<path>` | Unix socket | Plain text only. `tokio::net::UnixStream` |
 | `bridge:<id>` | Remote session | Plain text only. HTTP POST |
 
+### In-process agent routing (detailed)
+
+1. Look up `to` in `app_state.agent_name_registry` → get `agent_id`
+2. If not found, try `to` directly as raw agent_id
+3. Find matching `BackgroundTask` in `app_state.background_tasks`:
+   - **Running** → push message to `app_state.agent_message_queues[agent_id]`
+   - **Stopped/Completed** → attempt resume: create new BackgroundTask with message as prompt, using transcript from `~/.atom/sessions/{session_id}/agents/{agent_id}/`
+   - **Not found in memory** → attempt resume from disk transcript (same as stopped)
+4. If no task found at all → fall back to file mailbox
+
+### Team name resolution
+
+Team name comes from `app_state.team_name: Option<String>` (new field).
+Set by CLI `--team` flag or `ATOM_CODE_TEAM` env var.
+When `None`, broadcast and teammate-name routing return an error.
+
 ### Structured message handlers
 
-- **shutdown_request** → send request, return `request_id`
-- **shutdown_response(approve=true)** → in-process: `cancel_token` signal; external: graceful shutdown
+- **shutdown_request** → send request, return `request_id` (uuid)
+- **shutdown_response(approve=true)** → in-process: `cancel_token.cancel()`; external: graceful shutdown
 - **shutdown_response(approve=false)** → forward rejection reason
 - **plan_approval_response(approve=true)** → inherit permission mode, approve execution
 - **plan_approval_response(approve=false)** → forward feedback
@@ -142,12 +230,37 @@ RequestOutput { success, message, request_id, target }
 ResponseOutput { success, message, request_id }
 ```
 
+### Activation gate
+
+```rust
+fn can_use(&self, ctx: &ToolUseContext) -> ValidationResult {
+    // Check: coordinator_mode || ATOM_CODE_AGENT_SWARMS env var is truthy
+    // || app_state.swarm_agents is non-empty
+}
+```
+
+`is_agent_swarms_enabled()` defined as a free function in `src/services/coordinator/mod.rs`:
+
+```rust
+pub fn is_agent_swarms_enabled() -> bool {
+    is_coordinator_mode()
+        || matches!(
+            std::env::var("ATOM_CODE_AGENT_SWARMS").unwrap_or_default().as_str(),
+            "1" | "true" | "yes"
+        )
+}
+```
+
 ### Properties
 
 - `name() = "SendMessage"`
 - `is_read_only() = false`
 - `should_defer() = true`
-- `can_use()` → gated on `is_agent_swarms_enabled()`
+- `search_hint() = Some("send messages to agent teammates (swarm protocol)")`
+
+**Note:** TypeScript makes `isReadOnly` dynamic (true for plain text, false for structured).
+The Rust Tool trait takes `&self` without input access. Noted as a known limitation —
+SendMessage is conservatively `is_read_only() = false`.
 
 ---
 
@@ -160,7 +273,7 @@ pub struct Mailbox { base_dir: PathBuf }
 
 impl Mailbox {
     pub fn new(team_name: &str) -> Self;           // base: ~/.atom/teams/{team}/inboxes/
-    pub fn write(&self, recipient: &str, msg: MailboxMessage) -> Result<()>;  // fs2 file lock
+    pub fn write(&self, recipient: &str, msg: MailboxMessage) -> Result<()>;
     pub fn read(&self, agent_name: &str) -> Result<Vec<MailboxMessage>>;
     pub fn clear(&self, agent_name: &str) -> Result<()>;
 }
@@ -175,40 +288,78 @@ pub struct MailboxMessage {
 
 File-based storage with `fs2` locking (same pattern as `TaskListStore`).
 
+**Async note:** Mailbox methods are sync (fs2 locks are blocking). Callers must wrap
+in `tokio::task::spawn_blocking` to avoid blocking the async runtime, same as TaskListStore.
+
 ---
 
 ## 5. SyntheticOutputTool (StructuredOutput)
 
 **File:** `src/tools/synthetic_output_tool.rs`
 
-### Input
+### Stateful struct
 
-Passthrough object — `{"type": "object", "additionalProperties": true}`.
+Unlike other tools, SyntheticOutputTool holds the caller-provided JSON schema so that
+`input_schema()` returns it to the LLM (the LLM needs to see what fields to produce):
+
+```rust
+pub struct SyntheticOutputTool {
+    schema: serde_json::Value,
+    compiled: Arc<jsonschema::JSONSchema>,
+}
+
+impl SyntheticOutputTool {
+    pub fn new(json_schema: serde_json::Value) -> Result<Self> {
+        let compiled = jsonschema::JSONSchema::compile(&json_schema)
+            .map_err(|e| ...)?;
+        Ok(Self { schema: json_schema, compiled: Arc::new(compiled) })
+    }
+}
+```
+
+### Dynamic input_schema
+
+```rust
+fn input_schema(&self) -> serde_json::Value {
+    self.schema.clone()  // Returns the caller's schema, not a generic passthrough
+}
+```
+
+This way the LLM sees the exact fields it needs to produce.
 
 ### Execution flow
 
-1. Read `output_json_schema` from `ctx.app_state`
-2. Validate input against schema using `jsonschema` crate
-3. Pass → return `{ "data": "Structured output provided successfully", "structured_output": <input> }`
-4. Fail → `ToolResult { is_error: true }` with validation errors
+1. Validate `ctx.input` against `self.compiled`
+2. Pass → return `{ "data": "Structured output provided successfully", "structured_output": <input> }`
+3. Fail → `ToolResult { is_error: true }` with validation error details
 
-### AppState additions
+### Registration
+
+SyntheticOutputTool is NOT registered in `get_builtin_tools()` (it requires runtime config).
+Instead, it's conditionally added to the tools list when `--output-schema` is provided:
 
 ```rust
-pub output_json_schema: Option<serde_json::Value>,
-#[serde(skip)]
-pub compiled_output_schema: Option<Arc<jsonschema::JSONSchema>>,
+// In session setup (query engine or CLI init)
+if let Some(schema) = cli_args.output_schema {
+    let tool = SyntheticOutputTool::new(schema)?;
+    tools.push(Box::new(tool));
+}
 ```
 
-### Activation
+### AppState addition
 
-`can_use()` checks `app_state.output_json_schema.is_some()` (non-interactive session with `--output-schema`).
+```rust
+pub output_json_schema: Option<serde_json::Value>,  // raw schema for reference
+```
+
+No compiled schema in AppState — compilation happens in `SyntheticOutputTool::new()`.
 
 ### Properties
 
 - `name() = "StructuredOutput"`
 - `is_read_only() = true`
 - `is_concurrent_safe() = true`
+- `search_hint() = Some("return the final response as structured JSON")`
 
 ### Dependency
 
@@ -249,6 +400,9 @@ pub compiled_output_schema: Option<Arc<jsonschema::JSONSchema>>,
 }
 ```
 
+**Note:** TypeScript includes optional `file_uuid` for bridge-mode uploads.
+Omitted for now — bridge upload support deferred to when bridge mode is fully implemented.
+
 ### QueryEvent addition (`src/query/types.rs`)
 
 ```rust
@@ -258,20 +412,30 @@ QueryEvent::BriefMessage {
     status: BriefStatus,
 }
 
+#[derive(Debug, Clone)]
 pub struct BriefAttachment { pub path: PathBuf, pub size: u64, pub is_image: bool }
+
+#[derive(Debug, Clone)]
 pub enum BriefStatus { Normal, Proactive }
 ```
 
 ### Activation
 
-`can_use()` checks `app_state.is_brief_only || app_state.kairos_enabled`.
+```rust
+fn can_use(&self, ctx: &ToolUseContext) -> ValidationResult {
+    // app_state.is_brief_only (--brief flag, defaultView: 'chat')
+    // || app_state.kairos_enabled
+    // Brief entitlement check simplified: no GrowthBook, just the above flags
+}
+```
 
 ### Properties
 
 - `name() = "SendUserMessage"`, `aliases() = &["Brief"]`
 - `is_read_only() = true`
 - `is_concurrent_safe() = true`
-- `should_defer() = true`
+- `always_load() = true` (must be available on turn 1, no ToolSearch round-trip)
+- `search_hint() = Some("send a visible message to the user")`
 
 ---
 
@@ -280,19 +444,18 @@ pub enum BriefStatus { Normal, Proactive }
 ```rust
 // New fields in AppState
 pub agent_message_queues: HashMap<String, Vec<serde_json::Value>>,  // in-process msg queues
+pub team_name: Option<String>,                                       // team context
 pub output_json_schema: Option<serde_json::Value>,                   // structured output schema
-#[serde(skip)]
-pub compiled_output_schema: Option<Arc<jsonschema::JSONSchema>>,     // cached validator
 ```
 
 ---
 
 ## 8. Implementation Order
 
-1. Tool trait extension + `is_deferred_tool()` + `ToolDefinition.defer_loading`
-2. ToolSearchTool (select, keyword, scoring)
-3. Mailbox service → SendMessageTool (5 routing paths + structured messages)
-4. SyntheticOutputTool (jsonschema validation)
+1. Tool trait extension + `is_deferred_tool()` + `ToolDefinition.defer_loading` + `ToolResultBlock` extension
+2. ToolSearchTool (select, exact-name, mcp-prefix, keyword, scoring)
+3. `is_agent_swarms_enabled()` + Mailbox service → SendMessageTool (5 routing paths + structured messages + validation)
+4. SyntheticOutputTool (stateful struct, jsonschema validation, conditional registration)
 5. BriefTool (message + attachments + QueryEvent)
 
 ---
@@ -304,3 +467,12 @@ pub compiled_output_schema: Option<Arc<jsonschema::JSONSchema>>,     // cached v
 | `jsonschema` | JSON Schema validation for SyntheticOutputTool |
 
 `fs2` and `tokio::net::UnixStream` already available or in std.
+
+---
+
+## 10. Known Limitations
+
+- **SendMessage `is_read_only` is static:** TypeScript makes it input-dependent (true for plain text). Rust trait takes `&self` without input. Conservatively set to `false`.
+- **BriefTool entitlement simplified:** No GrowthBook feature flag checks. Uses `is_brief_only` and `kairos_enabled` flags only.
+- **Bridge file upload deferred:** BriefTool `file_uuid` attachment field omitted until bridge mode is fully implemented.
+- **SyntheticOutputTool not in `get_builtin_tools()`:** It's conditionally added at session setup. The coordinator module's `COORDINATOR_ALLOWED_TOOLS` list includes `"SyntheticOutput"` but it may not exist in all sessions.
