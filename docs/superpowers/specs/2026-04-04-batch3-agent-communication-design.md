@@ -51,7 +51,17 @@ fn is_false(v: &bool) -> bool { !v }
 ### ToolResultBlock extension for tool_reference
 
 ToolSearchTool returns `tool_reference` content blocks so the API can inject tool schemas.
-Extend `ToolResultBlock` to support structured content:
+
+**Step 1:** Add `ToolReference` variant to the **existing** `crate::types::content::ContentBlock` enum
+(in `src/types/content.rs`), not a new type:
+
+```rust
+// In existing ContentBlock enum, add:
+#[serde(rename = "tool_reference")]
+ToolReference { tool_name: String },
+```
+
+**Step 2:** Extend `ToolResultBlock` to support structured content:
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,18 +76,14 @@ pub struct ToolResultBlock {
 #[serde(untagged)]
 pub enum ToolResultContent {
     Text(String),
-    Blocks(Vec<ContentBlock>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ContentBlock {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(rename = "tool_reference")]
-    ToolReference { tool_name: String },
+    Blocks(Vec<crate::types::content::ContentBlock>),
 }
 ```
+
+**Step 3:** Update query engine (`src/query/engine.rs`) where `ToolResultBlock` is converted
+to API message content. The conversion must propagate `ToolResultContent::Blocks` through to
+the API, not wrap it in `Text`. Specifically, where the engine calls `b.content.clone()` to
+build `ContentBlock::ToolResult`, it must match on the enum and handle both variants.
 
 This is backward-compatible: existing tools return `ToolResultContent::Text(string)`,
 ToolSearchTool returns `ToolResultContent::Blocks(vec![ContentBlock::ToolReference { ... }])`.
@@ -103,7 +109,10 @@ ToolSearchTool returns `ToolResultContent::Blocks(vec![ContentBlock::ToolReferen
 4. **`+required optional`** — `+` prefix terms must all match, rest ranked by score
 5. **keyword search** — all terms optional, ranked by score
 
-### Scoring (deferred tools only for keyword search)
+### Scoring
+
+Modes 1-3 (select, exact-name, mcp-prefix) match **all tools** regardless of defer status.
+Modes 4-5 (+required, keyword) search **deferred tools only**.
 
 | Match location | Full word | Partial |
 |----------------|-----------|---------|
@@ -234,12 +243,15 @@ ResponseOutput { success, message, request_id }
 
 ```rust
 fn can_use(&self, ctx: &ToolUseContext) -> ValidationResult {
-    // Check: coordinator_mode || ATOM_CODE_AGENT_SWARMS env var is truthy
-    // || app_state.swarm_agents is non-empty
+    // Two-level check:
+    // 1. Free function (no state): is_agent_swarms_enabled() — env vars only
+    // 2. AppState check: app_state.swarm_agents.is_empty() == false
+    // Either being true enables the tool.
 }
 ```
 
-`is_agent_swarms_enabled()` defined as a free function in `src/services/coordinator/mod.rs`:
+`is_agent_swarms_enabled()` defined as a free function in `src/services/coordinator/mod.rs`
+(env-var only, no AppState access):
 
 ```rust
 pub fn is_agent_swarms_enabled() -> bool {
@@ -250,6 +262,9 @@ pub fn is_agent_swarms_enabled() -> bool {
         )
 }
 ```
+
+The `can_use()` impl additionally checks `app_state.swarm_agents` at runtime since
+the free function has no AppState access.
 
 ### Properties
 
