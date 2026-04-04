@@ -1,10 +1,12 @@
-# Batch 5: MCP Tools — Design Spec
+# Batch 5: MCP Resource Tools — Design Spec
 
 **Date:** 2026-04-04
-**Scope:** ListMcpResourcesTool, ReadMcpResourceTool, McpAuthTool
+**Scope:** ListMcpResourcesTool, ReadMcpResourceTool (2 tools + McpConnectionManager accessor methods)
 **Approach:** Tool-First — leveraging existing MCP infrastructure in `src/services/mcp/`
 
 **Note:** MCPTool (base template) is already implemented as `McpToolWrapper` in `src/services/mcp/tool_wrapper.rs`.
+
+**Deferred:** McpAuthTool + OAuth service deferred to a future batch that first adds HTTP/SSE transport support to `McpServerConfig` (currently stdio-only).
 
 ---
 
@@ -21,7 +23,31 @@ Update query engine to pass the manager through.
 
 ---
 
-## 2. ListMcpResourcesTool
+## 2. McpConnectionManager Accessor Methods
+
+The existing `McpConnectionManager` has a private `clients` field. Add public accessors
+(in `src/services/mcp/connection_manager.rs`):
+
+```rust
+/// Get a specific client by server name
+pub fn get_client(&self, name: &str) -> Option<Arc<tokio::sync::Mutex<McpClient>>> {
+    self.clients.get(name).cloned()
+}
+
+/// Get all connected clients with their names
+pub fn get_all_clients(&self) -> Vec<(String, Arc<tokio::sync::Mutex<McpClient>>)> {
+    self.clients.iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+```
+
+**Important:** `McpConnectionManager` uses `tokio::sync::Mutex` (not std::sync::Mutex).
+All client access must use `.lock().await` — NOT `spawn_blocking`.
+
+---
+
+## 3. ListMcpResourcesTool
 
 **File:** `src/tools/list_mcp_resources_tool.rs`
 
@@ -33,15 +59,17 @@ Update query engine to pass the manager through.
 
 ### Execution
 
-1. Get `mcp_manager` from ctx (error if None)
-2. If `server` specified: get that client only; else get all connected clients
-3. For each client, call `list_resources()` via `spawn_blocking` (client uses Mutex)
-4. Collect results as `[{ uri, name, mimeType, description, server }]`
-5. Empty results → helpful message about no resources
-
-### Output
-
-JSON array of resource objects, or message if empty.
+1. Get `mcp_manager` from ctx (error if None — "No MCP servers configured")
+2. If `server` specified: `get_client(server)`, error if not found
+3. Else: `get_all_clients()`
+4. For each client:
+   a. Check `server.capabilities.resources` is Some (skip servers that don't support resources)
+   b. Call `client.lock().await.list_resources()` (async, no spawn_blocking)
+5. Collect results as array, renaming `mime_type` → `mimeType` in JSON output:
+   ```json
+   [{ "uri": "...", "name": "...", "mimeType": "...", "description": "...", "server": "..." }]
+   ```
+6. Empty results → `"No resources found. MCP servers may still provide tools even if they have no resources."`
 
 ### Properties
 
@@ -49,11 +77,11 @@ JSON array of resource objects, or message if empty.
 - `is_read_only() = true`
 - `is_concurrent_safe() = true`
 - `should_defer() = true`
-- `search_hint() = Some("list available resources from MCP servers")`
+- `search_hint() = Some("list resources from connected MCP servers")`
 
 ---
 
-## 3. ReadMcpResourceTool
+## 4. ReadMcpResourceTool
 
 **File:** `src/tools/read_mcp_resource_tool.rs`
 
@@ -67,28 +95,54 @@ JSON array of resource objects, or message if empty.
 ### Execution
 
 1. Get `mcp_manager`, extract `server` and `uri` (both required)
-2. Get client for the specified server
-3. Call `read_resource(uri)` via the client
-4. Process response contents:
+2. Get client for the specified server (`get_client`), error if not found
+3. Check `server.capabilities.resources` is Some, else error
+4. Call `client.lock().await.read_resource(uri)` (async, no spawn_blocking)
+5. Process response contents:
    - Text content → include as `text` field
-   - Binary (base64 blob) → decode, save to `~/.atom/sessions/{session_id}/blobs/{filename}`, return path as `blobSavedTo`
-5. Return output
+   - Binary (base64 blob) → decode with `base64` crate, persist to disk, return path as `blobSavedTo`
+   - Persistence failure → include error message in `text` field (don't fail entire tool)
 
 ### Binary blob persistence
 
+Use unique persist ID (timestamp + index) to avoid collisions. Derive extension from `mime_type`:
+
 ```rust
-fn persist_binary_content(session_id: &str, uri: &str, data: &[u8]) -> Result<PathBuf> {
+fn persist_binary_content(
+    session_id: &str,
+    mime_type: Option<&str>,
+    data: &[u8],
+    index: usize,
+) -> Result<PathBuf> {
     let blobs_dir = crate::utils::paths::sessions_dir()
         .join(session_id)
         .join("blobs");
     std::fs::create_dir_all(&blobs_dir)?;
-    // Extract filename from URI or generate from hash
-    let filename = uri.rsplit('/').next().unwrap_or("blob");
+
+    let ext = mime_type_to_extension(mime_type);
+    let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
+    let filename = format!("blob-{}-{}.{}", timestamp, index, ext);
     let path = blobs_dir.join(filename);
     std::fs::write(&path, data)?;
     Ok(path)
 }
+
+fn mime_type_to_extension(mime_type: Option<&str>) -> &str {
+    match mime_type {
+        Some("image/png") => "png",
+        Some("image/jpeg") => "jpg",
+        Some("image/gif") => "gif",
+        Some("image/webp") => "webp",
+        Some("application/pdf") => "pdf",
+        Some("text/plain") => "txt",
+        Some("text/html") => "html",
+        Some("application/json") => "json",
+        _ => "bin",
+    }
+}
 ```
+
+`session_id` accessed via `ctx.app_state.read().await.session_id.clone()`.
 
 ### Output
 
@@ -111,121 +165,25 @@ fn persist_binary_content(session_id: &str, uri: &str, data: &[u8]) -> Result<Pa
 
 ---
 
-## 4. OAuth Service
+## 5. Implementation Order
 
-**File:** `src/services/mcp/oauth.rs`
-
-```rust
-pub struct McpOAuthService;
-
-pub enum OAuthResult {
-    AuthUrl(String),
-    Unsupported,
-}
-
-impl McpOAuthService {
-    /// Perform OAuth discovery and return authorization URL.
-    /// Does NOT open browser — returns URL for user to visit.
-    pub async fn perform_oauth_flow(
-        server_name: &str,
-        config: &McpServerConfig,
-    ) -> Result<OAuthResult> {
-        // 1. Check transport type supports OAuth (sse, http)
-        // 2. Discover OAuth metadata from .well-known/oauth-authorization-server
-        // 3. Build authorization URL with PKCE
-        // 4. Return URL
-    }
-}
-```
-
-### OAuth discovery
-
-- Fetch `{server_url}/.well-known/oauth-authorization-server`
-- Extract `authorization_endpoint`, `token_endpoint`
-- Generate PKCE code_verifier + code_challenge
-- Build auth URL with `client_id`, `redirect_uri`, `code_challenge`, `scope`
-
-### Known limitations
-
-- OAuth callback server (localhost redirect) not implemented — URL returned only
-- Token storage/refresh deferred to when keychain integration is active
-- Only basic OAuth discovery (`.well-known`) supported
-- stdio transport servers don't support OAuth (return `Unsupported`)
+1. McpConnectionManager accessor methods (`get_client`, `get_all_clients`)
+2. `ToolUseContext.mcp_manager` + engine plumbing
+3. ListMcpResourcesTool
+4. ReadMcpResourceTool (with binary blob persistence)
 
 ---
 
-## 5. McpAuthTool
+## 6. New Dependencies
 
-**File:** `src/tools/mcp_auth_tool.rs`
-
-### Stateful struct (factory pattern)
-
-```rust
-pub struct McpAuthTool {
-    server_name: String,
-    server_config: McpServerConfig,
-}
-
-impl McpAuthTool {
-    pub fn new(server_name: String, config: McpServerConfig) -> Self;
-}
-```
-
-### Input
-
-`{ "type": "object", "properties": {} }` — no parameters
-
-### Execution
-
-1. Call `McpOAuthService::perform_oauth_flow(&self.server_name, &self.server_config)`
-2. Match result:
-   - `AuthUrl(url)` → return `{ status: "auth_url", message: "...", authUrl: url }`
-   - `Unsupported` → return `{ status: "unsupported", message: "..." }`
-3. On error → return `{ status: "error", message: "..." }`
-
-### Dynamic registration
-
-NOT in `get_builtin_tools()`. Created when MCP server returns `needs-auth`:
-
-```rust
-// In McpConnectionManager, when server needs auth:
-let auth_tool = McpAuthTool::new(server_name.clone(), config.clone());
-// Name: mcp__{server}__authenticate
-// Added to dynamic tools list
-```
-
-After auth succeeds, prefix-based swap removes auth tool, loads real tools.
-
-### Properties
-
-- `name()` = dynamic: `format!("mcp__{server}__authenticate")`
-- `is_mcp() = true`
-- `is_read_only() = true`
-- `should_defer() = false` (must be visible immediately when auth is needed)
+None — `base64`, `chrono`, `reqwest` already in Cargo.toml.
 
 ---
 
-## 6. Implementation Order
+## 7. Known Limitations
 
-1. `ToolUseContext.mcp_manager` + engine plumbing
-2. ListMcpResourcesTool
-3. ReadMcpResourceTool (with binary blob persistence)
-4. OAuth service (`src/services/mcp/oauth.rs`)
-5. McpAuthTool
-
----
-
-## 7. New Dependencies
-
-None — `base64` and `reqwest` already in Cargo.toml.
-
----
-
-## 8. Known Limitations
-
-- **OAuth callback server not implemented** — returns URL only, user authenticates manually
-- **Token persistence deferred** — no keychain storage for OAuth tokens yet
-- **OAuth discovery basic** — only `.well-known/oauth-authorization-server`, no fallback
-- **stdio servers don't support OAuth** — McpAuthTool returns `unsupported` for them
-- **Binary blob path collision** — if two resources have same filename, later overwrites earlier (acceptable for v1)
-- **McpConnectionManager locking** — client access uses `Arc<Mutex<McpClient>>`, `spawn_blocking` for resource calls
+- **McpAuthTool deferred** — requires HTTP/SSE transport support in `McpServerConfig` (currently stdio-only). Will be implemented in a future batch that adds multi-transport config.
+- **Client access is async** — uses `tokio::sync::Mutex`, all access via `.lock().await`. No `spawn_blocking`.
+- **Capabilities check** — tools check `server.capabilities.resources` before making resource calls. Servers without resource support are skipped (list) or rejected (read).
+- **Binary blob unique naming** — uses timestamp + index pattern to avoid collisions.
+- **`mime_type` → `mimeType` rename** — `McpResource.mime_type` (snake_case in Rust) is renamed to `mimeType` (camelCase) in JSON output to match the MCP protocol.
