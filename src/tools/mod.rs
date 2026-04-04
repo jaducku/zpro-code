@@ -10,6 +10,7 @@ pub mod notebook_edit_tool;
 pub mod send_message_tool;
 pub mod skill_tool;
 pub mod sleep_tool;
+pub mod synthetic_output_tool;
 pub mod task_create_tool;
 pub mod task_get_tool;
 pub mod task_list_tool;
