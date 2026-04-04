@@ -99,6 +99,19 @@ impl McpConnectionManager {
     pub fn connected_servers(&self) -> Vec<&str> {
         self.clients.keys().map(|s| s.as_str()).collect()
     }
+
+    /// Get a specific client by server name
+    pub fn get_client(&self, name: &str) -> Option<Arc<Mutex<McpClient>>> {
+        self.clients.get(name).cloned()
+    }
+
+    /// Get all connected clients with their server names
+    pub fn get_all_clients(&self) -> Vec<(String, Arc<Mutex<McpClient>>)> {
+        self.clients
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -109,5 +122,17 @@ mod tests {
     fn test_empty_manager() {
         let manager = McpConnectionManager::new(HashMap::new());
         assert!(manager.connected_servers().is_empty());
+    }
+
+    #[test]
+    fn test_get_client_not_found() {
+        let manager = McpConnectionManager::new(HashMap::new());
+        assert!(manager.get_client("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_get_all_clients_empty() {
+        let manager = McpConnectionManager::new(HashMap::new());
+        assert!(manager.get_all_clients().is_empty());
     }
 }
