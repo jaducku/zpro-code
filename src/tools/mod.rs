@@ -11,6 +11,7 @@ pub mod file_read_tool;
 pub mod file_write_tool;
 pub mod glob_tool;
 pub mod grep_tool;
+pub mod list_mcp_resources_tool;
 pub mod notebook_edit_tool;
 pub mod send_message_tool;
 pub mod skill_tool;
@@ -40,6 +41,7 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(file_write_tool::FileWriteTool),
         Box::new(glob_tool::GlobTool),
         Box::new(grep_tool::GrepTool),
+        Box::new(list_mcp_resources_tool::ListMcpResourcesTool),
         Box::new(notebook_edit_tool::NotebookEditTool),
         Box::new(send_message_tool::SendMessageTool),
         Box::new(skill_tool::SkillTool),
@@ -112,7 +114,7 @@ mod tests {
     fn test_deferred_tools() {
         let tools = get_builtin_tools();
         // Tools that opt into deferral via should_defer()
-        let expected_deferred = &["SendMessage", "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree"];
+        let expected_deferred = &["ListMcpResources", "SendMessage", "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree"];
         for tool in &tools {
             let deferred = is_deferred_tool(tool.as_ref());
             if expected_deferred.contains(&tool.name()) {
