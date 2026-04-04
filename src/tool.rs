@@ -92,6 +92,7 @@ pub struct ToolUseContext {
     pub question_tx: tokio::sync::mpsc::UnboundedSender<crate::query::types::UserQuestionAsk>,
     pub model: String,
     pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    pub mcp_manager: Option<Arc<crate::services::mcp::connection_manager::McpConnectionManager>>,
 }
 
 #[cfg(test)]
@@ -120,6 +121,7 @@ impl ToolUseContext {
             question_tx,
             model: "test".into(),
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
+            mcp_manager: None,
         }
     }
 }

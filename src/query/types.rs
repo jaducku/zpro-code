@@ -30,6 +30,7 @@ pub struct QueryContext {
     pub commands: Arc<CommandRegistry>,
     pub provider: Arc<dyn LlmProvider>,
     pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    pub mcp_manager: Option<Arc<crate::services::mcp::connection_manager::McpConnectionManager>>,
 }
 
 /// Sent to TUI when a tool wants to ask the user a question

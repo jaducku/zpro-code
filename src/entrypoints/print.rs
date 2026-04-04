@@ -93,6 +93,7 @@ pub async fn run_print_mode(
         commands: Arc::new(CommandRegistry::empty()),
         provider: provider.clone(),
         app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
+        mcp_manager: None,
     };
 
     // 4. Run query

@@ -418,6 +418,7 @@ async fn execute_tool(
         question_tx: ctx.question_tx.clone(),
         model: ctx.model.clone(),
         app_state: ctx.app_state.clone(),
+        mcp_manager: ctx.mcp_manager.clone(),
     };
 
     tool.execute(tool_ctx).await
@@ -456,6 +457,7 @@ mod tests {
             commands: Arc::new(crate::commands::registry::CommandRegistry::empty()),
             provider: Arc::new(crate::services::api::provider::NoopProvider),
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
+            mcp_manager: None,
         }
     }
 
