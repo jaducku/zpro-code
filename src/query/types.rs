@@ -29,6 +29,7 @@ pub struct QueryContext {
     pub max_budget_usd: Option<f64>,
     pub commands: Arc<CommandRegistry>,
     pub provider: Arc<dyn LlmProvider>,
+    pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
 }
 
 /// Sent to TUI when a tool wants to ask the user a question

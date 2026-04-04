@@ -76,6 +76,7 @@ pub struct ToolUseContext {
     pub tool_use_id: String,
     pub question_tx: tokio::sync::mpsc::UnboundedSender<crate::query::types::UserQuestionAsk>,
     pub model: String,
+    pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
 }
 
 #[cfg(test)]
@@ -103,6 +104,7 @@ impl ToolUseContext {
             tool_use_id: String::new(),
             question_tx,
             model: "test".into(),
+            app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
         }
     }
 }

@@ -45,6 +45,8 @@ pub async fn run_app(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    let app_state = Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default()));
+
     let model = provider.as_ref()
         .map(|p| p.model_info().id.clone())
         .unwrap_or_else(|| "(no provider)".into());
@@ -243,12 +245,12 @@ pub async fn run_app(
                                     app.accept_typeahead();
                                 }
                                 let input = app.take_input();
-                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
+                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state).await;
                             } else {
                                 let typeahead_accepted = app.handle_key(key);
                                 if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state).await;
                                 }
                             }
                         }
@@ -347,14 +349,15 @@ async fn handle_submit(
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
+    app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
-        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -381,6 +384,7 @@ async fn dispatch_slash_command(
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
+    app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
 ) {
     // First pass: identify the command kind and extract needed data without
     // holding a mutable borrow on app.
@@ -552,7 +556,7 @@ async fn dispatch_slash_command(
                     } else {
                         // Submit the prompt text as a query — but DON'T show the raw skill content
                         // submit_query_hidden sends to LLM without displaying the prompt in chat
-                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter).await;
+                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
                     }
                 }
                 Err(e) => {
@@ -589,6 +593,7 @@ async fn submit_query(
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
+    app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
 ) {
     let Some(provider) = provider.clone() else {
         app.push_message(DisplayMessage {
@@ -658,6 +663,7 @@ async fn submit_query(
         max_budget_usd: None,  // TUI mode: no budget limit
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        app_state: app_state.clone(),
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();
@@ -692,6 +698,7 @@ async fn submit_query_skill(
     allow_rules: &[PermissionRule],
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
+    app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
 ) {
     let Some(provider) = provider.clone() else {
         app.loading_label = None;
@@ -756,6 +763,7 @@ async fn submit_query_skill(
         max_budget_usd: None,
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        app_state: app_state.clone(),
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();

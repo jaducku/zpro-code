@@ -403,6 +403,7 @@ async fn execute_tool(
         tool_use_id: tc.id.clone(),
         question_tx: ctx.question_tx.clone(),
         model: ctx.model.clone(),
+        app_state: ctx.app_state.clone(),
     };
 
     tool.execute(tool_ctx).await
@@ -440,6 +441,7 @@ mod tests {
             max_budget_usd: None,
             commands: Arc::new(crate::commands::registry::CommandRegistry::empty()),
             provider: Arc::new(crate::services::api::provider::NoopProvider),
+            app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
         }
     }
 

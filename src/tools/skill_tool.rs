@@ -179,6 +179,7 @@ async fn execute_forked_skill(
         max_budget_usd: None,
         commands: parent_ctx.commands.clone(),
         provider: parent_ctx.provider.clone(),
+        app_state: parent_ctx.app_state.clone(),
     };
 
     let result = query(query_ctx, event_tx, child_abort).await;
