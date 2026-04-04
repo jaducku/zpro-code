@@ -51,6 +51,8 @@ pub struct ToolPermissionContext {
     pub is_auto_mode_available: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub should_avoid_permission_prompts: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_plan_mode: Option<PermissionMode>,
 }
 
 impl Default for ToolPermissionContext {
@@ -64,6 +66,7 @@ impl Default for ToolPermissionContext {
             is_bypass_permissions_mode_available: false,
             is_auto_mode_available: None,
             should_avoid_permission_prompts: None,
+            pre_plan_mode: None,
         }
     }
 }
@@ -131,6 +134,23 @@ mod tests {
         let ctx = ToolPermissionContext::default();
         assert_eq!(ctx.mode, PermissionMode::Default);
         assert!(ctx.always_allow_rules.is_empty());
+    }
+
+    #[test]
+    fn test_permission_context_pre_plan_mode_serde() {
+        let mut ctx = ToolPermissionContext::default();
+        ctx.pre_plan_mode = Some(PermissionMode::Default);
+        let json = serde_json::to_string(&ctx).unwrap();
+        assert!(json.contains("pre_plan_mode"));
+        let parsed: ToolPermissionContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.pre_plan_mode, Some(PermissionMode::Default));
+    }
+
+    #[test]
+    fn test_permission_context_pre_plan_mode_none_omitted() {
+        let ctx = ToolPermissionContext::default();
+        let json = serde_json::to_string(&ctx).unwrap();
+        assert!(!json.contains("pre_plan_mode"));
     }
 
     #[test]

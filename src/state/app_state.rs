@@ -156,6 +156,9 @@ pub struct AppState {
     pub swarm_agents: Vec<serde_json::Value>,
     #[serde(default)]
     pub agent_message_queues: HashMap<String, Vec<serde_json::Value>>,
+    /// Active worktree session (set by EnterWorktree, cleared by ExitWorktree)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_worktree_session: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -265,6 +268,7 @@ impl Default for AppState {
             coordinator_mode: false,
             swarm_agents: Vec::new(),
             agent_message_queues: HashMap::new(),
+            current_worktree_session: None,
             team_name: None,
             output_json_schema: None,
             advisor_model: None,
