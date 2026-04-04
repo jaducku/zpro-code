@@ -6,6 +6,7 @@ pub mod context;
 pub mod file_index;
 pub mod hooks;
 pub mod keychain;
+pub mod mailbox;
 pub mod mcp;
 pub mod memdir;
 pub mod output_styles;
