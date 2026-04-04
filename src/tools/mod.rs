@@ -7,6 +7,7 @@ pub mod file_write_tool;
 pub mod glob_tool;
 pub mod grep_tool;
 pub mod notebook_edit_tool;
+pub mod send_message_tool;
 pub mod skill_tool;
 pub mod sleep_tool;
 pub mod task_create_tool;
@@ -34,6 +35,7 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(glob_tool::GlobTool),
         Box::new(grep_tool::GrepTool),
         Box::new(notebook_edit_tool::NotebookEditTool),
+        Box::new(send_message_tool::SendMessageTool),
         Box::new(skill_tool::SkillTool),
         Box::new(sleep_tool::SleepTool),
         Box::new(task_create_tool::TaskCreateTool),
@@ -96,14 +98,25 @@ mod tests {
     }
 
     #[test]
-    fn test_all_builtins_not_deferred() {
+    fn test_deferred_tools() {
         let tools = get_builtin_tools();
+        // Tools that opt into deferral via should_defer()
+        let expected_deferred = &["SendMessage"];
         for tool in &tools {
-            assert!(
-                !is_deferred_tool(tool.as_ref()),
-                "Built-in tool '{}' should not be deferred",
-                tool.name()
-            );
+            let deferred = is_deferred_tool(tool.as_ref());
+            if expected_deferred.contains(&tool.name()) {
+                assert!(
+                    deferred,
+                    "Tool '{}' should be deferred",
+                    tool.name()
+                );
+            } else {
+                assert!(
+                    !deferred,
+                    "Tool '{}' should not be deferred",
+                    tool.name()
+                );
+            }
         }
     }
 
