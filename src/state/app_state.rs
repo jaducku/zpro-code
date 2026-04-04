@@ -165,6 +165,10 @@ pub struct AppState {
     pub output_json_schema: Option<serde_json::Value>,
 
     // Advisor
+    // Cron
+    #[serde(skip)]
+    pub cron_store: Option<crate::services::cron::CronStore>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisor_model: Option<String>,
 
@@ -271,6 +275,7 @@ impl Default for AppState {
             current_worktree_session: None,
             team_name: None,
             output_json_schema: None,
+            cron_store: None,
             advisor_model: None,
             initial_message: None,
             active_overlays: Vec::new(),
