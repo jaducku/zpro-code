@@ -43,6 +43,12 @@ pub struct TaskListStore {
     base_dir: PathBuf,
 }
 
+impl Default for TaskListStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskListStore {
     pub fn new() -> Self {
         Self {
@@ -75,6 +81,7 @@ impl TaskListStore {
         let lock_path = dir.join("_lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(&lock_path)?;
         use fs2::FileExt;
@@ -162,6 +169,7 @@ impl TaskListStore {
         let lock_path = dir.join("_lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(&lock_path)?;
         use fs2::FileExt;
