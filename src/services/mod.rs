@@ -10,6 +10,7 @@ pub mod mailbox;
 pub mod mcp;
 pub mod memdir;
 pub mod output_styles;
+pub mod plan_mode;
 pub mod plugins;
 pub mod session_transcript;
 pub mod skills;
