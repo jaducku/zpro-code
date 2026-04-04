@@ -1,6 +1,9 @@
+use std::sync::{Arc, Mutex};
+
 use async_trait::async_trait;
 use tokio::process::Command;
 
+use crate::state::{BackgroundTask, BackgroundTaskStatus};
 use crate::tool::{Tool, ToolProgress, ToolResult, ToolUseContext};
 use crate::types::permissions::PermissionMeta;
 
@@ -27,6 +30,10 @@ impl Tool for BashTool {
                 "timeout": {
                     "type": "number",
                     "description": "Optional timeout in milliseconds (max 600000)"
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Set to true to run this command in the background"
                 }
             },
             "required": ["command"]
@@ -42,6 +49,16 @@ impl Tool for BashTool {
                 tool_name: "Bash".into(),
                 message: "Missing 'command' parameter".into(),
             })?;
+
+        let run_in_background = ctx
+            .input
+            .get("run_in_background")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if run_in_background {
+            return self.execute_background(command, &ctx).await;
+        }
 
         let timeout_ms = ctx
             .input
@@ -107,6 +124,86 @@ impl Tool for BashTool {
     }
 }
 
+impl BashTool {
+    async fn execute_background(
+        &self,
+        command: &str,
+        ctx: &ToolUseContext,
+    ) -> crate::types::Result<ToolResult> {
+        let task_id = format!("bg-{}", uuid::Uuid::new_v4());
+        let output_buf = Arc::new(Mutex::new(String::new()));
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+
+        let bg_task = BackgroundTask {
+            id: task_id.clone(),
+            task_type: "shell".to_string(),
+            command: Some(command.to_string()),
+            status: BackgroundTaskStatus::Running,
+            cancel_token: cancel_token.clone(),
+            output: output_buf.clone(),
+            created_at: chrono::Utc::now(),
+        };
+
+        ctx.app_state
+            .write()
+            .await
+            .background_tasks
+            .insert(task_id.clone(), bg_task);
+
+        let cmd_owned = command.to_string();
+        let app_state = ctx.app_state.clone();
+        let task_id_clone = task_id.clone();
+
+        tokio::spawn(async move {
+            let result = Command::new("bash")
+                .arg("-c")
+                .arg(&cmd_owned)
+                .output()
+                .await;
+
+            let mut state = app_state.write().await;
+            if let Some(task) = state.background_tasks.get_mut(&task_id_clone) {
+                match result {
+                    Ok(output) => {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let mut buf = task.output.lock().unwrap();
+                        if !stdout.is_empty() {
+                            buf.push_str(&stdout);
+                        }
+                        if !stderr.is_empty() {
+                            if !buf.is_empty() {
+                                buf.push('\n');
+                            }
+                            buf.push_str(&stderr);
+                        }
+                        task.status = if output.status.success() {
+                            BackgroundTaskStatus::Completed
+                        } else {
+                            BackgroundTaskStatus::Failed
+                        };
+                    }
+                    Err(e) => {
+                        let mut buf = task.output.lock().unwrap();
+                        buf.push_str(&format!("Error: {}", e));
+                        task.status = BackgroundTaskStatus::Failed;
+                    }
+                }
+            }
+        });
+
+        Ok(ToolResult {
+            content: serde_json::json!({
+                "task_id": task_id,
+                "status": "running",
+                "command": command,
+            })
+            .to_string(),
+            is_error: false,
+        })
+    }
+}
+
 async fn run_command(command: &str) -> std::io::Result<(String, String, i32)> {
     let output = Command::new("bash")
         .arg("-c")
@@ -166,5 +263,24 @@ mod tests {
         let schema = tool.input_schema();
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["command"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_background_returns_task_id() {
+        let ctx = make_ctx(serde_json::json!({
+            "command": "echo hello",
+            "run_in_background": true
+        }));
+        let app_state = ctx.app_state.clone();
+        let result = BashTool.execute(ctx).await.unwrap();
+        assert!(!result.is_error);
+        let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
+        assert_eq!(parsed["status"], "running");
+        assert!(parsed["task_id"].as_str().unwrap().starts_with("bg-"));
+
+        // Verify task was registered in app_state
+        let task_id = parsed["task_id"].as_str().unwrap();
+        let state = app_state.read().await;
+        assert!(state.background_tasks.contains_key(task_id));
     }
 }
