@@ -1,8 +1,52 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 use crate::types::permissions::ToolPermissionContext;
 use crate::utils::settings::SettingsJson;
+
+/// Background task (shell, agent) — runtime only, not serialized
+#[derive(Debug)]
+pub struct BackgroundTask {
+    pub id: String,
+    pub task_type: String,
+    pub command: Option<String>,
+    pub status: BackgroundTaskStatus,
+    pub cancel_token: CancellationToken,
+    pub output: Arc<Mutex<String>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl Clone for BackgroundTask {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            task_type: self.task_type.clone(),
+            command: self.command.clone(),
+            status: self.status.clone(),
+            cancel_token: self.cancel_token.clone(),
+            output: self.output.clone(),
+            created_at: self.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTaskStatus {
+    Running,
+    Completed,
+    Failed,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub id: String,
+    pub content: String,
+    pub completed: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppState {
@@ -83,6 +127,13 @@ pub struct AppState {
     pub agent_name_registry: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub foreground_task_id: Option<String>,
+    /// Background tasks — runtime only, not serialized
+    #[serde(skip)]
+    #[serde(default)]
+    pub background_tasks: HashMap<String, BackgroundTask>,
+    /// V1 legacy todo list
+    #[serde(default)]
+    pub todos: Vec<TodoItem>,
 
     // Speculation
     #[serde(default)]
@@ -199,6 +250,8 @@ impl Default for AppState {
             tasks: HashMap::new(),
             agent_name_registry: HashMap::new(),
             foreground_task_id: None,
+            background_tasks: HashMap::new(),
+            todos: Vec::new(),
             speculation_session_time_saved_ms: 0,
             auth_version: 0,
             session_cost: 0.0,
