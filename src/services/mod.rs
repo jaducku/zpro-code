@@ -12,4 +12,5 @@ pub mod output_styles;
 pub mod plugins;
 pub mod session_transcript;
 pub mod skills;
+pub mod task_list;
 pub mod token_estimation;
