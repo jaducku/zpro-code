@@ -9,6 +9,10 @@ pub mod grep_tool;
 pub mod notebook_edit_tool;
 pub mod skill_tool;
 pub mod sleep_tool;
+pub mod task_create_tool;
+pub mod task_get_tool;
+pub mod task_list_tool;
+pub mod task_update_tool;
 pub mod web_fetch_tool;
 pub mod web_search_tool;
 
@@ -28,6 +32,10 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(notebook_edit_tool::NotebookEditTool),
         Box::new(skill_tool::SkillTool),
         Box::new(sleep_tool::SleepTool),
+        Box::new(task_create_tool::TaskCreateTool),
+        Box::new(task_get_tool::TaskGetTool),
+        Box::new(task_list_tool::TaskListTool),
+        Box::new(task_update_tool::TaskUpdateTool),
         Box::new(web_fetch_tool::WebFetchTool),
         Box::new(web_search_tool::WebSearchTool),
     ]
