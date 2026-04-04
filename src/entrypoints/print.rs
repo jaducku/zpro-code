@@ -163,6 +163,23 @@ pub async fn run_print_mode(
                 output_tokens += o;
             }
             QueryEvent::ResponseComplete { .. } => {}
+            QueryEvent::BriefMessage { message, .. } => {
+                match output_format {
+                    OutputFormat::Text => {
+                        writeln!(stdout_lock, "{}", message)?;
+                        stdout_lock.flush()?;
+                    }
+                    OutputFormat::StreamJson => {
+                        writeln!(
+                            stdout_lock,
+                            "{}",
+                            serde_json::json!({"type": "brief", "message": message})
+                        )?;
+                        stdout_lock.flush()?;
+                    }
+                    OutputFormat::Json => {}
+                }
+            }
             QueryEvent::Error(msg) => {
                 eprintln!("Error: {}", msg);
                 if matches!(output_format, OutputFormat::StreamJson) {

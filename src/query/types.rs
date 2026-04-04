@@ -90,4 +90,23 @@ pub enum QueryEvent {
     Usage { input_tokens: u64, output_tokens: u64 },
     /// Error occurred
     Error(String),
+    /// Brief/SendUserMessage output for TUI rendering
+    BriefMessage {
+        message: String,
+        attachments: Vec<BriefAttachment>,
+        status: BriefStatus,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct BriefAttachment {
+    pub path: std::path::PathBuf,
+    pub size: u64,
+    pub is_image: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum BriefStatus {
+    Normal,
+    Proactive,
 }
