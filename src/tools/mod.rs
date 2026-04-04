@@ -16,6 +16,7 @@ pub mod task_output_tool;
 pub mod task_stop_tool;
 pub mod task_update_tool;
 pub mod todo_write_tool;
+pub mod tool_search_tool;
 pub mod web_fetch_tool;
 pub mod web_search_tool;
 
@@ -42,6 +43,7 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(task_stop_tool::TaskStopTool),
         Box::new(task_update_tool::TaskUpdateTool),
         Box::new(todo_write_tool::TodoWriteTool),
+        Box::new(tool_search_tool::ToolSearchTool),
         Box::new(web_fetch_tool::WebFetchTool),
         Box::new(web_search_tool::WebSearchTool),
     ]
