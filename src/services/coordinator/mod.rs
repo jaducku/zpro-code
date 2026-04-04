@@ -43,6 +43,17 @@ pub fn is_coordinator_mode() -> bool {
     )
 }
 
+/// Returns `true` when agent swarms are enabled (coordinator mode or env var).
+pub fn is_agent_swarms_enabled() -> bool {
+    is_coordinator_mode()
+        || matches!(
+            std::env::var("ATOM_CODE_AGENT_SWARMS")
+                .unwrap_or_default()
+                .as_str(),
+            "1" | "true" | "yes"
+        )
+}
+
 /// Keep only tools that appear in [`COORDINATOR_ALLOWED_TOOLS`].
 pub fn filter_coordinator_tools<'a>(tool_names: &[&'a str]) -> Vec<&'a str> {
     tool_names
@@ -164,6 +175,13 @@ mod tests {
         assert!(ASYNC_AGENT_ALLOWED_TOOLS.contains(&"Bash"));
         // Agent must NOT be in the worker list (prevents recursion).
         assert!(!ASYNC_AGENT_ALLOWED_TOOLS.contains(&"Agent"));
+    }
+
+    #[test]
+    fn test_is_agent_swarms_enabled_default_false() {
+        std::env::remove_var("ATOM_CODE_COORDINATOR_MODE");
+        std::env::remove_var("ATOM_CODE_AGENT_SWARMS");
+        assert!(!is_agent_swarms_enabled());
     }
 
     #[test]

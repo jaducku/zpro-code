@@ -154,6 +154,12 @@ pub struct AppState {
     pub coordinator_mode: bool,
     #[serde(default)]
     pub swarm_agents: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub agent_message_queues: HashMap<String, Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_json_schema: Option<serde_json::Value>,
 
     // Advisor
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -258,6 +264,9 @@ impl Default for AppState {
             token_usage: TokenUsage::default(),
             coordinator_mode: false,
             swarm_agents: Vec::new(),
+            agent_message_queues: HashMap::new(),
+            team_name: None,
+            output_json_schema: None,
             advisor_model: None,
             initial_message: None,
             active_overlays: Vec::new(),
