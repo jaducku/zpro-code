@@ -71,6 +71,7 @@ impl Tool for ToolSearchTool {
                 .iter()
                 .filter(|t| t.name().starts_with(query))
                 .map(|t| t.name().to_string())
+                .take(max_results)
                 .collect();
             return Ok(build_result(query, tools, &matched));
         }
@@ -124,7 +125,7 @@ impl Tool for ToolSearchTool {
 fn find_by_exact_names(tools: &[Box<dyn Tool>], names: &[&str]) -> Vec<String> {
     let mut matched = Vec::new();
     for name in names {
-        if let Some(tool) = tools.iter().find(|t| t.name() == *name) {
+        if let Some(tool) = tools.iter().find(|t| t.name().eq_ignore_ascii_case(name)) {
             matched.push(tool.name().to_string());
         }
     }
@@ -173,7 +174,7 @@ fn score_tool(tool: &dyn Tool, required: &[String], optional: &[String]) -> i32 
     for term in &all_terms {
         // Name scoring
         let full_word_name = name_lower
-            .split(|c: char| c == '_' || c == '-')
+            .split(['_', '-'])
             .any(|segment| segment == term.as_str());
         if full_word_name {
             total += if is_mcp { 12 } else { 10 };
