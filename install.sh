@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="jaducku/atom"
+REPO="jaducku/zpro-code"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Detect platform
