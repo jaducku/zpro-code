@@ -1,6 +1,6 @@
 /// Minimal test: call OpenRouter API and print the response.
 /// Usage: cargo run --example test_api -- <api_base> <api_key> <model>
-use zpro_code::services::api::openai_provider::OpenAiCompatibleProvider;
+use zpro_code::services::api::openai_provider::ChatCompletionsProvider;
 use zpro_code::services::api::provider::LlmProvider;
 use zpro_code::services::api::types::*;
 use zpro_code::types::content::ContentBlock;
@@ -25,7 +25,7 @@ async fn main() {
     println!("Model: {}", model);
     println!();
 
-    let provider = OpenAiCompatibleProvider::new(
+    let provider = ChatCompletionsProvider::new(
         api_base.clone(),
         Some(api_key.clone()),
         model.clone(),

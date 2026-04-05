@@ -17,7 +17,7 @@ impl ThinkbackCommand {
         name: "thinkback",
         description: "Review thinking history",
         aliases: &[],
-        is_hidden: false,
+        is_hidden: true,
         immediate: false,
         argument_hint: None,
         availability: &[],

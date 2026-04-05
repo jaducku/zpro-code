@@ -17,7 +17,7 @@ impl MobileCommand {
         name: "mobile",
         description: "Show mobile QR code",
         aliases: &[],
-        is_hidden: false,
+        is_hidden: true,
         immediate: false,
         argument_hint: None,
         availability: &[],
