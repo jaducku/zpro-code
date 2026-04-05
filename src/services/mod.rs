@@ -16,5 +16,6 @@ pub mod plugins;
 pub mod session_transcript;
 pub mod skills;
 pub mod task_list;
+pub mod team;
 pub mod token_estimation;
 pub mod worktree;
