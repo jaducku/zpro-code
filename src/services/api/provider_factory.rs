@@ -1,5 +1,5 @@
 use super::codex_auth::read_codex_token;
-use super::openai_provider::OpenAiCompatibleProvider;
+use super::openai_provider::ChatCompletionsProvider;
 use super::provider::LlmProvider;
 
 /// Create an LLM provider based on the provider type and configuration.
@@ -17,7 +17,7 @@ pub fn create_provider(
         Some("codex") => {
             let token = read_codex_token()?;
             let model = model.unwrap_or("gpt-4o");
-            Ok(Box::new(OpenAiCompatibleProvider::new(
+            Ok(Box::new(ChatCompletionsProvider::new(
                 "https://api.openai.com/v1".into(),
                 Some(token),
                 model.into(),
@@ -29,7 +29,7 @@ pub fn create_provider(
                     "--api-base is required. Example: --api-base https://openrouter.ai/api/v1"
                 )
             })?;
-            Ok(Box::new(OpenAiCompatibleProvider::new(
+            Ok(Box::new(ChatCompletionsProvider::new(
                 base.into(),
                 api_key.map(|s| s.to_string()),
                 model.unwrap_or("default").into(),

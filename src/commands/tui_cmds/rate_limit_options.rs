@@ -17,7 +17,7 @@ impl RateLimitOptionsCommand {
         name: "rate-limit-options",
         description: "Configure rate limit options",
         aliases: &[],
-        is_hidden: false,
+        is_hidden: true,
         immediate: false,
         argument_hint: None,
         availability: &[],

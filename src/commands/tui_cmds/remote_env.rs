@@ -17,7 +17,7 @@ impl RemoteEnvCommand {
         name: "remote-env",
         description: "Configure remote environment",
         aliases: &[],
-        is_hidden: false,
+        is_hidden: true,
         immediate: false,
         argument_hint: None,
         availability: &[],

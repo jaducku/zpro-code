@@ -7,7 +7,7 @@ pub mod provider_factory;
 pub mod retry;
 pub mod types;
 
-pub use openai_provider::OpenAiCompatibleProvider;
+pub use openai_provider::ChatCompletionsProvider;
 pub use provider::{LlmProvider, MessageStream};
 pub use provider_factory::create_provider;
 pub use types::*;

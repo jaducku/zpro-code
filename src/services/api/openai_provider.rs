@@ -15,7 +15,7 @@ use crate::types::AtomError;
 use crate::types::Result;
 
 /// OpenAI-compatible provider (OpenRouter, vLLM, local models)
-pub struct OpenAiCompatibleProvider {
+pub struct ChatCompletionsProvider {
     base_url: String,
     api_key: Option<String>,
     _model: String,
@@ -23,7 +23,7 @@ pub struct OpenAiCompatibleProvider {
     model_info: ModelInfo,
 }
 
-impl OpenAiCompatibleProvider {
+impl ChatCompletionsProvider {
     pub fn new(base_url: String, api_key: Option<String>, model: String) -> Self {
         let model_info = ModelInfo {
             id: model.clone(),
@@ -83,7 +83,7 @@ impl OpenAiCompatibleProvider {
 }
 
 #[async_trait]
-impl LlmProvider for OpenAiCompatibleProvider {
+impl LlmProvider for ChatCompletionsProvider {
     async fn create_message(&self, request: CreateMessageRequest) -> Result<MessageStream> {
         let url = format!(
             "{}/chat/completions",
@@ -123,7 +123,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
     }
 }
 
-impl OpenAiCompatibleProvider {
+impl ChatCompletionsProvider {
     async fn send_request(
         &self,
         url: &str,
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     fn test_provider_creation() {
-        let provider = OpenAiCompatibleProvider::new(
+        let provider = ChatCompletionsProvider::new(
             "https://openrouter.ai/api/v1".into(),
             Some("sk-test".into()),
             "anthropic/claude-sonnet-4-20250514".into(),

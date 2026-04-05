@@ -17,7 +17,7 @@ impl DesktopCommand {
         name: "desktop",
         description: "Open desktop app",
         aliases: &[],
-        is_hidden: false,
+        is_hidden: true,
         immediate: false,
         argument_hint: None,
         availability: &[],

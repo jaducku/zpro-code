@@ -17,7 +17,7 @@ impl InstallGithubAppCommand {
         name: "install-github-app",
         description: "Install GitHub App",
         aliases: &[],
-        is_hidden: false,
+        is_hidden: true,
         immediate: false,
         argument_hint: None,
         availability: &[],

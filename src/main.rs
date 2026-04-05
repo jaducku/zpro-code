@@ -603,9 +603,8 @@ async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
             match key.as_str() {
                 "provider" => config.provider = Some(value),
                 "api_key" => {
-                    let encrypted = zpro_code::services::keychain::encrypt_api_key(&value);
-                    config.api_key = Some(encrypted);
-                    println!("API key encrypted and saved.");
+                    config.api_key = Some(value);
+                    println!("API key saved.");
                 }
                 "api_base" => config.api_base = Some(value),
                 "default_model" => config.default_model = Some(value),
@@ -658,11 +657,16 @@ async fn main() -> anyhow::Result<()> {
     let effective_provider = cli.provider.clone().or_else(|| config.provider.clone());
     let config_api_base = config.api_base_for_provider();
     let effective_api_base = cli.api_base.clone().or(config_api_base);
-    let effective_api_key = cli.api_key.clone().or_else(|| {
-        config.api_key.as_ref().and_then(|k| {
-            zpro_code::services::keychain::decrypt_api_key(k)
-        })
-    });
+    let effective_api_key = cli.api_key.clone().or_else(|| config.api_key.clone());
+
+    // Warn if API key still uses legacy encrypted format
+    if let Some(ref key) = effective_api_key {
+        if key.starts_with("enc:") {
+            eprintln!("Warning: API key uses legacy encrypted format. Please re-set with:");
+            eprintln!("  zpro-code config set api_key YOUR_KEY");
+        }
+    }
+
     let effective_model = cli
         .model
         .as_deref()

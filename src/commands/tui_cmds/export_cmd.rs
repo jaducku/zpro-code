@@ -17,7 +17,7 @@ impl ExportCmdCommand {
         name: "export",
         description: "Export conversation",
         aliases: &[],
-        is_hidden: false,
+        is_hidden: true,
         immediate: false,
         argument_hint: None,
         availability: &[],
