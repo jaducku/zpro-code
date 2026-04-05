@@ -168,59 +168,6 @@ name = "atom-audio-capture"
 version = "0.1.0"
 
 [[package]]
-name = "atom-code"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "clap",
- "cron",
- "crossterm",
- "fs2",
- "futures",
- "fuzzy-matcher",
- "globset",
- "hostname",
- "htmd",
- "ignore",
- "image",
- "jsonschema",
- "lru",
- "notify",
- "opentelemetry",
- "pin-project-lite",
- "plist",
- "pretty_assertions",
- "pulldown-cmark",
- "qrcode",
- "ratatui",
- "readability",
- "regex",
- "reqwest 0.12.28",
- "reqwest-eventsource",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "shell-words",
- "similar",
- "strip-ansi-escapes",
- "syntect",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-test",
- "tokio-tungstenite",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "atom-color-diff"
 version = "0.1.0"
 
@@ -5123,6 +5070,59 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zpro-code"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "cron",
+ "crossterm",
+ "fs2",
+ "futures",
+ "fuzzy-matcher",
+ "globset",
+ "hostname",
+ "htmd",
+ "ignore",
+ "image",
+ "jsonschema",
+ "lru",
+ "notify",
+ "opentelemetry",
+ "pin-project-lite",
+ "plist",
+ "pretty_assertions",
+ "pulldown-cmark",
+ "qrcode",
+ "ratatui",
+ "readability",
+ "regex",
+ "reqwest 0.12.28",
+ "reqwest-eventsource",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "shell-words",
+ "similar",
+ "strip-ansi-escapes",
+ "syntect",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
 
 [[package]]
 name = "zune-core"

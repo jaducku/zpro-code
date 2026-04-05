@@ -48,7 +48,7 @@ pub fn convert_legacy_to_settings(legacy: &[LegacyHookConfig]) -> HooksSettings 
 /// Load legacy hooks from hooks.json files (project-level then user-level).
 ///
 /// - Project: `{cwd}/.agents/hooks.json`
-/// - User: `~/.atom/hooks.json`
+/// - User: `~/.zpro-code/hooks.json`
 pub fn load_legacy_hooks(cwd: &Path) -> HooksSettings {
     let mut result = HooksSettings::new();
 

@@ -18,7 +18,7 @@ pub fn get_all_output_styles(cwd: &Path) -> HashMap<String, OutputStyleConfig> {
         map.insert(style.name.clone(), style);
     }
 
-    // User-level: ~/.atom/output-styles/
+    // User-level: ~/.zpro-code/output-styles/
     let user_dir = global_config_dir().join("output-styles");
     for style in load_styles_from_dir(&user_dir, "userSettings") {
         map.insert(style.name.clone(), style);

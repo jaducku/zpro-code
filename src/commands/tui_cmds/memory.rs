@@ -60,7 +60,7 @@ impl TuiCommand for MemoryCommand {
             if !content.is_empty() {
                 content.push_str("\n\n---\n\n");
             }
-            content.push_str(&format!("# Global (~/.atom/AGENTS.md)\n\n{}", text));
+            content.push_str(&format!("# Global (~/.zpro-code/AGENTS.md)\n\n{}", text));
         }
 
         if content.is_empty() {

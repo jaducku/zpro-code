@@ -40,7 +40,7 @@ pub fn find_git_root(from: &Path) -> Option<PathBuf> {
 /// Get the auto-memory path for a given working directory.
 ///
 /// Checks `ATOM_COWORK_MEMORY_PATH_OVERRIDE` env var first,
-/// then finds the git root and returns `~/.atom/projects/{sanitized}/memory/`.
+/// then finds the git root and returns `~/.zpro-code/projects/{sanitized}/memory/`.
 pub fn get_auto_mem_path(cwd: &Path) -> Option<PathBuf> {
     if let Ok(override_path) = std::env::var("ATOM_COWORK_MEMORY_PATH_OVERRIDE") {
         if !override_path.is_empty() {

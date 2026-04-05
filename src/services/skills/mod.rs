@@ -11,7 +11,7 @@ use crate::types::content::ContentBlock;
 ///
 /// Discovery order (first match wins when names collide):
 /// 1. Project-level: `.agents/skills/` walking from `cwd` up to the git root.
-/// 2. User-level: `~/.atom/skills/`.
+/// 2. User-level: `~/.zpro-code/skills/`.
 pub fn load_skills(cwd: &Path) -> Vec<Command> {
     let mut skills = Vec::new();
 
@@ -30,7 +30,7 @@ pub fn load_skills(cwd: &Path) -> Vec<Command> {
         }
     }
 
-    // User-level: ~/.atom/skills/
+    // User-level: ~/.zpro-code/skills/
     {
         let user_skills = crate::utils::paths::user_skills_dir();
         skills.extend(load_skills_from_dir(&user_skills, CommandSource::UserSettings));

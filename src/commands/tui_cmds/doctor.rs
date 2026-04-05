@@ -67,7 +67,7 @@ impl TuiCommand for DoctorCommand {
             ("Rust toolchain".to_string(), rust_ok),
             ("Git available".to_string(), git_ok),
             (cwd_label, cwd_ok),
-            ("Config dir (~/.atom)".to_string(), config_ok),
+            ("Config dir (~/.zpro-code)".to_string(), config_ok),
         ];
 
         Box::new(DoctorState { checks })

@@ -69,7 +69,7 @@ impl Tool for WebSearchTool {
             Some(k) => k,
             None => {
                 return Ok(ToolResult {
-                    content: "Tavily API key not configured. Add \"tavily_api_key\": \"tvly-...\" to ~/.atom/config.json".into(),
+                    content: "Tavily API key not configured. Add \"tavily_api_key\": \"tvly-...\" to ~/.zpro-code/config.json".into(),
                     is_error: true,
                     content_blocks: None,
                 });
@@ -192,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_api_key() {
-        // In test env there is no ~/.atom/config.json with tavily_api_key
+        // In test env there is no ~/.zpro-code/config.json with tavily_api_key
         let tool = WebSearchTool;
         let ctx = ToolUseContext::test(serde_json::json!({"query": "rust programming"}));
         let result = tool.execute(ctx).await.unwrap();

@@ -22,7 +22,7 @@ pub fn merge_hooks_settings(base: &mut HooksSettings, overlay: HooksSettings) {
 /// Load hooks from settings.json files (project-level then user-level).
 ///
 /// - Project: `{cwd}/.agents/settings.json` -> "hooks" key
-/// - User: `~/.atom/settings.json` -> "hooks" key
+/// - User: `~/.zpro-code/settings.json` -> "hooks" key
 pub fn load_hooks_from_settings(cwd: &Path) -> HooksSettings {
     let mut result = HooksSettings::new();
 

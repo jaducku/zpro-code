@@ -39,7 +39,7 @@ impl LocalCommand for ReleaseNotesCommand {
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
         Ok(LocalCommandResult::Text {
-            value: format!("atom-code v{}\n\nPhase 8: CLI Commands\n- Command type system\n- ~110 commands registered\n- Slash command typeahead\n- @ file mentions\n- Right drawer for TUI commands\n- CLI subcommands (mcp, auth, plugin, doctor)", env!("CARGO_PKG_VERSION")),
+            value: format!("zpro-code v{}\n\nPhase 8: CLI Commands\n- Command type system\n- ~110 commands registered\n- Slash command typeahead\n- @ file mentions\n- Inline command panel\n- CLI subcommands (mcp, auth, plugin, doctor)", env!("CARGO_PKG_VERSION")),
         })
     }
 }

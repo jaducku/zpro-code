@@ -12,7 +12,7 @@ pub struct McpJsonConfig {
 
 /// Load MCP server configs from .mcp.json files.
 /// Discovery order (later overrides earlier):
-/// 1. ~/.atom/.mcp.json (user-level)
+/// 1. ~/.zpro-code/.mcp.json (user-level)
 /// 2. CWD/.mcp.json (project-level)
 /// 3. --mcp-config CLI paths
 pub fn load_mcp_configs(cwd: &Path, extra_paths: &[String]) -> HashMap<String, McpServerConfig> {

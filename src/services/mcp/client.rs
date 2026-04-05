@@ -70,7 +70,7 @@ impl McpClient {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
             "clientInfo": {
-                "name": "atom-code",
+                "name": "zpro-code",
                 "version": env!("CARGO_PKG_VERSION")
             }
         });

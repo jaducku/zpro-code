@@ -78,7 +78,7 @@ impl TuiCommand for SkillsCommand {
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  Add skills in .agents/skills/ or ~/.atom/skills/",
+                    "  Add skills in .agents/skills/ or ~/.zpro-code/skills/",
                     Style::default().fg(Color::DarkGray),
                 )),
             ];

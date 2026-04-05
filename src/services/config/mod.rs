@@ -34,7 +34,7 @@ pub struct AtomConfig {
 }
 
 impl AtomConfig {
-    /// Load config from ~/.atom/config.json
+    /// Load config from ~/.zpro-code/config.json
     pub fn load() -> Self {
         let path = crate::utils::paths::global_config_dir().join("config.json");
         Self::load_from(&path)

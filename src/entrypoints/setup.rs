@@ -11,12 +11,12 @@ pub fn run_setup_if_needed() -> bool {
     }
 
     eprintln!();
-    eprintln!("  Welcome to atom-code! Let's set up your LLM provider.");
+    eprintln!("  Welcome to zpro-code! Let's set up your LLM provider.");
     eprintln!();
     eprintln!("  Choose a provider:");
     eprintln!("    1) OpenRouter (multi-model gateway, free models available)");
     eprintln!("    2) Custom endpoint (self-hosted, Ollama, vLLM, etc.)");
-    eprintln!("    3) Skip setup (configure later with ~/.atom/config.json)");
+    eprintln!("    3) Skip setup (configure later with ~/.zpro-code/config.json)");
     eprintln!();
     eprint!("  Enter choice [1/2/3]: ");
     io::stderr().flush().ok();
@@ -32,7 +32,7 @@ pub fn run_setup_if_needed() -> bool {
         "1" => setup_openrouter(&mut config),
         "2" => setup_custom(&mut config),
         _ => {
-            eprintln!("  Skipped. Edit ~/.atom/config.json to configure later.");
+            eprintln!("  Skipped. Edit ~/.zpro-code/config.json to configure later.");
             return false;
         }
     }
@@ -44,7 +44,7 @@ pub fn run_setup_if_needed() -> bool {
     }
 
     eprintln!();
-    eprintln!("  Config saved to ~/.atom/config.json");
+    eprintln!("  Config saved to ~/.zpro-code/config.json");
     eprintln!("  Run 'atom' to start!");
     eprintln!();
     true
@@ -102,11 +102,11 @@ fn setup_openrouter(config: &mut AtomConfig) {
     }
 
     if config.models.is_empty() {
-        eprintln!("  No models registered. Add them later in ~/.atom/config.json");
+        eprintln!("  No models registered. Add them later in ~/.zpro-code/config.json");
     } else {
         eprintln!();
         eprintln!("  Default model: {}", config.default_model.as_deref().unwrap_or("(none)"));
-        eprintln!("  Add more: edit ~/.atom/config.json");
+        eprintln!("  Add more: edit ~/.zpro-code/config.json");
     }
 }
 

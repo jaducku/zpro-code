@@ -156,7 +156,7 @@ impl CommandRegistry {
     /// Load skill commands from `.agents/skills/` directories.
     ///
     /// Discovers skills by walking from `cwd` up to the git root (project-level)
-    /// and from `~/.atom/skills/` (user-level). Each skill with a unique
+    /// and from `~/.zpro-code/skills/` (user-level). Each skill with a unique
     /// name is registered via `register_dynamic_skill` (first-found wins).
     pub async fn load_skill_dir_commands(&mut self, cwd: &std::path::Path) -> anyhow::Result<()> {
         let skills = crate::services::skills::load_skills(cwd);

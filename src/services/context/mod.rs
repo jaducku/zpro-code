@@ -218,7 +218,7 @@ If you can say it in one sentence, don't use three. Prefer short, direct sentenc
 /// Discover and load AGENTS.md files.
 ///
 /// Discovery order:
-/// 1. `~/.atom/AGENTS.md` (global user)
+/// 1. `~/.zpro-code/AGENTS.md` (global user)
 /// 2. From CWD upward to git root (or filesystem root): `AGENTS.md`, `.agents/AGENTS.md`
 /// 3. `AGENTS.local.md` in CWD (private, project-level)
 fn load_agents_md(cwd: &Path) -> String {

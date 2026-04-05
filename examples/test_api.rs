@@ -1,10 +1,10 @@
 /// Minimal test: call OpenRouter API and print the response.
 /// Usage: cargo run --example test_api -- <api_base> <api_key> <model>
-use atom_code::services::api::openai_provider::OpenAiCompatibleProvider;
-use atom_code::services::api::provider::LlmProvider;
-use atom_code::services::api::types::*;
-use atom_code::types::content::ContentBlock;
-use atom_code::types::message::{ApiMessage, Role};
+use zpro_code::services::api::openai_provider::OpenAiCompatibleProvider;
+use zpro_code::services::api::provider::LlmProvider;
+use zpro_code::services::api::types::*;
+use zpro_code::types::content::ContentBlock;
+use zpro_code::types::message::{ApiMessage, Role};
 use futures::StreamExt;
 
 #[tokio::main]

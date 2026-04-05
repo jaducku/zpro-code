@@ -58,7 +58,7 @@ impl Tool for WebFetchTool {
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
-            .user_agent("atom-code/0.1")
+            .user_agent("zpro-code/0.1")
             .build()
             .map_err(|e| crate::types::AtomError::Tool {
                 tool_name: "WebFetch".into(),

@@ -81,7 +81,7 @@ impl TuiCommand for ModelCommand {
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  Create ~/.atom/config.json with:",
+                    "  Create ~/.zpro-code/config.json with:",
                     Style::default().fg(Color::White),
                 )),
                 Line::from(""),

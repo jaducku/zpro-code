@@ -39,7 +39,7 @@ impl LocalCommand for VersionCommand {
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
         Ok(LocalCommandResult::Text {
-            value: format!("atom-code v{}", env!("CARGO_PKG_VERSION")),
+            value: format!("zpro-code v{}", env!("CARGO_PKG_VERSION")),
         })
     }
 }

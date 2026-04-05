@@ -33,7 +33,7 @@ fn derive_machine_key() -> Vec<u8> {
     let username = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| "user".to_string());
-    let seed = format!("atom-code:{}:{}", hostname, username);
+    let seed = format!("zpro-code:{}:{}", hostname, username);
 
     // Simple hash to get key bytes
     let mut key = Vec::new();

@@ -10,14 +10,14 @@ members = [
 resolver = "2"
 
 [package]
-name = "atom-code"
+name = "zpro-code"
 version = "0.1.0"
 edition = "2021"
-description = "Open LLM-powered coding assistant CLI"
+description = "Open LLM-powered coding agent CLI"
 license = "MIT"
 
 [[bin]]
-name = "atom"
+name = "zpro-code"
 path = "src/main.rs"
 
 [dependencies]

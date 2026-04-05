@@ -123,7 +123,7 @@ mod tests {
         let ctx = make_ctx(serde_json::json!({"file_path": "Cargo.toml"}));
         let result = tool.execute(ctx).await.unwrap();
         assert!(!result.is_error);
-        assert!(result.content.contains("atom-code"));
+        assert!(result.content.contains("zpro-code"));
     }
 
     #[tokio::test]

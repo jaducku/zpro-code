@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use atom_code::commands::CommandRegistry;
-use atom_code::services::api::create_provider;
-use atom_code::services::api::provider::LlmProvider;
-use atom_code::services::config::AtomConfig;
-use atom_code::services::context::{assemble_system_prompt, assemble_system_prompt_with_config, SystemPromptConfig};
-use atom_code::services::session_transcript::SessionStore;
-use atom_code::tui::run::run_app;
-use atom_code::types::permissions::{PermissionMode, PermissionRule};
+use zpro_code::commands::CommandRegistry;
+use zpro_code::services::api::create_provider;
+use zpro_code::services::api::provider::LlmProvider;
+use zpro_code::services::config::AtomConfig;
+use zpro_code::services::context::{assemble_system_prompt, assemble_system_prompt_with_config, SystemPromptConfig};
+use zpro_code::services::session_transcript::SessionStore;
+use zpro_code::tui::run::run_app;
+use zpro_code::types::permissions::{PermissionMode, PermissionRule};
 
 // ---------------------------------------------------------------------------
 // Output / Input format enums
@@ -277,7 +277,7 @@ enum McpAction {
     /// Reset project MCP choices
     ResetProjectChoices,
 
-    /// Run atom-code as an MCP server
+    /// Run zpro-code as an MCP server
     Serve,
 
     /// Browse the MCP marketplace
@@ -387,7 +387,7 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             let cwd = std::env::current_dir().unwrap_or_default();
             match action {
                 McpAction::List { scope: _ } => {
-                    let configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    let configs = zpro_code::services::mcp::read_mcp_json(&cwd);
                     if configs.is_empty() {
                         println!("No MCP servers configured.");
                     } else {
@@ -406,7 +406,7 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
                     }
                 }
                 McpAction::Get { name } => {
-                    let configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    let configs = zpro_code::services::mcp::read_mcp_json(&cwd);
                     match configs.get(&name) {
                         Some(cfg) => {
                             println!("Server: {}", name);
@@ -432,7 +432,7 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
                     }
                 }
                 McpAction::AddJson { name, json, scope: _ } => {
-                    let server_config: atom_code::services::mcp::McpServerConfig =
+                    let server_config: zpro_code::services::mcp::McpServerConfig =
                         match serde_json::from_str(&json) {
                             Ok(c) => c,
                             Err(e) => {
@@ -440,9 +440,9 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
                                 std::process::exit(1);
                             }
                         };
-                    let mut configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    let mut configs = zpro_code::services::mcp::read_mcp_json(&cwd);
                     configs.insert(name.clone(), server_config);
-                    atom_code::services::mcp::write_mcp_json(&cwd, &configs)?;
+                    zpro_code::services::mcp::write_mcp_json(&cwd, &configs)?;
                     println!("Added MCP server '{}'", name);
                 }
                 McpAction::Add => {
@@ -450,12 +450,12 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
                     println!("Example: atom mcp add-json myserver '{{\"command\":\"npx\",\"args\":[\"-y\",\"my-mcp-server\"]}}'");
                 }
                 McpAction::Remove { name, scope: _ } => {
-                    let mut configs = atom_code::services::mcp::read_mcp_json(&cwd);
+                    let mut configs = zpro_code::services::mcp::read_mcp_json(&cwd);
                     if configs.remove(&name).is_none() {
                         eprintln!("MCP server '{}' not found.", name);
                         std::process::exit(1);
                     }
-                    atom_code::services::mcp::write_mcp_json(&cwd, &configs)?;
+                    zpro_code::services::mcp::write_mcp_json(&cwd, &configs)?;
                     println!("Removed MCP server '{}'", name);
                 }
                 McpAction::ResetProjectChoices => {
@@ -509,7 +509,7 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             }
         },
         SubCmd::Doctor => {
-            println!("atom-code doctor");
+            println!("zpro-code doctor");
             println!();
 
             // Check git
@@ -531,7 +531,7 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             );
 
             // Check config directory
-            let config_dir = atom_code::utils::paths::global_config_dir();
+            let config_dir = zpro_code::utils::paths::global_config_dir();
             let config_exists = config_dir.exists();
             println!(
                 "  {} config directory: {}",
@@ -547,7 +547,7 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             }
         }
         SubCmd::Update => {
-            println!("atom-code v{}", env!("CARGO_PKG_VERSION"));
+            println!("zpro-code v{}", env!("CARGO_PKG_VERSION"));
             println!("You are running the latest version.");
         }
         SubCmd::Agents { setting_sources: _ } => {
@@ -557,12 +557,12 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
         }
         SubCmd::Install { target, force } => {
             let version = target.as_deref().unwrap_or("stable");
-            println!("Installing atom-code {}...", version);
+            println!("Installing zpro-code {}...", version);
             if force {
                 println!("(force mode)");
             }
             println!("Installation not yet available via this command.");
-            println!("Use: cargo install atom-code");
+            println!("Use: cargo install zpro-code");
         }
         SubCmd::SetupToken => {
             eprintln!("setup-token: interactive token setup (not yet implemented)");
@@ -579,7 +579,7 @@ async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
         ConfigAction::Path => {
-            println!("{}", atom_code::utils::paths::global_config_dir().join("config.json").display());
+            println!("{}", zpro_code::utils::paths::global_config_dir().join("config.json").display());
         }
         ConfigAction::Get { key } => {
             let config = AtomConfig::load();
@@ -603,7 +603,7 @@ async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
             match key.as_str() {
                 "provider" => config.provider = Some(value),
                 "api_key" => {
-                    let encrypted = atom_code::services::keychain::encrypt_api_key(&value);
+                    let encrypted = zpro_code::services::keychain::encrypt_api_key(&value);
                     config.api_key = Some(encrypted);
                     println!("API key encrypted and saved.");
                 }
@@ -648,7 +648,7 @@ async fn main() -> anyhow::Result<()> {
 
     // First-time setup (only if no config.json and no CLI flags)
     if cli.subcommand.is_none() && !cli.print {
-        atom_code::entrypoints::setup::run_setup_if_needed();
+        zpro_code::entrypoints::setup::run_setup_if_needed();
     }
 
     // Load config file (CLI flags override config values)
@@ -660,7 +660,7 @@ async fn main() -> anyhow::Result<()> {
     let effective_api_base = cli.api_base.clone().or(config_api_base);
     let effective_api_key = cli.api_key.clone().or_else(|| {
         config.api_key.as_ref().and_then(|k| {
-            atom_code::services::keychain::decrypt_api_key(k)
+            zpro_code::services::keychain::decrypt_api_key(k)
         })
     });
     let effective_model = cli
@@ -713,11 +713,11 @@ async fn main() -> anyhow::Result<()> {
 
             let cwd = std::env::current_dir().unwrap_or_default();
 
-            let mcp_configs = atom_code::services::mcp::load_mcp_configs(
+            let mcp_configs = zpro_code::services::mcp::load_mcp_configs(
                 &cwd,
                 cli.mcp_config.as_deref().unwrap_or(&[]),
             );
-            let mut mcp_manager = atom_code::services::mcp::McpConnectionManager::new(mcp_configs);
+            let mut mcp_manager = zpro_code::services::mcp::McpConnectionManager::new(mcp_configs);
             let mcp_errors = mcp_manager.connect_all().await;
             for err in &mcp_errors {
                 eprintln!("Warning: MCP server error: {}", err);
@@ -731,12 +731,12 @@ async fn main() -> anyhow::Result<()> {
             );
 
             let output_format = match cli.output_format {
-                Some(OutputFormat::Json) => atom_code::entrypoints::print::OutputFormat::Json,
-                Some(OutputFormat::StreamJson) => atom_code::entrypoints::print::OutputFormat::StreamJson,
-                _ => atom_code::entrypoints::print::OutputFormat::Text,
+                Some(OutputFormat::Json) => zpro_code::entrypoints::print::OutputFormat::Json,
+                Some(OutputFormat::StreamJson) => zpro_code::entrypoints::print::OutputFormat::StreamJson,
+                _ => zpro_code::entrypoints::print::OutputFormat::Text,
             };
 
-            atom_code::entrypoints::print::run_print_mode(
+            zpro_code::entrypoints::print::run_print_mode(
                 cli.prompt,
                 provider,
                 system_prompt,
@@ -767,12 +767,12 @@ async fn main() -> anyhow::Result<()> {
             let cwd = std::env::current_dir().unwrap_or_default();
 
             // Load MCP configs and connect servers
-            let mcp_configs = atom_code::services::mcp::load_mcp_configs(
+            let mcp_configs = zpro_code::services::mcp::load_mcp_configs(
                 &cwd,
                 cli.mcp_config.as_deref().unwrap_or(&[]),
             );
 
-            let mut mcp_manager = atom_code::services::mcp::McpConnectionManager::new(mcp_configs);
+            let mut mcp_manager = zpro_code::services::mcp::McpConnectionManager::new(mcp_configs);
             let mcp_errors = mcp_manager.connect_all().await;
             for err in &mcp_errors {
                 eprintln!("Warning: MCP server error: {}", err);

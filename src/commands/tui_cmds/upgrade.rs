@@ -68,7 +68,7 @@ impl TuiCommand for UpgradeCommand {
             Line::from(Span::styled("  You are running the latest version.", Style::default().fg(Color::Green))),
             Line::from(""),
             Line::from(Span::styled("  To update via cargo:", Style::default().fg(Color::DarkGray))),
-            Line::from(Span::styled("    cargo install atom-code", Style::default().fg(Color::White))),
+            Line::from(Span::styled("    cargo install zpro-code", Style::default().fg(Color::White))),
             Line::from(""),
             Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
         ];
