@@ -4,8 +4,10 @@ use std::path::Path;
 use crate::services::hooks::command_hook::{execute_command_hook, CommandHookResult, HookEnv};
 use crate::services::hooks::matcher::{matches_pattern, parse_if_condition};
 use crate::services::hooks::types::{
-    HookCommand, HookExecutionResult, HookMatcher, HookOutcome, HooksSettings, SyncHookOutput,
+    HookCommand, HookExecutionResult, HookOutcome, HooksSettings, SyncHookOutput,
 };
+#[cfg(test)]
+use crate::services::hooks::types::HookMatcher;
 
 /// Events that are always emitted (used for documentation/future filtering at a higher level).
 const ALWAYS_EMITTED: &[&str] = &["SessionStart", "Setup"];

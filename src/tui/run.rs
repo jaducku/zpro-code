@@ -79,28 +79,17 @@ pub async fn run_app(
     loop {
         // Render
         terminal.draw(|frame| {
-            let has_active = app.active_command.is_some();
+            if app.active_command.is_some() {
+                // Command active: split layout — messages shrink, command panel below
+                let term_height = frame.area().height;
+                let cmd_height = (term_height / 3).max(8).min(term_height.saturating_sub(8));
+                let cmd_area = ui::render_with_command(frame, &app, cmd_height);
 
-            if has_active {
-                // Split screen: chat on left, command drawer on right
-                let area = frame.area();
-                let drawer_width = (area.width / 2).max(30).min(area.width.saturating_sub(20));
-                let chunks = Layout::horizontal([
-                    Constraint::Min(20),
-                    Constraint::Length(drawer_width),
-                ])
-                .split(area);
-
-                // Left: normal chat UI (read-only borrow of app)
-                ui::render_in_area(frame, &app, chunks[0]);
-
-                // Right: command drawer (need mutable borrow of active_command state)
                 if let Some(active) = &mut app.active_command {
                     let cmd_name = active.command_name.clone();
                     if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
-                        // Safety: we clone cmd_name above to avoid borrow conflict
                         let active = app.active_command.as_mut().unwrap();
-                        tui_cmd.render(frame, chunks[1], active.state.as_mut());
+                        tui_cmd.render(frame, cmd_area, active.state.as_mut());
                     }
                 }
             } else {
@@ -287,13 +276,7 @@ pub async fn run_app(
                     None => std::future::pending().await,
                 }
             } => {
-                // Show tool action as a chat message
-                app.push_message(DisplayMessage {
-                    role: DisplayRole::Tool,
-                    content: format!("{}: {}", ask.tool_name, ask.description),
-                    tool_name: Some(ask.tool_name.clone()),
-                });
-                // Switch input mode to inline permission prompt
+                // Permission prompt shown only in the input area (no chat message)
                 app.input_mode = InputMode::Permission {
                     tool_name: ask.tool_name,
                     description: ask.description,
@@ -308,11 +291,7 @@ pub async fn run_app(
                     None => std::future::pending().await,
                 }
             } => {
-                app.push_message(DisplayMessage {
-                    role: DisplayRole::System,
-                    content: ask.question.clone(),
-                    tool_name: None,
-                });
+                // Question prompt shown only in the input area (no chat message)
                 app.input_mode = InputMode::Question {
                     options: ask.options.into_iter().map(|o| (o.label, o.description)).collect(),
                     selected: 0,
@@ -365,7 +344,7 @@ async fn handle_submit(
 enum FoundCommand {
     Local { is_exit: bool },
     Tui,
-    Prompt { progress: String },
+    Prompt,
     NotFound,
 }
 
@@ -394,9 +373,7 @@ async fn dispatch_slash_command(
             FoundCommand::Local { is_exit }
         }
         Some(Command::Tui(_)) => FoundCommand::Tui,
-        Some(Command::Prompt(cmd)) => FoundCommand::Prompt {
-            progress: cmd.progress_message().to_string(),
-        },
+        Some(Command::Prompt(_)) => FoundCommand::Prompt,
         None => FoundCommand::NotFound,
     };
 
@@ -494,7 +471,7 @@ async fn dispatch_slash_command(
                 });
             }
         }
-        FoundCommand::Prompt { progress } => {
+        FoundCommand::Prompt => {
             use crate::commands::context::{CommandContext, CommandOptions, MessageUpdate, UiEvent};
             use crate::state::AppState;
             use std::path::PathBuf;

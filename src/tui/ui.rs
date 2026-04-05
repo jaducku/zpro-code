@@ -8,10 +8,35 @@ use super::app::{App, DisplayRole};
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn render(frame: &mut Frame, app: &App) {
-    render_in_area(frame, app, frame.area());
+    render_in_area(frame, app, frame.area(), false);
 }
 
-pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect) {
+/// Render with an optional command panel area between messages and input.
+/// When `command_height > 0`, messages shrink and the command panel occupies
+/// the space just above the input area.
+pub fn render_with_command(frame: &mut Frame, app: &App, command_height: u16) -> Rect {
+    let area = frame.area();
+    let layout = Layout::vertical([
+        Constraint::Min(1),                      // Messages (shrinks)
+        Constraint::Length(command_height),       // Command panel
+        Constraint::Length(3),                    // Input
+        Constraint::Length(1),                    // Status bar
+    ]);
+    let chunks = layout.split(area);
+
+    render_messages(frame, chunks[0], app);
+    // chunks[1] is the command panel — returned to caller
+    render_input(frame, chunks[2], app);
+    render_status_bar(frame, chunks[3], app);
+
+    if let Some(ta) = &app.typeahead {
+        render_typeahead(frame, chunks[2], ta);
+    }
+
+    chunks[1] // return command area for caller to render into
+}
+
+pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: bool) {
     let layout = Layout::vertical([
         Constraint::Min(1),    // Messages area
         Constraint::Length(3), // Input
@@ -27,7 +52,6 @@ pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(ta) = &app.typeahead {
         render_typeahead(frame, chunks[1], ta);
     }
-
 }
 
 fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
@@ -44,12 +68,30 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
         render_conversation(&mut lines, app, area.width);
     }
 
-    // Auto-scroll
+    // Scroll logic: scroll_offset 0 = bottom (auto-scroll), higher = further up
     let visible_height = area.height as usize;
-    let skip = lines.len().saturating_sub(visible_height);
+    let total = lines.len();
+    let max_scroll = total.saturating_sub(visible_height);
+    let effective_offset = (app.scroll_offset as usize).min(max_scroll);
+    let skip = max_scroll.saturating_sub(effective_offset);
 
     let paragraph = Paragraph::new(lines).scroll((skip as u16, 0));
     frame.render_widget(paragraph, area);
+
+    // Scroll indicator when not at bottom
+    if effective_offset > 0 {
+        let indicator = Span::styled(
+            " ↓ more below ",
+            Style::default().fg(Color::Black).bg(Color::Cyan),
+        );
+        let indicator_area = Rect {
+            x: area.x + area.width.saturating_sub(16),
+            y: area.y + area.height.saturating_sub(1),
+            width: 15,
+            height: 1,
+        };
+        frame.render_widget(Paragraph::new(Line::from(indicator)), indicator_area);
+    }
 }
 
 fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
@@ -62,14 +104,14 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     lines.push(Line::from(""));
     lines.push(Line::from(""));
 
-    // ATOM block logo — left aligned, color gradient
+    // ZPRO-CODE block logo — left aligned, color gradient
     let logo: &[(&str, usize)] = &[
-        (" █████╗ ████████╗ ██████╗ ███╗   ███╗", 0),
-        ("██╔══██╗╚══██╔══╝██╔═══██╗████╗ ████║", 0),
-        ("███████║   ██║   ██║   ██║██╔████╔██║", 1),
-        ("██╔══██║   ██║   ██║   ██║██║╚██╔╝██║", 2),
-        ("██║  ██║   ██║   ╚██████╔╝██║ ╚═╝ ██║", 2),
-        ("╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝", 3),
+        ("███████╗██████╗ ██████╗  ██████╗        ██████╗ ██████╗ ██████╗ ███████╗", 0),
+        ("╚══███╔╝██╔══██╗██╔══██╗██╔═══██╗      ██╔════╝██╔═══██╗██╔══██╗██╔════╝", 0),
+        ("  ███╔╝ ██████╔╝██████╔╝██║   ██║█████╗██║     ██║   ██║██║  ██║█████╗  ", 1),
+        (" ███╔╝  ██╔═══╝ ██╔══██╗██║   ██║╚════╝██║     ██║   ██║██║  ██║██╔══╝  ", 2),
+        ("███████╗██║     ██║  ██║╚██████╔╝      ╚██████╗╚██████╔╝██████╔╝███████╗", 2),
+        ("╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝       ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝", 3),
     ];
 
     for (text, color_offset) in logo {
@@ -89,7 +131,7 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
             format!("v{}  ", env!("CARGO_PKG_VERSION")),
             Style::default().fg(Color::DarkGray),
         ),
-        Span::styled("open LLM coding assistant", Style::default().fg(Color::DarkGray)),
+        Span::styled("open LLM coding agent", Style::default().fg(Color::DarkGray)),
     ]));
 
     lines.push(Line::from(""));
@@ -179,15 +221,20 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     use super::app::InputMode;
 
     match &app.input_mode {
-        InputMode::Permission { .. } => {
+        InputMode::Permission { tool_name, description, .. } => {
             let border_style = Style::default().fg(Color::Yellow);
+            let title = format!(" {} ", tool_name);
             let input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .title(Span::styled(" Permission ", Style::default().fg(Color::Yellow).bold()));
+                .title(Span::styled(title, Style::default().fg(Color::Yellow).bold()));
 
-            let prompt = Line::from(vec![
+            let desc_line = Line::from(Span::styled(
+                format!(" {}", truncate_content(description, area.width.saturating_sub(4) as usize)),
+                Style::default().fg(Color::White),
+            ));
+            let keys_line = Line::from(vec![
                 Span::styled(" [y]", Style::default().fg(Color::Green).bold()),
                 Span::styled(" Allow  ", Style::default().fg(Color::White)),
                 Span::styled("[n]", Style::default().fg(Color::Red).bold()),
@@ -196,8 +243,18 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 Span::styled(" Always allow", Style::default().fg(Color::White)),
             ]);
 
-            let input_text = Paragraph::new(prompt).block(input_block);
-            frame.render_widget(input_text, area);
+            // Expand input area to fit description + keys
+            let needed_height: u16 = 4; // border + desc + keys + border
+            let expanded_area = Rect {
+                x: area.x,
+                y: area.y.saturating_sub(needed_height.saturating_sub(area.height)),
+                width: area.width,
+                height: needed_height.max(area.height),
+            };
+
+            frame.render_widget(Clear, expanded_area);
+            let input_text = Paragraph::new(vec![desc_line, keys_line]).block(input_block);
+            frame.render_widget(input_text, expanded_area);
         }
         InputMode::Question { options, selected, text_input, .. } => {
             let border_style = Style::default().fg(Color::Blue);

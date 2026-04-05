@@ -134,7 +134,7 @@ impl App {
         let mut messages = vec![
             DisplayMessage {
                 role: DisplayRole::System,
-                content: format!("atom-code v{}", env!("CARGO_PKG_VERSION")),
+                content: format!("zpro-code v{}", env!("CARGO_PKG_VERSION")),
                 tool_name: None,
             },
         ];
@@ -273,12 +273,16 @@ impl App {
                 self.cursor_pos = self.input.chars().count();
             }
             KeyCode::Up => {
-                if self.scroll_offset > 0 {
-                    self.scroll_offset -= 1;
-                }
+                self.scroll_offset = self.scroll_offset.saturating_add(3);
             }
             KeyCode::Down => {
-                self.scroll_offset += 1;
+                self.scroll_offset = self.scroll_offset.saturating_sub(3);
+            }
+            KeyCode::PageUp => {
+                self.scroll_offset = self.scroll_offset.saturating_add(20);
+            }
+            KeyCode::PageDown => {
+                self.scroll_offset = self.scroll_offset.saturating_sub(20);
             }
             KeyCode::Enter => {
                 // Submit is handled by the main loop
@@ -516,6 +520,9 @@ impl App {
 
     /// Handle a query event (streaming update)
     pub fn handle_query_event(&mut self, event: QueryEvent) {
+        // Auto-scroll to bottom on new content
+        self.scroll_offset = 0;
+
         match event {
             QueryEvent::TextDelta(text) => {
                 if let Some(last) = self.messages.last_mut() {
