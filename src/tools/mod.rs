@@ -28,6 +28,8 @@ pub mod task_list_tool;
 pub mod task_output_tool;
 pub mod task_stop_tool;
 pub mod task_update_tool;
+pub mod team_create_tool;
+pub mod team_delete_tool;
 pub mod todo_write_tool;
 pub mod tool_search_tool;
 pub mod web_fetch_tool;
@@ -58,6 +60,8 @@ pub fn get_builtin_tools() -> Vec<Box<dyn Tool>> {
         Box::new(task_output_tool::TaskOutputTool),
         Box::new(task_stop_tool::TaskStopTool),
         Box::new(task_update_tool::TaskUpdateTool),
+        Box::new(team_create_tool::TeamCreateTool),
+        Box::new(team_delete_tool::TeamDeleteTool),
         Box::new(todo_write_tool::TodoWriteTool),
         Box::new(tool_search_tool::ToolSearchTool),
         Box::new(config_tool::ConfigTool),
@@ -124,7 +128,7 @@ mod tests {
     fn test_deferred_tools() {
         let tools = get_builtin_tools();
         // Tools that opt into deferral via should_defer()
-        let expected_deferred = &["ConfigTool", "CronCreate", "CronList", "CronDelete", "ListMcpResources", "ReadMcpResource", "SendMessage", "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree"];
+        let expected_deferred = &["ConfigTool", "CronCreate", "CronList", "CronDelete", "ListMcpResources", "ReadMcpResource", "SendMessage", "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree", "TeamCreate", "TeamDelete"];
         for tool in &tools {
             let deferred = is_deferred_tool(tool.as_ref());
             if expected_deferred.contains(&tool.name()) {
