@@ -94,6 +94,7 @@ pub async fn query(
         let mut stream = ctx.provider.create_message(request).await?;
 
         let mut text_content = String::new();
+        let mut reasoning_content = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut stop_reason = StopReason::EndTurn;
         let mut current_tool_id = String::new();
@@ -129,7 +130,9 @@ pub async fn query(
                     ContentDelta::InputJsonDelta { partial_json } => {
                         current_tool_input.push_str(&partial_json);
                     }
-                    ContentDelta::ThinkingDelta { .. } => {}
+                    ContentDelta::ThinkingDelta { thinking } => {
+                        reasoning_content.push_str(&thinking);
+                    }
                 },
                 StreamEvent::ContentBlockStop { .. } => {
                     if !current_tool_id.is_empty() {
@@ -158,6 +161,25 @@ pub async fn query(
                 }
                 _ => {}
             }
+        }
+
+        // Flush any in-progress tool call (stream ended without ContentBlockStop)
+        if !current_tool_id.is_empty() {
+            let input: serde_json::Value =
+                serde_json::from_str(&current_tool_input).unwrap_or_default();
+            tool_calls.push(ToolCall {
+                id: current_tool_id.clone(),
+                name: current_tool_name.clone(),
+                input,
+            });
+            current_tool_id.clear();
+        }
+
+        // If model returned only reasoning/thinking content (e.g., Qwen 3, DeepSeek)
+        // with no text content, use the reasoning as the response
+        if text_content.is_empty() && !reasoning_content.is_empty() && tool_calls.is_empty() {
+            let _ = event_tx.send(QueryEvent::TextDelta(reasoning_content.clone()));
+            text_content = std::mem::take(&mut reasoning_content);
         }
 
         // 3. Build assistant message content

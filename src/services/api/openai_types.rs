@@ -109,10 +109,23 @@ pub struct OpenAiChoice {
 /// Streaming chunk
 #[derive(Debug, Clone, Deserialize)]
 pub struct OpenAiStreamChunk {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub choices: Vec<OpenAiStreamChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<OpenAiUsage>,
+    /// Error object returned by some providers (e.g., OpenRouter rate limits)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<OpenAiStreamError>,
+}
+
+/// Error object embedded in SSE stream chunks
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpenAiStreamError {
+    pub message: String,
+    #[serde(default)]
+    pub code: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,6 +141,9 @@ pub struct OpenAiDelta {
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// Reasoning/thinking content (used by Qwen 3, DeepSeek, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<OpenAiToolCallDelta>>,
 }
@@ -243,5 +259,62 @@ mod tests {
             chunk.choices[0].finish_reason.as_deref(),
             Some("stop")
         );
+    }
+
+    #[test]
+    fn test_chunk_missing_id_uses_default() {
+        let json = r#"{
+            "choices": [{"index": 0, "delta": {"content": "hi"}, "finish_reason": null}]
+        }"#;
+        let chunk: OpenAiStreamChunk = serde_json::from_str(json).unwrap();
+        assert_eq!(chunk.id, "");
+        assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn test_chunk_with_error_object() {
+        let json = r#"{
+            "error": {"message": "Rate limit exceeded", "code": 429}
+        }"#;
+        let chunk: OpenAiStreamChunk = serde_json::from_str(json).unwrap();
+        assert!(chunk.error.is_some());
+        assert_eq!(chunk.error.unwrap().message, "Rate limit exceeded");
+    }
+
+    #[test]
+    fn test_chunk_with_reasoning_content() {
+        let json = r#"{
+            "id": "chatcmpl-123",
+            "choices": [{
+                "index": 0,
+                "delta": {"reasoning_content": "Let me think...", "content": null},
+                "finish_reason": null
+            }]
+        }"#;
+        let chunk: OpenAiStreamChunk = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            chunk.choices[0].delta.reasoning_content.as_deref(),
+            Some("Let me think...")
+        );
+        assert!(chunk.choices[0].delta.content.is_none());
+    }
+
+    #[test]
+    fn test_chunk_with_extra_fields_ignored() {
+        let json = r#"{
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "qwen-3",
+            "system_fingerprint": "fp_abc",
+            "choices": [{
+                "index": 0,
+                "delta": {"content": "works"},
+                "finish_reason": null,
+                "logprobs": null
+            }]
+        }"#;
+        let chunk: OpenAiStreamChunk = serde_json::from_str(json).unwrap();
+        assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("works"));
     }
 }

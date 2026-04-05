@@ -42,7 +42,12 @@ impl OpenAiCompatibleProvider {
             base_url,
             api_key,
             _model: model,
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(30))
+                // Note: no .timeout() — streaming responses can take minutes.
+                // Per-chunk timeouts are handled by tokio::time::timeout in the stream.
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             model_info,
         }
     }
@@ -311,7 +316,13 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
         buffer: String::new(),
     }));
 
-    let byte_stream = resp.bytes_stream();
+    // Map byte_stream to Vec<u8> so we can chain a flush sentinel
+    let byte_stream = resp.bytes_stream()
+        .map(|r| r.map(|b| b.to_vec()).map_err(|e| e.to_string()));
+    // Chain a trailing newline to flush any remaining buffered SSE data
+    // when the server closes the connection without a final \n
+    let flush = stream::once(async { Ok::<Vec<u8>, String>(b"\n".to_vec()) });
+    let byte_stream = byte_stream.chain(flush);
 
     let stream = byte_stream
         .filter_map(move |chunk_result| {
@@ -356,8 +367,32 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
 
                     let chunk: OpenAiStreamChunk = match serde_json::from_str(data) {
                         Ok(c) => c,
-                        Err(_) => continue,
+                        Err(e) => {
+                            tracing::warn!("SSE parse error: {} — raw data: {}", e, data);
+                            // Try to extract error from raw JSON
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
+                                if let Some(err_msg) = val.get("error")
+                                    .and_then(|e| e.get("message"))
+                                    .and_then(|m| m.as_str())
+                                {
+                                    all_events.push(Err(AtomError::Api {
+                                        message: format!("Provider error: {}", err_msg),
+                                        status: None,
+                                    }));
+                                }
+                            }
+                            continue;
+                        }
                     };
+
+                    // Handle error objects in SSE stream (e.g., OpenRouter rate limits)
+                    if let Some(ref err) = chunk.error {
+                        all_events.push(Err(AtomError::Api {
+                            message: format!("Provider error: {}", err.message),
+                            status: err.code.as_ref().and_then(|c| c.as_u64()).map(|c| c as u16),
+                        }));
+                        continue;
+                    }
 
                     // Message start
                     if state.message_id.is_none() {
@@ -366,6 +401,16 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                     }
 
                     for choice in &chunk.choices {
+                        // Reasoning/thinking delta (Qwen 3, DeepSeek, etc.)
+                        if let Some(reasoning) = &choice.delta.reasoning_content {
+                            if !reasoning.is_empty() {
+                                all_events.push(Ok(StreamEvent::ContentBlockDelta {
+                                    index: 0,
+                                    delta: ContentDelta::ThinkingDelta { thinking: reasoning.clone() },
+                                }));
+                            }
+                        }
+
                         // Text delta
                         if let Some(text) = &choice.delta.content {
                             if !state.text_started {
