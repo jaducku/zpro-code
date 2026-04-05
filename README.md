@@ -8,7 +8,7 @@ Multi-provider support (OpenRouter, Codex, Ollama, any OpenAI-compatible endpoin
 
 ```bash
 # One-line install (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/jaducku/zpro-code/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jaducku/zpro-code-releases/main/install.sh | sh
 
 # Or build from source
 cargo install --path .

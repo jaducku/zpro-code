@@ -78,10 +78,21 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Create Release
+      - name: Create release (private repo)
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
             artifacts/*.tar.gz
             artifacts/*.sha256
+
+      - name: Publish to public repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --repo jaducku/zpro-code-releases \
+            --title "zpro-code $TAG" \
+            --notes "Release $TAG — see [changelog](https://github.com/jaducku/zpro-code/releases/tag/$TAG) (private)" \
+            artifacts/*.tar.gz artifacts/*.sha256
