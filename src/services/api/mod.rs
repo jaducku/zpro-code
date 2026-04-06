@@ -4,6 +4,7 @@ pub mod openai_provider;
 pub mod openai_types;
 pub mod provider;
 pub mod provider_factory;
+pub mod registry;
 pub mod retry;
 pub mod types;
 
