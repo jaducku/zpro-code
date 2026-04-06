@@ -199,16 +199,16 @@ pub async fn run_app(
                                             if cmd_name == "model" {
                                                 if let Some(ref r) = result {
                                                     if let Some(ref model_id) = r.text {
-                                                        // Resolve new provider from registry
+                                                        // Resolve new provider from registry (model_id is an alias)
                                                         match registry.resolve(model_id) {
                                                             Ok(new_provider) => {
-                                                                let resolved_model = new_provider.model_info().id.clone();
-                                                                app.model_override = Some(model_id.clone());
-                                                                app.model = resolved_model.clone();
+                                                                let actual_model_id = new_provider.model_info().id.clone();
+                                                                app.model_override = Some(actual_model_id.clone());
+                                                                app.model = actual_model_id.clone();
                                                                 provider = Some(new_provider);
                                                                 app.push_message(DisplayMessage {
                                                                     role: DisplayRole::System,
-                                                                    content: format!("Model switched to: {} ({})", model_id, resolved_model),
+                                                                    content: format!("Model switched to: {} ({})", model_id, actual_model_id),
                                                                     tool_name: None,
                                                                 });
                                                             }
