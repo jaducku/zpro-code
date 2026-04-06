@@ -702,19 +702,14 @@ async fn main() -> anyhow::Result<()> {
     let mut registry = zpro_code::services::api::registry::ProviderRegistry::from_config(&config)
         .unwrap_or_else(|e| {
             eprintln!("Warning: Failed to load provider registry: {}", e);
-            zpro_code::services::api::registry::ProviderRegistry::new("_cli".into(), None)
+            zpro_code::services::api::registry::ProviderRegistry::new(None)
         });
 
-    // Register CLI provider in registry
-    if effective_provider.is_some() || effective_api_base.is_some() {
-        registry.register("_cli".into(), zpro_code::services::api::registry::ProviderConfig {
-            provider_type: effective_provider.clone().unwrap_or_else(|| "openai".into()),
-            api_base: effective_api_base.clone(),
-            api_key: effective_api_key.clone(),
-            models: std::collections::HashMap::new(),
-        });
-        registry.set_default("_cli".into(), effective_model.clone());
+    // Register CLI provider template in registry
+    if let Some(ref api_base) = effective_api_base {
+        registry.register_provider("_cli".into(), api_base.clone(), effective_api_key.clone());
     }
+    registry.set_default_model(effective_model.clone());
     let registry = Arc::new(registry);
 
     match cli.subcommand {
