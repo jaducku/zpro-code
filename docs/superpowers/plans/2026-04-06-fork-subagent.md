@@ -24,6 +24,8 @@
 | `src/utils/settings/types.rs` | Modify | Add `fork_subagent` field to `SettingsJson` |
 | `src/services/agent_runtime.rs` | Modify | Add `build_fork_context`, `filter_incomplete_tool_calls`, extend `AgentSpawnParams` |
 | `src/tools/agent_tool.rs` | Modify | Fork path detection and routing |
+| `src/entrypoints/print.rs` | Modify | Add `query_source: None` to QueryContext |
+| `src/tools/skill_tool.rs` | Modify | Add `query_source: None` to QueryContext |
 
 ---
 
@@ -106,11 +108,12 @@ Every place that constructs a `QueryContext` must include `query_source: None`. 
 
 Run: `cargo build 2>&1 | head -40`
 
-Fix each site:
-- `src/query/engine.rs` test helper `test_query_context()` — add `query_source: None`
-- `src/tui/run.rs` `submit_query()` and `submit_query_skill()` — add `query_source: None`
-- `src/services/agent_runtime.rs` `build_child_context()` — add `query_source: None`
-- `src/services/hooks/prompt_hook.rs` if it constructs QueryContext — add `query_source: None`
+Fix each site (add `query_source: None`):
+- `src/query/engine.rs` test helper `test_query_context()`
+- `src/tui/run.rs` `submit_query()` and `submit_query_skill()`
+- `src/services/agent_runtime.rs` `build_child_context()`
+- `src/entrypoints/print.rs` QueryContext construction (~line 72)
+- `src/tools/skill_tool.rs` QueryContext construction (~line 164)
 
 - [ ] **Step 3: Add `messages` and `query_source` to ToolUseContext**
 
@@ -157,7 +160,7 @@ Expected: All existing tests pass
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/tool.rs src/query/engine.rs src/query/types.rs src/tui/run.rs src/services/agent_runtime.rs src/services/hooks/prompt_hook.rs
+git add src/tool.rs src/query/engine.rs src/query/types.rs src/tui/run.rs src/services/agent_runtime.rs src/entrypoints/print.rs src/tools/skill_tool.rs
 git commit -m "feat(fork): add messages and query_source fields to ToolUseContext and QueryContext"
 ```
 
@@ -319,6 +322,29 @@ Add to the tests module:
     fn test_is_fork_by_query_source_false() {
         assert!(!is_fork_by_query_source(None));
         assert!(!is_fork_by_query_source(Some("agent:builtin:general")));
+    }
+
+    #[test]
+    fn test_is_inside_fork_query_source_only() {
+        // query_source triggers, even with empty messages
+        assert!(is_inside_fork(Some(FORK_QUERY_SOURCE), &[]));
+    }
+
+    #[test]
+    fn test_is_inside_fork_message_scan_only() {
+        // No query_source, but messages contain boilerplate
+        let messages = vec![ApiMessage {
+            role: Role::User,
+            content: vec![ContentBlock::Text {
+                text: "<fork-boilerplate>\nrules\n</fork-boilerplate>".into(),
+            }],
+        }];
+        assert!(is_inside_fork(None, &messages));
+    }
+
+    #[test]
+    fn test_is_inside_fork_neither() {
+        assert!(!is_inside_fork(None, &[]));
     }
 ```
 
@@ -691,6 +717,39 @@ Add to `mod tests` in `agent_runtime.rs`:
         assert!(params.fork_messages.is_none());
         assert!(params.query_source.is_none());
     }
+
+    #[test]
+    fn test_build_fork_context_fields() {
+        let parent_ctx = ToolUseContext::test(serde_json::json!({}));
+        let fork_msgs = vec![
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text { text: "cloned".into() }],
+            },
+            ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::Text { text: "directive".into() }],
+            },
+        ];
+        let params = AgentSpawnParams {
+            prompt: "test".into(),
+            description: "test".into(),
+            model: None,
+            run_in_background: false,
+            isolation: None,
+            is_fork: true,
+            fork_messages: Some(fork_msgs),
+            query_source: Some("agent:builtin:fork".into()),
+        };
+        let tools = get_agent_tools(false);
+        let ctx = build_fork_context(&params, &parent_ctx, tools);
+
+        // Fork context should have fork_messages appended
+        assert_eq!(ctx.messages.len(), 2); // parent had no messages, just fork_msgs
+        assert_eq!(ctx.max_turns, Some(200)); // FORK_AGENT max_turns
+        assert_eq!(ctx.agent_depth, Some(1)); // parent depth 0 + 1
+        assert_eq!(ctx.query_source, Some("agent:builtin:fork".into()));
+    }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -823,15 +882,13 @@ git commit -m "feat(fork): add filter_incomplete_tool_calls and build_fork_conte
 
 - [ ] **Step 1: Update `run_foreground` to use fork context when `is_fork`**
 
-Replace the `build_child_context` call in `run_foreground` (line 203):
+Replace the tool setup and context building in `run_foreground` (line 180+):
 
 ```rust
-    // Select tool set: fork inherits parent's full pool, normal uses fresh builtins
-    let mut tools: Vec<Box<dyn Tool>> = if params.is_fork {
-        parent_ctx.tools.as_ref().iter().map(|t| t.clone_box()).collect()
-    } else {
-        get_agent_tools(false)
-    };
+    // Tool set: fork uses all builtins (same set as parent), normal same as before.
+    // Note: Box<dyn Tool> is not Clone, so we create fresh instances via get_builtin_tools().
+    // Phase 2 will address byte-identical tool serialization (use_exact_tools).
+    let mut tools = get_agent_tools(false);
     // Share parent's MCP tools
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
@@ -870,21 +927,15 @@ After worktree creation, add fork worktree notice:
 
 Same pattern: fork uses parent tools + `build_fork_context`, normal uses `get_agent_tools(true)` + `build_child_context`. Add worktree notice for fork.
 
-Note for background fork: use parent's full tools (not restricted), because fork inherits parent capabilities.
+Note for background fork: use `get_agent_tools(false)` (full tool set, not restricted), because fork inherits parent capabilities. `Box<dyn Tool>` is not `Clone` in this codebase, so we always create fresh instances.
 
-- [ ] **Step 3: Add `clone_box` to Tool trait if not present**
-
-Check if `Tool` trait has `clone_box()`. If not, fork tools will need a different approach. The `tools` field is `Arc<Vec<Box<dyn Tool>>>` so we can clone the Arc: `parent_ctx.tools.clone()` gives a cheap `Arc` clone. Then convert: `Arc::try_unwrap(tools_arc).unwrap_or_else(|arc| (*arc).clone())` or just `(*parent_ctx.tools).clone()` which clones the Vec of Boxes. Check if `Box<dyn Tool>` implements Clone.
-
-If `Box<dyn Tool>` doesn't implement Clone, use `get_builtin_tools()` as a fallback (same tool set, just freshly constructed). This sacrifices byte-identical tool serialization but is functionally correct for Phase 1.
-
-- [ ] **Step 4: Build and test**
+- [ ] **Step 3: Build and test**
 
 Run: `cargo build 2>&1 | head -40`
 Run: `cargo test agent_runtime -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/services/agent_runtime.rs
