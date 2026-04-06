@@ -41,19 +41,20 @@ pub async fn execute_agent_hook(
 
 ### Execution Flow
 
-1. **Resolve provider**: If `model` specified, resolve via `hook_ctx.registry`; otherwise use `hook_ctx.provider`. If neither available, return `NonBlockingError`.
+1. **Resolve provider**: If `model` specified, resolve via `hook_ctx.registry`; otherwise use `hook_ctx.provider`. If neither available, return `NonBlockingError`. Default model preference: use provider's own model (no small-model fallback — keep it simple).
 2. **Build prompt**: `build_prompt_input(prompt, arguments_json)` — reuse from `prompt_hook.rs`.
 3. **Create SyntheticOutputTool**: JSON Schema `{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"}},"required":["ok"]}`.
 4. **Filter tools**: `get_builtin_tools()` minus `AGENT_HOOK_DISALLOWED_TOOLS` minus existing StructuredOutput, plus new SyntheticOutputTool.
 5. **Build QueryContext**:
    - `messages`: single user message with processed prompt
-   - `system_prompt`: verification task description + StructuredOutput usage instruction
+   - `system_prompt`: `Some(vec![SystemBlock::Text { text }])` — verification task description + StructuredOutput usage instruction
    - `permission_ctx.mode`: `DontAsk`
    - `max_turns`: `MAX_AGENT_HOOK_TURNS` (50)
    - `agent_depth`: None (hook agents are not part of the agent nesting hierarchy)
+   - `query_source`: `Some("hook_agent".into())` for tracing/debugging
    - No thinking budget (keep it fast)
-6. **Execute**: `tokio::time::timeout(duration, query(ctx, event_tx, abort))`.
-7. **Extract result**: Scan `QueryResult.messages` for StructuredOutput tool result, parse with `parse_agent_output()`.
+6. **Execute**: `tokio::time::timeout(duration, query(ctx, event_tx, abort))`. Default timeout: 60s (timeout field is in milliseconds, matching existing prompt hook convention).
+7. **Extract result**: Scan `QueryResult.messages` backwards for a `ContentBlock::ToolUse` with `name == "StructuredOutput"`. The `input` field contains the raw `{ok, reason}` payload (already validated by SyntheticOutputTool). Pass to `parse_agent_output()`.
 8. **Return** `HookExecutionResult`.
 
 ### Tool Filtering
@@ -61,10 +62,13 @@ pub async fn execute_agent_hook(
 ```rust
 const AGENT_HOOK_DISALLOWED_TOOLS: &[&str] = &[
     "Agent",
+    "AskUserQuestion",
     "EnterPlanMode",
     "ExitPlanMode",
     "EnterWorktree",
     "ExitWorktree",
+    "TaskStop",
+    "TaskOutput",
     "TeamCreate",
     "TeamDelete",
 ];
@@ -99,9 +103,15 @@ When done, return your result using the StructuredOutput tool with:
 
 ### Result Extraction
 
-After `query()` completes, scan `QueryResult.messages` backwards for a tool result from the `"StructuredOutput"` tool. Parse the result content as JSON and pass to `parse_agent_output()`.
+After `query()` completes, scan `QueryResult.messages` backwards for a `ContentBlock::ToolUse` with `name == "StructuredOutput"`. The `input` field of the ToolUse block contains the raw `{ok, reason}` JSON payload that the LLM provided (already validated by SyntheticOutputTool during execution). Pass `input` to `parse_agent_output()`.
 
-This is simpler than the TS approach (which watches streaming events) because Rust's `query()` runs synchronously to completion and returns all messages.
+**Why ToolUse input, not ToolResult output:** SyntheticOutputTool wraps its output in `{"data":"...","structured_output":{...}}`, so extracting from ToolResult would require unwrapping. The ToolUse `input` is the direct `{ok, reason}` payload.
+
+### Early Termination
+
+The TS reference aborts immediately after receiving structured output. In Rust, `query()` will continue looping after SyntheticOutputTool executes (sends result back to LLM, LLM may respond again). This is an accepted deviation — the LLM typically stops after calling StructuredOutput (it's designed as a terminal tool), and the extra turn cost is minimal. If this proves wasteful in practice, we can add a `stop_after_tool` flag to QueryContext later.
+
+**Mitigation:** The `max_turns` limit (50) caps worst-case cost. The system prompt explicitly instructs the LLM to use StructuredOutput "when done."
 
 ### Permission & Event Handling
 
@@ -117,7 +127,7 @@ Several `QueryContext` fields need lightweight stubs since hook agents don't int
 - `permission_tx`: throwaway channel (DontAsk mode means no asks sent)
 - `question_tx`: throwaway channel (non-interactive)
 - `commands`: empty `CommandRegistry`
-- `app_state`: fresh minimal `AppState` (or borrow from parent if accessible)
+- `app_state`: fresh minimal `AppState` via `AppState::default()` wrapped in `Arc<RwLock<>>` — tools that read/write AppState will no-op, which is fine for hooks
 - `mcp_manager`: None
 
 ## Files Changed
