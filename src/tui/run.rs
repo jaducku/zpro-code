@@ -75,6 +75,7 @@ pub async fn run_app(
     let (query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
     let mut permission_rx: Option<mpsc::UnboundedReceiver<PermissionAsk>> = None;
     let mut question_rx: Option<mpsc::UnboundedReceiver<UserQuestionAsk>> = None;
+    let mut provider = provider; // make mutable for /model switching
     let mut event_stream = EventStream::new();
 
     loop {
@@ -198,13 +199,27 @@ pub async fn run_app(
                                             if cmd_name == "model" {
                                                 if let Some(ref r) = result {
                                                     if let Some(ref model_id) = r.text {
-                                                        app.model_override = Some(model_id.clone());
-                                                        app.model = model_id.clone();
-                                                        app.push_message(DisplayMessage {
-                                                            role: DisplayRole::System,
-                                                            content: format!("Model switched to: {}", model_id),
-                                                            tool_name: None,
-                                                        });
+                                                        // Resolve new provider from registry
+                                                        match registry.resolve(model_id) {
+                                                            Ok(new_provider) => {
+                                                                let resolved_model = new_provider.model_info().id.clone();
+                                                                app.model_override = Some(model_id.clone());
+                                                                app.model = resolved_model.clone();
+                                                                provider = Some(new_provider);
+                                                                app.push_message(DisplayMessage {
+                                                                    role: DisplayRole::System,
+                                                                    content: format!("Model switched to: {} ({})", model_id, resolved_model),
+                                                                    tool_name: None,
+                                                                });
+                                                            }
+                                                            Err(e) => {
+                                                                app.push_message(DisplayMessage {
+                                                                    role: DisplayRole::System,
+                                                                    content: format!("Failed to switch model: {}", e),
+                                                                    tool_name: None,
+                                                                });
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
