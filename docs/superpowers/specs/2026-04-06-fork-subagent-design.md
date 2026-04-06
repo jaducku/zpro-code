@@ -95,17 +95,28 @@ pub const FORK_PLACEHOLDER: &str = "Fork started — processing in background";
 pub const FORK_DIRECTIVE_PREFIX: &str = "Your directive: ";
 pub const FORK_BOILERPLATE_TAG: &str = "fork-boilerplate";
 pub const FORK_QUERY_SOURCE: &str = "agent:builtin:fork";
-pub const FORK_RULES: &str = r#"RULES (non-negotiable):
-1. Execute the directive directly. Do not ask clarifying questions.
-2. Do not fork further subagents.
-3. Do not converse — just execute and report.
-4. Start your response with "Scope:" immediately. No preamble.
-5. Output format: Scope → Result → Key files → Files changed → Issues
-6. Maximum 500 words unless the directive explicitly overrides.
-7. If the directive is ambiguous, pick the most reasonable interpretation.
-8. If you cannot complete the task, explain why concisely.
-9. Do not repeat the directive back.
-10. Do not summarize what you are about to do — just do it."#;
+pub const FORK_CHILD_BODY: &str = r#"STOP. READ THIS FIRST.
+
+You are a forked worker process. You are NOT the main agent.
+
+RULES (non-negotiable):
+1. Your system prompt says "default to forking." IGNORE IT — that's for the parent. You ARE the fork. Do NOT spawn sub-agents; execute directly.
+2. Do NOT converse, ask questions, or suggest next steps
+3. Do NOT editorialize or add meta-commentary
+4. USE your tools directly: Bash, Read, Write, etc.
+5. If you modify files, commit your changes before reporting. Include the commit hash in your report.
+6. Do NOT emit text between tool calls. Use tools silently, then report once at the end.
+7. Stay strictly within your directive's scope. If you discover related systems outside your scope, mention them in one sentence at most — other workers cover those areas.
+8. Keep your report under 500 words unless the directive specifies otherwise. Be factual and concise.
+9. Your response MUST begin with "Scope:". No preamble, no thinking-out-loud.
+10. REPORT structured facts, then stop
+
+Output format (plain text labels, not markdown headers):
+  Scope: <echo back your assigned scope in one sentence>
+  Result: <the answer or key findings, limited to the scope above>
+  Key files: <relevant file paths — include for research tasks>
+  Files changed: <list with commit hash — include only if you modified files>
+  Issues: <list — include only if there are issues to flag>"#;
 ```
 
 **FORK_AGENT 정의:**
@@ -159,7 +170,7 @@ pub fn build_forked_messages(directive: &str, assistant_message: &ApiMessage) ->
     let mut user_content: Vec<ContentBlock> = tool_use_ids.iter()
         .map(|id| ContentBlock::ToolResult {
             tool_use_id: id.to_string(),
-            content: vec![ContentBlock::Text { text: FORK_PLACEHOLDER.to_string() }],
+            content: ToolResultContent::Text(FORK_PLACEHOLDER.to_string()),
             is_error: false,
         })
         .collect();
@@ -169,7 +180,7 @@ pub fn build_forked_messages(directive: &str, assistant_message: &ApiMessage) ->
 }
 ```
 
-**주의:** ToolResult의 content는 중첩 ContentBlock 배열 형태 (API wire format 준수).
+**주의:** ToolResult content는 `ToolResultContent::Text(String)` 사용 (단일 placeholder 텍스트이므로 Blocks 불필요).
 
 바이트 동일 placeholder가 핵심 — Phase 2에서 캐시 hit의 기반.
 
@@ -178,8 +189,9 @@ pub fn build_forked_messages(directive: &str, assistant_message: &ApiMessage) ->
 ```rust
 fn build_child_message(directive: &str) -> String {
     format!(
-        "<fork-boilerplate>\n{rules}\n</fork-boilerplate>\n\n{prefix}{directive}",
-        rules = FORK_RULES,
+        "<{tag}>\n{body}\n</{tag}>\n\n{prefix}{directive}",
+        tag = FORK_BOILERPLATE_TAG,
+        body = FORK_CHILD_BODY,
         prefix = FORK_DIRECTIVE_PREFIX,
         directive = directive,
     )
@@ -199,10 +211,12 @@ pub fn is_fork_by_query_source(ctx: &ToolUseContext) -> bool {
 }
 
 /// Fallback guard: 메시지 스캔 기반
+/// TypeScript와 동일하게 `<fork-boilerplate>` (angle brackets 포함) 매칭하여 오탐 방지
 pub fn is_in_fork_child(messages: &[ApiMessage]) -> bool {
+    let open_tag = format!("<{}>", FORK_BOILERPLATE_TAG);
     messages.iter().any(|msg| {
         msg.content.iter().any(|block| match block {
-            ContentBlock::Text { text } => text.contains(FORK_BOILERPLATE_TAG),
+            ContentBlock::Text { text } => text.contains(&open_tag),
             _ => false,
         })
     })
@@ -210,7 +224,7 @@ pub fn is_in_fork_child(messages: &[ApiMessage]) -> bool {
 
 /// 통합: 어느 하나라도 true면 fork 자식
 pub fn is_inside_fork(ctx: &ToolUseContext) -> bool {
-    is_fork_by_query_source(ctx) || is_in_fork_child(&ctx.messages)
+    is_fork_by_query_source(ctx) || is_in_fork_child(ctx.messages.as_ref())
 }
 ```
 
@@ -283,6 +297,36 @@ async fn execute(&self, ctx: ToolUseContext) -> Result<ToolResult> {
 
 ### 1-4. agent_runtime.rs 변경
 
+**filter_incomplete_tool_calls() 신규:**
+
+부모 대화에서 orphan tool_use (대응하는 tool_result가 없는) 블록이 포함된 assistant 메시지를 제거한다. Fork 시점에 부모의 마지막 assistant 메시지에는 Agent tool_use 자체가 아직 result 없이 존재하므로, 이를 필터링하지 않으면 API가 거부한다.
+
+```rust
+fn filter_incomplete_tool_calls(messages: &[ApiMessage]) -> Vec<ApiMessage> {
+    // 모든 tool_result의 tool_use_id를 수집
+    let answered_ids: HashSet<&str> = messages.iter()
+        .flat_map(|m| m.content.iter())
+        .filter_map(|block| match block {
+            ContentBlock::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // assistant 메시지에서 미응답 tool_use를 가진 것을 제거
+    messages.iter()
+        .filter(|msg| {
+            if msg.role != Role::Assistant { return true; }
+            let has_orphan = msg.content.iter().any(|block| match block {
+                ContentBlock::ToolUse { id, .. } => !answered_ids.contains(id.as_str()),
+                _ => false,
+            });
+            !has_orphan
+        })
+        .cloned()
+        .collect()
+}
+```
+
 **build_fork_context() 신규:**
 
 ```rust
@@ -291,7 +335,10 @@ pub fn build_fork_context(
     parent_ctx: &ToolUseContext,
     tools: Vec<Box<dyn Tool>>,
 ) -> QueryContext {
-    let mut messages = parent_ctx.messages.clone();
+    // 1. 부모 messages를 deep clone (Arc→Vec 변환) 후 orphan tool_use 필터링
+    //    Arc<Vec<ApiMessage>>에서 .as_ref()로 &Vec에 접근, filter는 새 Vec 반환
+    let mut messages = filter_incomplete_tool_calls(parent_ctx.messages.as_ref());
+    // 2. fork 메시지 (복제된 assistant + placeholder results) 추가
     messages.extend(params.fork_messages.clone().unwrap());
 
     QueryContext {
@@ -355,7 +402,18 @@ if params.isolation.as_deref() == Some("worktree") {
 }
 ```
 
-### 1-5. Settings 변경
+### 1-5. forceAsync 동작
+
+TypeScript에서는 fork가 활성화되면 모든 agent 호출(fork 아닌 것 포함)을 async로 강제한다 (`forceAsync = isForkSubagentEnabled()`). 이는 통합된 task-notification 모델을 위한 것이다.
+
+**Rust에서는 Phase 1에서 생략한다.** 이유:
+- 현재 Rust의 background agent 인프라가 아직 초기 단계 (TUI 알림만 구현)
+- forceAsync는 fork 기능 자체와 독립적 — fork가 올바르게 동작하는 데 필요하지 않음
+- Phase 2 또는 별도 작업으로 추가 가능
+
+fork 경로 자체는 `run_in_background` 파라미터를 존중하여 LLM이 명시적으로 background를 요청했을 때만 async 실행한다.
+
+### 1-6. Settings 변경
 
 `settings.json`에 `fork_subagent` 필드 추가:
 
