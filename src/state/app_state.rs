@@ -48,6 +48,15 @@ pub struct TodoItem {
     pub completed: bool,
 }
 
+/// A completed background agent result pending injection into next query
+#[derive(Debug, Clone)]
+pub struct PendingAgentResult {
+    pub agent_id: String,
+    pub description: String,
+    pub result: String,
+    pub is_error: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppState {
     // Session
@@ -131,6 +140,10 @@ pub struct AppState {
     #[serde(skip)]
     #[serde(default)]
     pub background_tasks: HashMap<String, BackgroundTask>,
+    /// Completed background agent results waiting to be injected into next query
+    #[serde(skip)]
+    #[serde(default)]
+    pub pending_agent_results: Vec<PendingAgentResult>,
     /// V1 legacy todo list
     #[serde(default)]
     pub todos: Vec<TodoItem>,
@@ -264,6 +277,7 @@ impl Default for AppState {
             agent_name_registry: HashMap::new(),
             foreground_task_id: None,
             background_tasks: HashMap::new(),
+            pending_agent_results: Vec::new(),
             todos: Vec::new(),
             speculation_session_time_saved_ms: 0,
             auth_version: 0,
