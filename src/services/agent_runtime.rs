@@ -21,6 +21,7 @@ pub struct AgentSpawnParams {
     pub description: String,
     pub model: Option<String>,
     pub run_in_background: bool,
+    pub isolation: Option<String>,
 }
 
 impl AgentSpawnParams {
@@ -47,7 +48,9 @@ impl AgentSpawnParams {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        Ok(Self { prompt, description, model, run_in_background })
+        let isolation = input.get("isolation").and_then(|v| v.as_str()).map(String::from);
+
+        Ok(Self { prompt, description, model, run_in_background, isolation })
     }
 }
 
@@ -129,6 +132,44 @@ fn extract_agent_output(messages: &[crate::types::message::ApiMessage]) -> Strin
         .unwrap_or_else(|| "Agent completed with no text output.".into())
 }
 
+/// Create an isolated worktree for an agent. Returns the worktree path and session.
+async fn create_agent_worktree(
+    cwd: &std::path::Path,
+    agent_id: &str,
+) -> Result<(std::path::PathBuf, crate::services::worktree::WorktreeSession), String> {
+    let slug = format!("agent-{}", &agent_id[..8.min(agent_id.len())]);
+    let session = crate::services::worktree::WorktreeService::create(cwd, &slug, agent_id)
+        .await
+        .map_err(|e| format!("Failed to create worktree: {e}"))?;
+    let worktree_path = session.worktree_path.clone();
+    Ok((worktree_path, session))
+}
+
+/// Clean up a worktree after agent execution. Keeps if changes exist, removes if clean.
+async fn cleanup_agent_worktree(session: &crate::services::worktree::WorktreeSession) {
+    let uncommitted =
+        crate::services::worktree::WorktreeService::count_uncommitted(&session.worktree_path)
+            .await
+            .unwrap_or(0);
+
+    let new_commits = if let Some(ref head) = session.original_head_commit {
+        crate::services::worktree::WorktreeService::count_new_commits(
+            &session.worktree_path,
+            head,
+        )
+        .await
+        .unwrap_or(0)
+    } else {
+        0
+    };
+
+    if uncommitted == 0 && new_commits == 0 {
+        // No changes — safe to remove
+        let _ = crate::services::worktree::WorktreeService::remove(session).await;
+    }
+    // If there are changes, keep the worktree for the user to review
+}
+
 /// Run an agent in foreground (blocking) mode.
 /// Calls query() and waits for completion, returning the assistant's response.
 pub async fn run_foreground(
@@ -143,9 +184,33 @@ pub async fn run_foreground(
     }
     let child_abort = parent_ctx.abort_signal.child_token();
 
-    let child_ctx = build_child_context(&params, parent_ctx, tools);
+    // Create worktree if isolation requested
+    let worktree_session = if params.isolation.as_deref() == Some("worktree") {
+        match create_agent_worktree(&parent_ctx.cwd, &agent_id).await {
+            Ok((worktree_path, session)) => Some((worktree_path, session)),
+            Err(e) => {
+                return Ok(AgentResult {
+                    agent_id,
+                    output: format!("Failed to create worktree: {e}"),
+                    is_error: true,
+                });
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut child_ctx = build_child_context(&params, parent_ctx, tools);
+    if let Some((ref worktree_path, _)) = worktree_session {
+        child_ctx.cwd = worktree_path.clone();
+    }
 
     let result = crate::query::engine::query(child_ctx, parent_ctx.event_tx.clone(), child_abort).await;
+
+    // Clean up worktree
+    if let Some((_, ref session)) = worktree_session {
+        cleanup_agent_worktree(session).await;
+    }
 
     match result {
         Ok(query_result) => {
@@ -196,7 +261,26 @@ pub async fn run_background(
         );
     }
 
-    let child_ctx = build_child_context(&params, parent_ctx, tools);
+    // Create worktree if isolation requested (before spawn so errors can be returned immediately)
+    let worktree_session = if params.isolation.as_deref() == Some("worktree") {
+        match create_agent_worktree(&parent_ctx.cwd, &agent_id).await {
+            Ok((worktree_path, session)) => Some((worktree_path, session)),
+            Err(e) => {
+                return Ok(crate::tool::ToolResult {
+                    content: format!("Failed to create worktree: {e}"),
+                    is_error: true,
+                    content_blocks: None,
+                });
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut child_ctx = build_child_context(&params, parent_ctx, tools);
+    if let Some((ref worktree_path, _)) = worktree_session {
+        child_ctx.cwd = worktree_path.clone();
+    }
 
     let event_tx = parent_ctx.event_tx.clone();
     let app_state = parent_ctx.app_state.clone();
@@ -213,6 +297,11 @@ pub async fn run_background(
             }
             Err(e) => (format!("Agent failed: {}", e), true),
         };
+
+        // Clean up worktree
+        if let Some((_, ref session)) = worktree_session {
+            cleanup_agent_worktree(session).await;
+        }
 
         // Update BackgroundTask status and store pending result
         {
@@ -289,13 +378,15 @@ mod tests {
             "prompt": "Fix the bug",
             "description": "fix bug",
             "model": "gpt-4o",
-            "run_in_background": true
+            "run_in_background": true,
+            "isolation": "worktree"
         });
         let params = AgentSpawnParams::from_input(&input).unwrap();
         assert_eq!(params.prompt, "Fix the bug");
         assert_eq!(params.description, "fix bug");
         assert_eq!(params.model, Some("gpt-4o".into()));
         assert!(params.run_in_background);
+        assert_eq!(params.isolation, Some("worktree".into()));
     }
 
     #[test]
@@ -305,6 +396,7 @@ mod tests {
         assert_eq!(params.description, "agent task");
         assert_eq!(params.model, None);
         assert!(!params.run_in_background);
+        assert_eq!(params.isolation, None);
     }
 
     #[test]
@@ -321,6 +413,7 @@ mod tests {
             description: "test".into(),
             model: Some("custom-model".into()),
             run_in_background: false,
+            isolation: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
@@ -339,6 +432,7 @@ mod tests {
             description: "test".into(),
             model: None,
             run_in_background: false,
+            isolation: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
