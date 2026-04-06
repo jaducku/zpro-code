@@ -686,4 +686,34 @@ more output"#;
         );
     }
 
+    #[tokio::test]
+    async fn test_agent_hooks_filtered_for_session_start() {
+        let dir = TempDir::new().unwrap();
+        let settings = settings_with_hook(
+            "SessionStart",
+            None,
+            HookCommand::Agent {
+                prompt: "check something".to_string(),
+                model: None,
+                timeout: None,
+                status_message: None,
+                once: None,
+                r#if: None,
+            },
+        );
+        let result = execute_event_hooks(
+            "SessionStart",
+            "",
+            &serde_json::json!({}),
+            &settings,
+            dir.path(),
+            &HookContext { provider: None, registry: None },
+        )
+        .await;
+        assert!(
+            matches!(result.outcome, HookOutcome::Success),
+            "Expected Success (Agent hook filtered), got {:?}",
+            result.outcome
+        );
+    }
 }
