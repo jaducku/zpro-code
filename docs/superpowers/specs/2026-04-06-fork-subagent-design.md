@@ -10,9 +10,37 @@ Fork subagent는 부모의 전체 대화 컨텍스트와 system prompt를 상속
 - `src/tools/AgentTool/runAgent.ts` — 공통 실행 루프, useExactTools 분기
 - `src/utils/forkedAgent.ts` — subagent context 생성, 캐시 메트릭
 
+## Prerequisites
+
+### ToolUseContext에 messages 필드 추가
+
+현재 `ToolUseContext` (tool.rs)에는 `messages` 필드가 없다. Fork는 부모 대화 컨텍스트에 접근해야 하므로, 구조적 변경이 필요하다.
+
+```rust
+pub struct ToolUseContext {
+    // 기존 필드...
+    pub messages: Arc<Vec<ApiMessage>>,  // 신규: 부모 대화 히스토리 (공유 소유)
+}
+```
+
+- `Arc<Vec<ApiMessage>>`를 사용해 대화 히스토리의 불필요한 deep clone을 방지
+- query 엔진이 tool 실행 시 현재 messages를 ToolUseContext에 주입
+- 일반 tool은 이 필드를 무시, fork만 사용
+
+### query_source 필드 추가
+
+autocompact에 내성 있는 재귀 방지를 위해 `ToolUseContext`에 `query_source` 필드 추가:
+
+```rust
+pub struct ToolUseContext {
+    // 기존 필드...
+    pub query_source: Option<String>,  // 신규: e.g., "agent:builtin:fork"
+}
+```
+
 ## Phase 구분
 
-- **Phase 1**: Fork 핵심 동작 (컨텍스트 공유, 메시지 구성, 재귀 방지, worktree 통합)
+- **Phase 1**: Prerequisites + Fork 핵심 동작 (컨텍스트 공유, 메시지 구성, 재귀 방지, worktree 통합)
 - **Phase 2**: 캐시 최적화 (rendered_system_prompt 스레딩, useExactTools, 캐시 메트릭)
 
 ## 모듈 구조
@@ -66,7 +94,34 @@ AgentTool.execute(ctx)
 pub const FORK_PLACEHOLDER: &str = "Fork started — processing in background";
 pub const FORK_DIRECTIVE_PREFIX: &str = "Your directive: ";
 pub const FORK_BOILERPLATE_TAG: &str = "fork-boilerplate";
-pub const FORK_RULES: &str = "...";  // TypeScript의 10개 규칙 포팅
+pub const FORK_QUERY_SOURCE: &str = "agent:builtin:fork";
+pub const FORK_RULES: &str = r#"RULES (non-negotiable):
+1. Execute the directive directly. Do not ask clarifying questions.
+2. Do not fork further subagents.
+3. Do not converse — just execute and report.
+4. Start your response with "Scope:" immediately. No preamble.
+5. Output format: Scope → Result → Key files → Files changed → Issues
+6. Maximum 500 words unless the directive explicitly overrides.
+7. If the directive is ambiguous, pick the most reasonable interpretation.
+8. If you cannot complete the task, explain why concisely.
+9. Do not repeat the directive back.
+10. Do not summarize what you are about to do — just do it."#;
+```
+
+**FORK_AGENT 정의:**
+
+```rust
+pub struct ForkAgentDefinition {
+    pub max_turns: usize,         // 200
+    pub permission_mode: PermissionMode,  // Bubble
+    pub model: &'static str,      // "inherit" (부모 모델 사용)
+}
+
+pub const FORK_AGENT: ForkAgentDefinition = ForkAgentDefinition {
+    max_turns: 200,
+    permission_mode: PermissionMode::Bubble,
+    model: "inherit",
+};
 ```
 
 **`is_fork_enabled(settings: &Settings) -> bool`**
@@ -74,25 +129,47 @@ pub const FORK_RULES: &str = "...";  // TypeScript의 10개 규칙 포팅
 - coordinator mode면 false
 - non-interactive session이면 false
 
-**`build_forked_messages(directive: &str, parent_messages: &[ApiMessage]) -> Vec<ApiMessage>`**
+**`build_forked_messages(directive: &str, assistant_message: &ApiMessage) -> Vec<ApiMessage>`**
 
-부모 대화의 마지막 assistant 메시지를 복제하고, 모든 tool_use 블록에 대해 동일한 placeholder tool_result를 생성:
+TypeScript와 동일하게 단일 assistant 메시지를 받는다 (전체 배열이 아님).
+호출자(agent_tool.rs)가 부모 messages에서 마지막 assistant 메시지를 추출하여 전달한다.
 
 ```rust
-// 출력: 2개 메시지
-[
-  // 1. 부모 assistant 메시지 그대로 복제
-  ApiMessage { role: Assistant, content: [original_blocks...] },
+pub fn build_forked_messages(directive: &str, assistant_message: &ApiMessage) -> Vec<ApiMessage> {
+    // 1. assistant 메시지에서 모든 tool_use 블록의 id를 추출
+    let tool_use_ids: Vec<&str> = assistant_message.content.iter()
+        .filter_map(|block| match block {
+            ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
 
-  // 2. User 메시지: placeholder results + directive
-  ApiMessage { role: User, content: [
-    ToolResult { tool_use_id: "id1", content: FORK_PLACEHOLDER },
-    ToolResult { tool_use_id: "id2", content: FORK_PLACEHOLDER },
-    ...
-    Text { text: build_child_message(directive) }
-  ]}
-]
+    // Edge case: tool_use 없으면 directive만 담은 단일 user 메시지 반환
+    if tool_use_ids.is_empty() {
+        return vec![ApiMessage {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: build_child_message(directive) }],
+        }];
+    }
+
+    // 2. assistant 메시지 복제
+    let cloned_assistant = assistant_message.clone();
+
+    // 3. placeholder tool_results + directive로 user 메시지 구성
+    let mut user_content: Vec<ContentBlock> = tool_use_ids.iter()
+        .map(|id| ContentBlock::ToolResult {
+            tool_use_id: id.to_string(),
+            content: vec![ContentBlock::Text { text: FORK_PLACEHOLDER.to_string() }],
+            is_error: false,
+        })
+        .collect();
+    user_content.push(ContentBlock::Text { text: build_child_message(directive) });
+
+    vec![cloned_assistant, ApiMessage { role: Role::User, content: user_content }]
+}
 ```
+
+**주의:** ToolResult의 content는 중첩 ContentBlock 배열 형태 (API wire format 준수).
 
 바이트 동일 placeholder가 핵심 — Phase 2에서 캐시 hit의 기반.
 
@@ -109,11 +186,19 @@ fn build_child_message(directive: &str) -> String {
 }
 ```
 
-**재귀 방지 — `is_in_fork_child(messages: &[ApiMessage]) -> bool`**
+**재귀 방지 — 이중 guard (TypeScript와 동일)**
 
-메시지 내용에서 `<fork-boilerplate>` 태그를 스캔. autocompact 이후에도 작동하는 fallback guard.
+Guard 1 (primary): `query_source` 체크 — autocompact에 내성. context.options에 설정되므로 메시지 재작성에 영향받지 않음.
+
+Guard 2 (fallback): 메시지 스캔 — `<fork-boilerplate>` 태그 검색. autocompact가 메시지를 재작성하면 실패할 수 있으므로 fallback용.
 
 ```rust
+/// Primary guard: query_source 기반 (autocompact-resistant)
+pub fn is_fork_by_query_source(ctx: &ToolUseContext) -> bool {
+    ctx.query_source.as_deref() == Some(FORK_QUERY_SOURCE)
+}
+
+/// Fallback guard: 메시지 스캔 기반
 pub fn is_in_fork_child(messages: &[ApiMessage]) -> bool {
     messages.iter().any(|msg| {
         msg.content.iter().any(|block| match block {
@@ -121,6 +206,11 @@ pub fn is_in_fork_child(messages: &[ApiMessage]) -> bool {
             _ => false,
         })
     })
+}
+
+/// 통합: 어느 하나라도 true면 fork 자식
+pub fn is_inside_fork(ctx: &ToolUseContext) -> bool {
+    is_fork_by_query_source(ctx) || is_in_fork_child(&ctx.messages)
 }
 ```
 
@@ -140,6 +230,7 @@ pub struct AgentSpawnParams {
     // Phase 1 신규
     pub is_fork: bool,
     pub fork_messages: Option<Vec<ApiMessage>>,
+    pub query_source: Option<String>,  // fork시 "agent:builtin:fork" 설정
 }
 ```
 
@@ -156,22 +247,28 @@ async fn execute(&self, ctx: ToolUseContext) -> Result<ToolResult> {
 
     let subagent_type = params.get("subagent_type").and_then(|v| v.as_str());
 
-    // fork 경로 판단
+    // fork 경로 판단: 이중 guard로 재귀 방지
     let is_fork_path = subagent_type.is_none()
         && fork_subagent::is_fork_enabled(&ctx.settings)
-        && !fork_subagent::is_in_fork_child(&ctx.messages);
+        && !fork_subagent::is_inside_fork(&ctx);
 
     let spawn_params = if is_fork_path {
-        let fork_msgs = fork_subagent::build_forked_messages(&prompt, &ctx.messages);
+        // 부모 messages에서 마지막 assistant 메시지 추출
+        let assistant_msg = ctx.messages.iter().rev()
+            .find(|m| m.role == Role::Assistant)
+            .expect("fork requires at least one assistant message");
+        let fork_msgs = fork_subagent::build_forked_messages(&prompt, assistant_msg);
         AgentSpawnParams {
             is_fork: true,
             fork_messages: Some(fork_msgs),
+            query_source: Some(fork_subagent::FORK_QUERY_SOURCE.to_string()),
             ..base_params
         }
     } else {
         AgentSpawnParams {
             is_fork: false,
             fork_messages: None,
+            query_source: None,
             ..base_params
         }
     };
@@ -204,6 +301,7 @@ pub fn build_fork_context(
         agent_depth: parent_ctx.agent_depth + 1,
         permission_ctx: parent_ctx.permission_ctx.clone(),
         permission_tx: parent_ctx.permission_tx.clone(),
+        query_source: params.query_source.clone(),  // fork 자식에 전파
         ..
     }
 }
@@ -241,7 +339,7 @@ fn filter_tools(ctx: &ToolUseContext, params: &AgentSpawnParams) -> Vec<Box<dyn 
 
 **worktree + fork 통합:**
 
-worktree isolation이 fork와 함께 사용될 때, worktree notice를 마지막 메시지에 추가:
+worktree isolation이 fork와 함께 사용될 때, worktree notice를 **별도 user 메시지**로 추가 (TypeScript와 동일 — 마지막 메시지에 append하지 않음):
 
 ```rust
 if params.isolation.as_deref() == Some("worktree") {
@@ -249,8 +347,10 @@ if params.isolation.as_deref() == Some("worktree") {
 
     if params.is_fork {
         let notice = fork_subagent::build_worktree_notice(&parent_cwd, &worktree_path);
-        query_ctx.messages.last_mut().unwrap()
-            .content.push(ContentBlock::Text { text: notice });
+        query_ctx.messages.push(ApiMessage {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: notice }],
+        });
     }
 }
 ```
@@ -345,16 +445,22 @@ fn log_fork_metrics(usage: &Usage, label: &str) {
 ## 테스트 전략
 
 ### Phase 1 단위 테스트
-- `build_forked_messages()`: 부모 메시지에서 tool_use 추출, placeholder 생성, directive 포함 검증
-- `build_child_message()`: fork-boilerplate 태그 포함, directive prefix 검증
+- `build_forked_messages()`: assistant 메시지에서 tool_use 추출, placeholder 생성, directive 포함 검증
+- `build_forked_messages()` edge case: tool_use 없는 assistant 메시지 → directive만 담은 단일 user 메시지 반환
+- `build_forked_messages()`: ToolResult content가 중첩 배열 형태 (API wire format)
+- `build_child_message()`: fork-boilerplate 태그 포함, directive prefix 검증, 10개 규칙 포함
 - `is_in_fork_child()`: fork-boilerplate 태그 감지, 없을 때 false
+- `is_fork_by_query_source()`: query_source == "agent:builtin:fork" 감지
+- `is_inside_fork()`: 두 guard 중 하나라도 true면 true
 - `is_fork_enabled()`: settings 조합별 true/false
 - `build_worktree_notice()`: 경로 포함 검증
 
 ### Phase 1 통합 테스트
 - fork 경로 진입: subagent_type 없음 + flag on → is_fork=true
-- 재귀 방지: fork 자식 내부에서 다시 fork 시도 → normal 경로로 fallback
-- worktree + fork: notice가 메시지에 추가되는지 검증
+- 재귀 방지 (query_source): fork 자식에서 query_source 설정 → fork 거부
+- 재귀 방지 (message scan): fork-boilerplate 포함 메시지 → fork 거부
+- worktree + fork: notice가 별도 user 메시지로 추가되는지 검증
+- assistant 메시지 추출: 부모 messages에서 마지막 assistant 메시지 정확히 찾는지 검증
 
 ### Phase 2 테스트
 - rendered_system_prompt 스레딩: query 엔진 → ToolUseContext → fork context 전달 검증
