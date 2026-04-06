@@ -1,5 +1,9 @@
-use crate::types::content::ContentBlock;
-use crate::types::message::ApiMessage;
+use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use crate::types::content::{ContentBlock, ToolResultContent};
+use crate::types::message::{ApiMessage, Role};
 
 pub const FORK_PLACEHOLDER: &str = "Fork started \u{2014} processing in background";
 pub const FORK_DIRECTIVE_PREFIX: &str = "Your directive: ";
@@ -60,6 +64,68 @@ pub fn is_in_fork_child(messages: &[ApiMessage]) -> bool {
 /// Combined guard: true if inside a fork child
 pub fn is_inside_fork(query_source: Option<&str>, messages: &[ApiMessage]) -> bool {
     is_fork_by_query_source(query_source) || is_in_fork_child(messages)
+}
+
+/// Build the fork child's initial messages from the parent's assistant message.
+pub fn build_forked_messages(directive: &str, assistant_message: &ApiMessage) -> Vec<ApiMessage> {
+    let tool_use_ids: Vec<&str> = assistant_message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    // Edge case: no tool_use blocks
+    if tool_use_ids.is_empty() {
+        return vec![ApiMessage {
+            role: Role::User,
+            content: vec![ContentBlock::Text {
+                text: build_child_message(directive),
+            }],
+        }];
+    }
+
+    let cloned_assistant = assistant_message.clone();
+
+    let mut user_content: Vec<ContentBlock> = tool_use_ids
+        .iter()
+        .map(|id| ContentBlock::ToolResult {
+            tool_use_id: id.to_string(),
+            content: ToolResultContent::Text(FORK_PLACEHOLDER.to_string()),
+            is_error: false,
+        })
+        .collect();
+    user_content.push(ContentBlock::Text {
+        text: build_child_message(directive),
+    });
+
+    vec![
+        cloned_assistant,
+        ApiMessage {
+            role: Role::User,
+            content: user_content,
+        },
+    ]
+}
+
+pub fn build_worktree_notice(parent_cwd: &Path, worktree_cwd: &Path) -> String {
+    format!(
+        "You've inherited the conversation context above from a parent agent working in {}. \
+         You are operating in an isolated git worktree at {} — same repository, same relative \
+         file structure, separate working copy. Paths in the inherited context refer to the \
+         parent's working directory; translate them to your worktree root. Re-read files before \
+         editing if the parent may have modified them since they appear in the context. Your \
+         changes stay in this worktree and will not affect the parent's files.",
+        parent_cwd.display(),
+        worktree_cwd.display(),
+    )
+}
+
+pub async fn is_fork_enabled(app_state: &Arc<RwLock<crate::state::AppState>>) -> bool {
+    let state = app_state.read().await;
+    state.settings.fork_subagent.unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -146,5 +212,106 @@ mod tests {
     #[test]
     fn test_is_inside_fork_neither() {
         assert!(!is_inside_fork(None, &[]));
+    }
+
+    use crate::types::content::ToolResultContent;
+
+    #[test]
+    fn test_build_forked_messages_with_tool_uses() {
+        let assistant_msg = ApiMessage {
+            role: Role::Assistant,
+            content: vec![
+                ContentBlock::Text {
+                    text: "I'll help.".into(),
+                },
+                ContentBlock::ToolUse {
+                    id: "tu_1".into(),
+                    name: "Read".into(),
+                    input: serde_json::json!({}),
+                },
+                ContentBlock::ToolUse {
+                    id: "tu_2".into(),
+                    name: "Write".into(),
+                    input: serde_json::json!({}),
+                },
+            ],
+        };
+
+        let result = build_forked_messages("Fix the bug", &assistant_msg);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].role, Role::Assistant);
+        assert_eq!(result[0].content.len(), 3);
+        assert_eq!(result[1].role, Role::User);
+        assert_eq!(result[1].content.len(), 3); // 2 results + 1 text
+
+        match &result[1].content[0] {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                ..
+            } => {
+                assert_eq!(tool_use_id, "tu_1");
+                assert_eq!(*content, ToolResultContent::Text(FORK_PLACEHOLDER.into()));
+            }
+            _ => panic!("Expected ToolResult"),
+        }
+
+        match &result[1].content[2] {
+            ContentBlock::Text { text } => {
+                assert!(text.contains("<fork-boilerplate>"));
+                assert!(text.contains("Your directive: Fix the bug"));
+            }
+            _ => panic!("Expected Text"),
+        }
+    }
+
+    #[test]
+    fn test_build_forked_messages_no_tool_uses() {
+        let assistant_msg = ApiMessage {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text {
+                text: "Just text".into(),
+            }],
+        };
+
+        let result = build_forked_messages("Do something", &assistant_msg);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].role, Role::User);
+        match &result[0].content[0] {
+            ContentBlock::Text { text } => {
+                assert!(text.contains("Your directive: Do something"));
+            }
+            _ => panic!("Expected Text"),
+        }
+    }
+
+    #[test]
+    fn test_build_worktree_notice() {
+        let notice = build_worktree_notice(
+            std::path::Path::new("/parent/dir"),
+            std::path::Path::new("/worktree/dir"),
+        );
+        assert!(notice.contains("/parent/dir"));
+        assert!(notice.contains("/worktree/dir"));
+        assert!(notice.contains("isolated git worktree"));
+    }
+
+    #[tokio::test]
+    async fn test_is_fork_enabled_true() {
+        let mut settings = crate::utils::settings::SettingsJson::default();
+        settings.fork_subagent = Some(true);
+        let app_state = crate::state::AppState {
+            settings,
+            ..Default::default()
+        };
+        let state = std::sync::Arc::new(tokio::sync::RwLock::new(app_state));
+        assert!(is_fork_enabled(&state).await);
+    }
+
+    #[tokio::test]
+    async fn test_is_fork_enabled_default_false() {
+        let app_state = crate::state::AppState::default();
+        let state = std::sync::Arc::new(tokio::sync::RwLock::new(app_state));
+        assert!(!is_fork_enabled(&state).await);
     }
 }
