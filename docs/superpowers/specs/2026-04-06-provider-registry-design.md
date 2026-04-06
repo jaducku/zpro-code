@@ -202,13 +202,15 @@ Subagent: ctx.registry.default()? (or specified model)
 
 **QueryContext** — add field:
 ```rust
-pub registry: Arc<ProviderRegistry>,
+pub registry: Option<Arc<ProviderRegistry>>,
 ```
 
 **ToolUseContext** — add field:
 ```rust
-pub registry: Arc<ProviderRegistry>,
+pub registry: Option<Arc<ProviderRegistry>>,
 ```
+
+Note: `Option` wrapping allows test contexts and subagents to pass `None` without requiring a real registry. This differs from the original design but is practically superior for backward compatibility.
 
 **HookContext** — add field:
 ```rust
