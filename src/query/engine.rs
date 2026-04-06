@@ -157,6 +157,11 @@ pub async fn query(
                             name: current_tool_name.clone(),
                             input,
                         });
+                        let _ = event_tx.send(QueryEvent::ToolCallInputReady {
+                            id: tool_calls.last().unwrap().id.clone(),
+                            name: tool_calls.last().unwrap().name.clone(),
+                            input: tool_calls.last().unwrap().input.clone(),
+                        });
                         current_tool_id.clear();
                         current_tool_name.clear();
                         current_tool_input.clear();

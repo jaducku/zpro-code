@@ -90,6 +90,12 @@ pub enum QueryEvent {
     ToolCallStart { id: String, name: String },
     /// Tool call completed
     ToolCallComplete { id: String, result: ToolResultBlock },
+    /// Tool call input fully received (for display summary)
+    ToolCallInputReady {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
     /// LLM response complete
     ResponseComplete { stop_reason: StopReason },
     /// Token usage update

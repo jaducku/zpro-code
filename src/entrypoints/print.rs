@@ -200,6 +200,9 @@ pub async fn run_print_mode(
                 eprintln!("[agent] '{}' {}", description, status);
             }
             QueryEvent::QueryCompleted { .. } => {}
+            QueryEvent::ToolCallInputReady { .. } => {
+                // Will be implemented in Task 6 after DisplayMessage refactor
+            }
         }
     }
 

@@ -590,6 +590,9 @@ impl App {
                 });
                 self.is_loading = false;
             }
+            QueryEvent::ToolCallInputReady { .. } => {
+                // Will be implemented in Task 6 after DisplayMessage refactor
+            }
             QueryEvent::AgentCompleted { agent_id: _, description, result, is_error } => {
                 let status = if is_error { "failed" } else { "completed" };
                 let summary = result
