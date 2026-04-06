@@ -375,8 +375,8 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 let input_text = Paragraph::new(content).block(input_block);
                 frame.render_widget(input_text, area);
             } else {
-                // Options list
-                let mut spans: Vec<Span> = Vec::new();
+                // Options list — one per line, vertically
+                let mut content_lines: Vec<Line> = Vec::new();
                 for (i, (label, desc)) in options.iter().enumerate() {
                     let marker = if i == *selected { "▸ " } else { "  " };
                     let style = if i == *selected {
@@ -384,15 +384,34 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    spans.push(Span::styled(format!("{}{}", marker, label), style));
+                    let mut spans = vec![Span::styled(format!(" {}{}", marker, label), style)];
                     if let Some(d) = desc {
-                        spans.push(Span::styled(format!(" ({})", d), Style::default().fg(Color::DarkGray)));
+                        let desc_style = if i == *selected {
+                            Style::default().fg(Color::Blue)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        };
+                        spans.push(Span::styled(format!("  {}", d), desc_style));
                     }
-                    spans.push(Span::raw("  "));
+                    content_lines.push(Line::from(spans));
                 }
-                let prompt = Line::from(spans);
-                let input_text = Paragraph::new(prompt).block(input_block);
-                frame.render_widget(input_text, area);
+                content_lines.push(Line::from(Span::styled(
+                    " ↑↓ select  Enter confirm  Esc dismiss",
+                    Style::default().fg(Color::DarkGray),
+                )));
+
+                // Expand area to fit all options
+                let needed_height = (content_lines.len() as u16) + 2; // +2 for borders
+                let expanded_area = Rect {
+                    x: area.x,
+                    y: area.y.saturating_sub(needed_height.saturating_sub(area.height)),
+                    width: area.width,
+                    height: needed_height.max(area.height),
+                };
+
+                frame.render_widget(Clear, expanded_area);
+                let input_text = Paragraph::new(content_lines).block(input_block);
+                frame.render_widget(input_text, expanded_area);
             }
         }
         InputMode::Normal => {
