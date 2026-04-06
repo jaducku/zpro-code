@@ -86,9 +86,10 @@ pub async fn run_app(
         }
 
         // Render
+        let mut frame_hit_areas = Vec::new();
         terminal.draw(|frame| {
             // Always render full chat UI
-            ui::render(frame, &app);
+            frame_hit_areas = ui::render(frame, &app);
 
             // If a command is active, render it as overlay above input
             if let Some(active) = &mut app.active_command {
@@ -101,6 +102,7 @@ pub async fn run_app(
                 }
             }
         })?;
+        app.hit_areas = frame_hit_areas;
 
         // Use tokio::select! to handle terminal events, query events, and permission
         // requests concurrently. Uses crossterm's async EventStream for true non-blocking.

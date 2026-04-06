@@ -1,14 +1,14 @@
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-use super::app::{App, DisplayMessage, TextRole};
+use super::app::{AgentStatus, App, DisplayMessage, HitArea, TextRole};
 
 // Logo is rendered with colors in render_welcome(), not as a static string
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-pub fn render(frame: &mut Frame, app: &App) {
-    render_in_area(frame, app, frame.area(), false);
+pub fn render(frame: &mut Frame, app: &App) -> Vec<HitArea> {
+    render_in_area(frame, app, frame.area(), false)
 }
 
 /// Compute the overlay area for TUI commands (e.g. /model picker).
@@ -25,7 +25,7 @@ pub fn compute_command_overlay_area(terminal_area: Rect) -> Rect {
     Rect { x, y, width, height }
 }
 
-pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: bool) {
+pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: bool) -> Vec<HitArea> {
     let layout = Layout::vertical([
         Constraint::Min(1),    // Messages area
         Constraint::Length(3), // Input
@@ -33,7 +33,7 @@ pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: b
     ]);
     let chunks = layout.split(area);
 
-    render_messages(frame, chunks[0], app);
+    let hit_areas = render_messages(frame, chunks[0], app);
     render_input(frame, chunks[1], app);
     render_status_bar(frame, chunks[2], app);
 
@@ -41,9 +41,11 @@ pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: b
     if let Some(ta) = &app.typeahead {
         render_typeahead(frame, chunks[1], ta);
     }
+
+    hit_areas
 }
 
-fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
+fn render_messages(frame: &mut Frame, area: Rect, app: &App) -> Vec<HitArea> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Show logo if no conversation yet (only system messages)
@@ -53,10 +55,11 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
         | DisplayMessage::Agent { .. }
     ));
 
+    let mut hit_areas = Vec::new();
     if !has_conversation {
         render_welcome(&mut lines, app, area.width);
     } else {
-        render_conversation(&mut lines, app, area.width);
+        hit_areas = render_conversation(&mut lines, app, area.width);
     }
 
     // Scroll logic: scroll_offset 0 = bottom (auto-scroll), higher = further up
@@ -65,6 +68,16 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
     let max_scroll = total.saturating_sub(visible_height);
     let effective_offset = (app.scroll_offset as usize).min(max_scroll);
     let skip = max_scroll.saturating_sub(effective_offset);
+
+    // Convert hit_area y values from line-index to screen-y
+    for ha in &mut hit_areas {
+        let line_idx = ha.y as usize;
+        if line_idx >= skip && line_idx < skip + visible_height {
+            ha.y = area.y + (line_idx - skip) as u16;
+        } else {
+            ha.y = u16::MAX; // off-screen
+        }
+    }
 
     let paragraph = Paragraph::new(lines).scroll((skip as u16, 0));
     frame.render_widget(paragraph, area);
@@ -83,6 +96,8 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
         };
         frame.render_widget(Paragraph::new(Line::from(indicator)), indicator_area);
     }
+
+    hit_areas
 }
 
 fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
@@ -150,8 +165,14 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     ]));
 }
 
-fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
-    for msg in &app.messages {
+fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) -> Vec<HitArea> {
+    let mut hit_areas = Vec::new();
+    let elapsed = app.start_time.elapsed().as_millis() as usize;
+    let spinner_idx = (elapsed / 80) % SPINNER_FRAMES.len();
+
+    let mut has_in_progress_tool = false;
+
+    for (msg_idx, msg) in app.messages.iter().enumerate() {
         match msg {
             DisplayMessage::Text { role: TextRole::System, .. } => {}
             DisplayMessage::Text { role: TextRole::User, content } => {
@@ -174,39 +195,108 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
                     )));
                 }
             }
-            DisplayMessage::ToolCall { name, result, input_summary, .. } => {
-                let content = truncate_content(
-                    result.as_deref().unwrap_or(input_summary),
-                    80,
-                );
+            DisplayMessage::ToolCall { name, input_summary, result, is_error, collapsed, .. } => {
+                // Status icon
+                let (icon, icon_style) = if result.is_none() {
+                    has_in_progress_tool = true;
+                    (SPINNER_FRAMES[spinner_idx], Style::default().fg(Color::Cyan))
+                } else if *is_error {
+                    ("✗", Style::default().fg(Color::Red))
+                } else {
+                    ("✓", Style::default().fg(Color::Green))
+                };
+
+                // Header line
+                let header_y = lines.len() as u16;
                 lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(icon, icon_style),
+                    Span::raw(" "),
                     Span::styled(
-                        format!("  {} ", name),
-                        Style::default().fg(Color::Black).bg(Color::Magenta),
+                        format!(" {} ", name),
+                        Style::default().fg(Color::Black).bg(Color::Magenta).bold(),
                     ),
                     Span::raw(" "),
-                    Span::styled(content, Style::default().fg(Color::DarkGray)),
+                    Span::styled(input_summary.clone(), Style::default().fg(Color::DarkGray)),
                 ]));
+
+                hit_areas.push(HitArea { y: header_y, message_idx: msg_idx });
+
+                // Expanded result lines
+                if !collapsed {
+                    if let Some(ref result_text) = result {
+                        let result_lines: Vec<&str> = result_text.lines().collect();
+                        let max_preview = 5;
+                        let show_count = result_lines.len().min(max_preview);
+                        for line in &result_lines[..show_count] {
+                            lines.push(Line::from(vec![
+                                Span::styled("    │ ", Style::default().fg(Color::DarkGray)),
+                                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                            ]));
+                        }
+                        if result_lines.len() > max_preview {
+                            lines.push(Line::from(Span::styled(
+                                format!("    (+{} lines)", result_lines.len() - max_preview),
+                                Style::default().fg(Color::DarkGray),
+                            )));
+                        }
+                    }
+                }
             }
-            DisplayMessage::Agent { description, status, .. } => {
-                let status_str = match status {
-                    super::app::AgentStatus::Running => "running",
-                    super::app::AgentStatus::Completed => "completed",
-                    super::app::AgentStatus::Failed => "failed",
+            DisplayMessage::Agent { description, status, result, collapsed, .. } => {
+                // Status icon
+                let (icon, icon_style) = match status {
+                    AgentStatus::Running => {
+                        has_in_progress_tool = true;
+                        ("◎", Style::default().fg(Color::Cyan))
+                    }
+                    AgentStatus::Completed => ("✓", Style::default().fg(Color::Green)),
+                    AgentStatus::Failed => ("✗", Style::default().fg(Color::Red)),
                 };
-                lines.push(Line::from(Span::styled(
-                    format!("  [agent] '{}' {}", description, status_str),
-                    Style::default().fg(Color::DarkGray),
-                )));
+
+                // Header line
+                let header_y = lines.len() as u16;
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(icon, icon_style),
+                    Span::raw(" "),
+                    Span::styled(
+                        " Agent ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan).bold(),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(description.clone(), Style::default().fg(Color::DarkGray)),
+                ]));
+
+                hit_areas.push(HitArea { y: header_y, message_idx: msg_idx });
+
+                // Expanded result lines
+                if !collapsed {
+                    if let Some(ref result_text) = result {
+                        let result_lines: Vec<&str> = result_text.lines().collect();
+                        let max_preview = 5;
+                        let show_count = result_lines.len().min(max_preview);
+                        for line in &result_lines[..show_count] {
+                            lines.push(Line::from(vec![
+                                Span::styled("    │ ", Style::default().fg(Color::DarkGray)),
+                                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                            ]));
+                        }
+                        if result_lines.len() > max_preview {
+                            lines.push(Line::from(Span::styled(
+                                format!("    (+{} lines)", result_lines.len() - max_preview),
+                                Style::default().fg(Color::DarkGray),
+                            )));
+                        }
+                    }
+                }
             }
         }
     }
 
-    // Loading spinner
-    if app.is_loading {
-        let elapsed = app.start_time.elapsed().as_millis() as usize;
-        let frame_idx = (elapsed / 80) % SPINNER_FRAMES.len();
-        let spinner = SPINNER_FRAMES[frame_idx];
+    // Loading spinner: only show if is_loading AND no in-progress ToolCall exists
+    if app.is_loading && !has_in_progress_tool {
+        let spinner = SPINNER_FRAMES[spinner_idx];
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("  {} Working...", spinner),
@@ -219,6 +309,8 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
             )));
         }
     }
+
+    hit_areas
 }
 
 fn render_input(frame: &mut Frame, area: Rect, app: &App) {
