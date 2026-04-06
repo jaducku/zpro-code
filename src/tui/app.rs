@@ -561,17 +561,14 @@ impl App {
                 });
             }
             QueryEvent::ToolCallStart { id, name } => {
-                // AskUserQuestion is handled by the Question input UI — skip the ToolCall badge
-                if name != "AskUserQuestion" {
-                    self.messages.push(DisplayMessage::ToolCall {
-                        id,
-                        name,
-                        input_summary: String::new(),
-                        result: None,
-                        is_error: false,
-                        collapsed: true,
-                    });
-                }
+                self.messages.push(DisplayMessage::ToolCall {
+                    id,
+                    name,
+                    input_summary: String::new(),
+                    result: None,
+                    is_error: false,
+                    collapsed: true,
+                });
             }
             QueryEvent::ToolCallComplete { id, result } => {
                 // Reverse scan to find the matching ToolCall by id

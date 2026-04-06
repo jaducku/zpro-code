@@ -196,6 +196,14 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) -
                 }
             }
             DisplayMessage::ToolCall { name, input_summary, result, is_error, collapsed, .. } => {
+                // AskUserQuestion is displayed via Question input UI, not as a ToolCall badge
+                if name == "AskUserQuestion" {
+                    if result.is_none() {
+                        has_in_progress_tool = true;
+                    }
+                    continue;
+                }
+
                 // Status icon
                 let (icon, icon_style) = if result.is_none() {
                     has_in_progress_tool = true;
