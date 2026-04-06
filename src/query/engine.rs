@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::services::api::types::*;
 use crate::services::hooks::{execute_event_hooks, HookOutcome};
+use crate::services::hooks::types::HookContext;
 use crate::tool::{ToolCall, ToolProgress, ToolResultBlock, ToolUseContext};
 use crate::tools::find_tool_by_name;
 use crate::types::content::ContentBlock;
@@ -294,6 +295,7 @@ pub async fn query(
                     &tc.input,
                     &ctx.hooks,
                     &ctx.cwd,
+                    &HookContext { provider: None },
                 ).await;
                 match hook_result.outcome {
                     HookOutcome::Success => {}
@@ -329,6 +331,7 @@ pub async fn query(
                             &tc.input,
                             &ctx.hooks,
                             &ctx.cwd,
+                            &HookContext { provider: None },
                         ).await;
                         match hook_result.outcome {
                             HookOutcome::Blocking { reason } => {

@@ -147,6 +147,12 @@ pub enum HookOutcome {
     NonBlockingError { message: String },
 }
 
+/// Runtime context for hook execution.
+/// Provides LLM provider access for Prompt/Agent hooks.
+pub struct HookContext {
+    pub provider: Option<Arc<dyn crate::services::api::provider::LlmProvider>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

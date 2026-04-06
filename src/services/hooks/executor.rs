@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::services::hooks::command_hook::{execute_command_hook, CommandHookResult, HookEnv};
 use crate::services::hooks::matcher::{matches_pattern, parse_if_condition};
 use crate::services::hooks::types::{
-    HookCommand, HookExecutionResult, HookOutcome, HooksSettings, SyncHookOutput,
+    HookCommand, HookContext, HookExecutionResult, HookOutcome, HooksSettings, SyncHookOutput,
 };
 #[cfg(test)]
 use crate::services::hooks::types::HookMatcher;
@@ -66,6 +66,7 @@ async fn execute_single_hook(
     hook: &HookCommand,
     env: &HookEnv,
     cwd: &Path,
+    hook_ctx: &HookContext,
 ) -> HookExecutionResult {
     match hook {
         HookCommand::Command {
@@ -241,6 +242,7 @@ pub async fn execute_event_hooks(
     input: &serde_json::Value,
     settings: &HooksSettings,
     cwd: &Path,
+    hook_ctx: &HookContext,
 ) -> HookExecutionResult {
     let success_result = HookExecutionResult {
         outcome: HookOutcome::Success,
@@ -268,9 +270,9 @@ pub async fn execute_event_hooks(
         }
     }
 
-    // Filter out HTTP hooks for SessionStart/Setup events (deadlock prevention)
+    // Filter out HTTP/Prompt/Agent hooks for SessionStart/Setup events (deadlock prevention)
     if ALWAYS_EMITTED.contains(&event) {
-        matching_hooks.retain(|hook| !matches!(hook, HookCommand::Http { .. }));
+        matching_hooks.retain(|hook| matches!(hook, HookCommand::Command { .. }));
     }
 
     if matching_hooks.is_empty() {
@@ -288,7 +290,7 @@ pub async fn execute_event_hooks(
     // 7. Execute all matching hooks in parallel
     let futures: Vec<_> = matching_hooks
         .iter()
-        .map(|hook| execute_single_hook(hook, &env, cwd))
+        .map(|hook| execute_single_hook(hook, &env, cwd, hook_ctx))
         .collect();
 
     let results = futures::future::join_all(futures).await;
@@ -325,6 +327,7 @@ pub async fn execute_event_hooks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::hooks::types::HookContext;
     use tempfile::TempDir;
 
     fn empty_settings() -> HooksSettings {
@@ -352,6 +355,7 @@ mod tests {
             &serde_json::json!({}),
             &empty_settings(),
             dir.path(),
+            &HookContext { provider: None },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -380,6 +384,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
+            &HookContext { provider: None },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -408,6 +413,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
+            &HookContext { provider: None },
         )
         .await;
         assert!(
@@ -441,6 +447,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
+            &HookContext { provider: None },
         )
         .await;
         assert!(
@@ -473,6 +480,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
+            &HookContext { provider: None },
         )
         .await;
         match &result.outcome {
@@ -561,6 +569,7 @@ more output"#;
             &serde_json::json!({}),
             &settings,
             dir.path(),
+            &HookContext { provider: None },
         )
         .await;
         // HTTP hook should be filtered out, resulting in Success (no hooks executed)
