@@ -67,6 +67,8 @@ pub struct App {
     pub output_style: String,
     /// Loading spinner label (e.g. "Working..." or "brainstorming 스킬 사용")
     pub loading_label: Option<String>,
+    /// Force full terminal redraw on next frame (e.g. after /clear)
+    pub needs_redraw: bool,
 }
 
 /// What kind of typeahead is active
@@ -185,6 +187,7 @@ impl App {
             model_override: None,
             output_style: "default".to_string(),
             loading_label: None,
+            needs_redraw: false,
         }
     }
 

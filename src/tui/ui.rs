@@ -11,29 +11,18 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_in_area(frame, app, frame.area(), false);
 }
 
-/// Render with an optional command panel area between messages and input.
-/// When `command_height > 0`, messages shrink and the command panel occupies
-/// the space just above the input area.
-pub fn render_with_command(frame: &mut Frame, app: &App, command_height: u16) -> Rect {
-    let area = frame.area();
-    let layout = Layout::vertical([
-        Constraint::Min(1),                      // Messages (shrinks)
-        Constraint::Length(command_height),       // Command panel
-        Constraint::Length(3),                    // Input
-        Constraint::Length(1),                    // Status bar
-    ]);
-    let chunks = layout.split(area);
+/// Compute the overlay area for TUI commands (e.g. /model picker).
+/// Positioned above the input area, similar to typeahead.
+pub fn compute_command_overlay_area(terminal_area: Rect) -> Rect {
+    // Input is 3 rows + status bar is 1 row = 4 rows from bottom
+    let input_top = terminal_area.y + terminal_area.height.saturating_sub(4);
+    let max_height = terminal_area.height / 2;
+    let height = max_height.max(8).min(terminal_area.height.saturating_sub(6));
+    let width = terminal_area.width.min(80);
+    let x = terminal_area.x + (terminal_area.width.saturating_sub(width)) / 2;
+    let y = input_top.saturating_sub(height);
 
-    render_messages(frame, chunks[0], app);
-    // chunks[1] is the command panel — returned to caller
-    render_input(frame, chunks[2], app);
-    render_status_bar(frame, chunks[3], app);
-
-    if let Some(ta) = &app.typeahead {
-        render_typeahead(frame, chunks[2], ta);
-    }
-
-    chunks[1] // return command area for caller to render into
+    Rect { x, y, width, height }
 }
 
 pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: bool) {

@@ -8,6 +8,7 @@ use crossterm::{
 };
 use futures::StreamExt;
 use ratatui::prelude::*;
+use ratatui::widgets::Clear;
 use tokio::sync::mpsc;
 
 use super::app::{App, DisplayMessage, DisplayRole, InputMode};
@@ -79,23 +80,26 @@ pub async fn run_app(
     let mut event_stream = EventStream::new();
 
     loop {
+        // Force full redraw if needed (e.g. after /clear)
+        if app.needs_redraw {
+            terminal.clear()?;
+            app.needs_redraw = false;
+        }
+
         // Render
         terminal.draw(|frame| {
-            if app.active_command.is_some() {
-                // Command active: split layout — messages shrink, command panel below
-                let term_height = frame.area().height;
-                let cmd_height = (term_height / 3).max(8).min(term_height.saturating_sub(8));
-                let cmd_area = ui::render_with_command(frame, &app, cmd_height);
+            // Always render full chat UI
+            ui::render(frame, &app);
 
-                if let Some(active) = &mut app.active_command {
-                    let cmd_name = active.command_name.clone();
-                    if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
-                        let active = app.active_command.as_mut().unwrap();
-                        tui_cmd.render(frame, cmd_area, active.state.as_mut());
-                    }
+            // If a command is active, render it as overlay above input
+            if let Some(active) = &mut app.active_command {
+                let cmd_name = active.command_name.clone();
+                if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
+                    let overlay_area = ui::compute_command_overlay_area(frame.area());
+                    frame.render_widget(Clear, overlay_area);
+                    let active = app.active_command.as_mut().unwrap();
+                    tui_cmd.render(frame, overlay_area, active.state.as_mut());
                 }
-            } else {
-                ui::render(frame, &app);
             }
         })?;
 
@@ -438,6 +442,7 @@ async fn dispatch_slash_command(
                     Ok(LocalCommandResult::Compact { display_text }) => {
                         app.messages.clear();
                         app.api_messages.clear();
+                        app.needs_redraw = true;
                         if let Some(text) = display_text {
                             app.push_message(DisplayMessage {
                                 role: DisplayRole::System,
