@@ -136,7 +136,11 @@ pub async fn run_foreground(
     parent_ctx: &ToolUseContext,
 ) -> Result<AgentResult, crate::types::AtomError> {
     let agent_id = uuid::Uuid::new_v4().to_string();
-    let tools = get_agent_tools(false);
+    let mut tools = get_agent_tools(false);
+    // Share parent's MCP tools with child agent
+    if let Some(ref mcp) = parent_ctx.mcp_manager {
+        tools.extend(mcp.get_all_tools().await);
+    }
     let child_abort = parent_ctx.abort_signal.child_token();
 
     let child_ctx = build_child_context(&params, parent_ctx, tools);
@@ -168,7 +172,11 @@ pub async fn run_background(
 ) -> Result<crate::tool::ToolResult, crate::types::AtomError> {
     let agent_id = uuid::Uuid::new_v4().to_string();
     let description = params.description.clone();
-    let tools = get_agent_tools(true); // background = restricted tools
+    let mut tools = get_agent_tools(true); // background = restricted tools
+    // Share parent's MCP tools with background agent (read-only MCP tools are safe)
+    if let Some(ref mcp) = parent_ctx.mcp_manager {
+        tools.extend(mcp.get_all_tools().await);
+    }
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
     // Register as BackgroundTask in AppState

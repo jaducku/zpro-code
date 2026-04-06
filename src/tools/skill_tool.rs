@@ -169,8 +169,13 @@ async fn execute_forked_skill(
             }],
         }],
         // Box<dyn Tool> isn't Clone — create fresh tool instances.
-        // TODO: share MCP tools from parent when tool sharing is implemented
-        tools: crate::tools::get_builtin_tools(),
+        tools: {
+            let mut t = crate::tools::get_builtin_tools();
+            if let Some(ref mcp) = parent_ctx.mcp_manager {
+                t.extend(mcp.get_all_tools().await);
+            }
+            t
+        },
         system_prompt: Some(parent_ctx.system_prompt.clone()),
         model: parent_ctx.model.clone(),
         max_tokens: 16_384,
