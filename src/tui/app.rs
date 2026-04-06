@@ -615,8 +615,16 @@ impl App {
                 });
                 self.is_loading = false;
             }
-            QueryEvent::ToolCallInputReady { .. } => {
-                // Will be implemented in Task 6
+            QueryEvent::ToolCallInputReady { id, input, name } => {
+                // Find the ToolCall by id (reverse scan — it's near the end)
+                for msg in self.messages.iter_mut().rev() {
+                    if let DisplayMessage::ToolCall { id: ref msg_id, ref mut input_summary, .. } = msg {
+                        if *msg_id == id {
+                            *input_summary = crate::tui::tool_summary::tool_input_summary(&name, &input);
+                            break;
+                        }
+                    }
+                }
             }
             QueryEvent::AgentCompleted { agent_id, description, result, is_error } => {
                 self.push_message(DisplayMessage::Agent {
