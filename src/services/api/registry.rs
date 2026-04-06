@@ -44,7 +44,11 @@ impl ProviderRegistry {
         }
     }
 
-    /// Build from AtomConfig.
+    /// Build from AtomConfig (v3 format).
+    ///
+    /// Config format:
+    /// - `providers`: named providers with api_base, api_key, and models list
+    /// - `models`: alias → "provider:model_id" mapping
     pub fn from_config(config: &crate::services::config::AtomConfig) -> anyhow::Result<Self> {
         let mut registry = Self::new(config.default_model.clone());
 
@@ -67,59 +71,39 @@ impl ProviderRegistry {
             }
         }
 
-        // 2. Load llms → llm_configs
-        if let Some(llms) = &config.llms {
-            for (name, lcfg) in llms {
-                if name.starts_with('_') {
-                    anyhow::bail!("LLM name '{}' is reserved (starts with '_')", name);
-                }
+        // 2. Load models → resolve "provider:model_id" into llm_configs
+        for (alias, spec) in &config.models {
+            if alias.starts_with('_') {
+                anyhow::bail!("Model alias '{}' is reserved (starts with '_')", alias);
+            }
 
-                let has_provider = lcfg.provider.is_some();
-                let has_api_base = lcfg.api_base.is_some();
-
-                if has_provider && has_api_base {
-                    anyhow::bail!(
-                        "LLM '{}': ambiguous — set either 'provider' or 'api_base', not both",
-                        name
-                    );
-                }
-
-                let (api_base, api_key) = if let Some(ref provider_name) = lcfg.provider {
-                    let tmpl = registry.provider_templates.get(provider_name).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "LLM '{}': references unknown provider '{}'",
-                            name,
-                            provider_name
-                        )
-                    })?;
-                    (tmpl.api_base.clone(), tmpl.api_key.clone())
-                } else if let Some(ref base) = lcfg.api_base {
-                    (base.clone(), lcfg.api_key.clone())
+            // Parse "provider:model_id" — split on first ':' and check if left side is a known provider.
+            // Model IDs can contain colons (e.g. "google/gemma-3-27b-it:free"), so we only
+            // treat it as provider:model if the left side matches a registered provider.
+            let resolved = if let Some((left, right)) = spec.split_once(':') {
+                if let Some(tmpl) = registry.provider_templates.get(left) {
+                    Some((tmpl.api_base.clone(), tmpl.api_key.clone(), right.to_string()))
                 } else {
-                    anyhow::bail!(
-                        "LLM '{}': must specify either 'provider' or 'api_base'",
-                        name
-                    );
-                };
+                    None
+                }
+            } else {
+                None
+            };
 
+            if let Some((api_base, api_key, model_id)) = resolved {
                 registry.llm_configs.insert(
-                    name.clone(),
+                    alias.clone(),
                     ResolvedLlm {
                         api_base,
                         api_key,
-                        model_id: lcfg.model_id.clone(),
-                        context_window: lcfg.context_window,
-                        max_output_tokens: lcfg.max_output_tokens,
+                        model_id,
+                        context_window: None,
+                        max_output_tokens: None,
                     },
                 );
-            }
-        }
-
-        // 3. Legacy models — store as aliases, resolved via _cli fallback at resolve() time.
-        //    We do NOT convert them into llm_configs here because _cli may not be registered yet.
-        for (alias, raw_id) in &config.models {
-            if !registry.llm_configs.contains_key(alias) {
-                registry.legacy_models.insert(alias.clone(), raw_id.clone());
+            } else {
+                // No known provider prefix — store as legacy alias for _cli fallback
+                registry.legacy_models.insert(alias.clone(), spec.clone());
             }
         }
 
@@ -388,14 +372,22 @@ mod tests {
     }
 
     #[test]
-    fn test_from_config_with_llms() {
+    fn test_from_config_v3() {
         let json = r#"{
             "providers": {
-                "or": { "api_base": "https://openrouter.ai/api/v1", "api_key": "sk-test" }
+                "or": {
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "api_key": "sk-test",
+                    "models": ["anthropic/claude-sonnet-4-20250514"]
+                },
+                "local": {
+                    "api_base": "http://localhost:8080/v1",
+                    "models": ["Qwen/Qwen2.5-72B"]
+                }
             },
-            "llms": {
-                "sonnet": { "provider": "or", "model_id": "anthropic/claude-sonnet-4-20250514" },
-                "qwen": { "api_base": "http://localhost:8000/v1", "model_id": "Qwen/Qwen2.5-72B" }
+            "models": {
+                "sonnet": "or:anthropic/claude-sonnet-4-20250514",
+                "qwen": "local:Qwen/Qwen2.5-72B"
             },
             "default_model": "sonnet"
         }"#;
@@ -408,44 +400,15 @@ mod tests {
     }
 
     #[test]
-    fn test_from_config_ambiguous_entry_errors() {
+    fn test_from_config_unknown_provider_in_model_falls_back_to_legacy() {
         let json = r#"{
-            "providers": { "or": { "api_base": "https://openrouter.ai/api/v1" } },
-            "llms": {
-                "bad": { "provider": "or", "api_base": "http://other.com/v1", "model_id": "m" }
-            }
+            "models": { "bad": "nonexistent:model-id" }
         }"#;
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
-        assert!(
-            err.to_string().contains("ambiguous") || err.to_string().contains("both")
-        );
-    }
-
-    #[test]
-    fn test_from_config_unknown_provider_ref_errors() {
-        let json = r#"{
-            "llms": {
-                "bad": { "provider": "nonexistent", "model_id": "m" }
-            }
-        }"#;
-        let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
-        assert!(err.to_string().contains("nonexistent"));
-    }
-
-    #[test]
-    fn test_from_config_no_connection_errors() {
-        let json = r#"{
-            "llms": {
-                "bad": { "model_id": "m" }
-            }
-        }"#;
-        let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
-        assert!(
-            err.to_string().contains("api_base") || err.to_string().contains("provider")
-        );
+        // Unknown provider prefix → treated as legacy (no error at config time)
+        let r = ProviderRegistry::from_config(&config).unwrap();
+        // Resolving without _cli fails at resolve time
+        assert!(r.resolve("bad").is_err());
     }
 
     #[test]
@@ -457,33 +420,41 @@ mod tests {
     }
 
     #[test]
-    fn test_from_config_reserved_name_llm() {
-        let json = r#"{ "llms": { "_bad": { "api_base": "http://x", "model_id": "m" } } }"#;
+    fn test_from_config_reserved_name_model() {
+        let json = r#"{
+            "providers": { "p": { "api_base": "http://x" } },
+            "models": { "_bad": "p:model" }
+        }"#;
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
         let err = ProviderRegistry::from_config(&config).err().expect("should fail");
         assert!(err.to_string().contains("reserved"));
     }
 
     #[test]
-    fn test_from_config_legacy_models() {
+    fn test_from_config_model_without_colon_is_legacy() {
         let json = r#"{
-            "provider": "openrouter",
-            "api_base": "https://openrouter.ai/api/v1",
-            "api_key": "sk-test",
             "default_model": "fast",
             "models": { "fast": "google/gemma-3-27b-it:free" }
         }"#;
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-
-        // Legacy models need _cli provider to resolve
         let mut r = ProviderRegistry::from_config(&config).unwrap();
-        r.register_provider(
-            "_cli".into(),
-            "https://openrouter.ai/api/v1".into(),
-            Some("sk-test".into()),
-        );
-        // Legacy entries are inert without _cli at from_config time, but resolve falls back to _cli
+        // No colon → stored as legacy, needs _cli to resolve
+        r.register_provider("_cli".into(), "https://openrouter.ai/api/v1".into(), Some("sk-test".into()));
         let p = r.resolve("fast").unwrap();
         assert_eq!(p.model_info().id, "google/gemma-3-27b-it:free");
+    }
+
+    #[test]
+    fn test_from_config_ad_hoc_resolve_still_works() {
+        let json = r#"{
+            "providers": {
+                "or": { "api_base": "https://openrouter.ai/api/v1", "api_key": "sk-test" }
+            }
+        }"#;
+        let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
+        let r = ProviderRegistry::from_config(&config).unwrap();
+        // Ad-hoc provider:model still works even without a models entry
+        let p = r.resolve("or:anthropic/claude-haiku").unwrap();
+        assert_eq!(p.model_info().id, "anthropic/claude-haiku");
     }
 }

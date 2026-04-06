@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use crate::services::config::{AtomConfig, LlmConfigJson, ProviderConfigJson};
+use crate::services::config::{AtomConfig, ProviderConfigJson};
 
 /// Run first-time setup if no config exists.
 /// Returns true if setup was completed, false if skipped.
@@ -63,7 +63,8 @@ pub fn run_setup_if_needed() -> bool {
 
 fn setup_openrouter() -> AtomConfig {
     let mut providers = HashMap::new();
-    let mut llms = HashMap::new();
+    let mut models = HashMap::new();
+    let mut provider_models = Vec::new();
 
     eprintln!();
     eprintln!("  Get your API key at: https://openrouter.ai/keys");
@@ -84,14 +85,6 @@ fn setup_openrouter() -> AtomConfig {
     } else {
         "YOUR_OPENROUTER_API_KEY".to_string()
     };
-
-    providers.insert(
-        "openrouter".to_string(),
-        ProviderConfigJson {
-            api_base: Some("https://openrouter.ai/api/v1".to_string()),
-            api_key: Some(api_key),
-        },
-    );
 
     // Register models
     eprintln!();
@@ -116,18 +109,9 @@ fn setup_openrouter() -> AtomConfig {
         let model_id = model_id.trim().to_string();
         if model_id.is_empty() { continue; }
 
-        llms.insert(
-            alias.clone(),
-            LlmConfigJson {
-                provider: Some("openrouter".to_string()),
-                model_id: model_id.clone(),
-                api_base: None,
-                api_key: None,
-                context_window: None,
-                max_output_tokens: None,
-            },
-        );
-        eprintln!("  ✓ {} → {}", alias, model_id);
+        provider_models.push(model_id.clone());
+        models.insert(alias.clone(), format!("openrouter:{}", model_id));
+        eprintln!("  ✓ {} → openrouter:{}", alias, model_id);
         eprintln!();
 
         if default_model.is_none() {
@@ -135,7 +119,16 @@ fn setup_openrouter() -> AtomConfig {
         }
     }
 
-    if llms.is_empty() {
+    providers.insert(
+        "openrouter".to_string(),
+        ProviderConfigJson {
+            api_base: Some("https://openrouter.ai/api/v1".to_string()),
+            api_key: Some(api_key),
+            models: provider_models,
+        },
+    );
+
+    if models.is_empty() {
         eprintln!("  No models registered. Add them later in config.json");
     } else {
         eprintln!();
@@ -145,14 +138,14 @@ fn setup_openrouter() -> AtomConfig {
     AtomConfig {
         default_model,
         providers: Some(providers),
-        llms: if llms.is_empty() { None } else { Some(llms) },
+        models,
         ..Default::default()
     }
 }
 
 fn setup_custom() -> AtomConfig {
     let mut providers = HashMap::new();
-    let mut llms = HashMap::new();
+    let mut models = HashMap::new();
 
     eprintln!();
     eprint!("  API base URL (e.g. http://localhost:11434/v1): ");
@@ -177,41 +170,33 @@ fn setup_custom() -> AtomConfig {
         None
     };
 
-    providers.insert(
-        "custom".to_string(),
-        ProviderConfigJson { api_base, api_key },
-    );
-
     eprint!("  Model name (e.g. llama3, gpt-4o): ");
     io::stderr().flush().ok();
 
     let mut model = String::new();
+    let mut provider_models = Vec::new();
     let default_model = if io::stdin().read_line(&mut model).is_ok() {
         let m = model.trim().to_string();
         if m.is_empty() {
             None
         } else {
-            llms.insert(
-                "default".to_string(),
-                LlmConfigJson {
-                    provider: Some("custom".to_string()),
-                    model_id: m,
-                    api_base: None,
-                    api_key: None,
-                    context_window: None,
-                    max_output_tokens: None,
-                },
-            );
+            provider_models.push(m.clone());
+            models.insert("default".to_string(), format!("custom:{}", m));
             Some("default".to_string())
         }
     } else {
         None
     };
 
+    providers.insert(
+        "custom".to_string(),
+        ProviderConfigJson { api_base, api_key, models: provider_models },
+    );
+
     AtomConfig {
         default_model,
         providers: Some(providers),
-        llms: if llms.is_empty() { None } else { Some(llms) },
+        models,
         ..Default::default()
     }
 }
