@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::query::types::QueryContext;
 use crate::tool::{Tool, ToolUseContext};
 use crate::tools::get_builtin_tools;
@@ -22,6 +24,12 @@ pub struct AgentSpawnParams {
     pub model: Option<String>,
     pub run_in_background: bool,
     pub isolation: Option<String>,
+    /// Whether this is a fork subagent (inherits parent context)
+    pub is_fork: bool,
+    /// Pre-built fork messages (from build_forked_messages)
+    pub fork_messages: Option<Vec<crate::types::message::ApiMessage>>,
+    /// Query source for recursion guard (e.g., "agent:builtin:fork")
+    pub query_source: Option<String>,
 }
 
 impl AgentSpawnParams {
@@ -50,7 +58,16 @@ impl AgentSpawnParams {
 
         let isolation = input.get("isolation").and_then(|v| v.as_str()).map(String::from);
 
-        Ok(Self { prompt, description, model, run_in_background, isolation })
+        Ok(Self {
+            prompt,
+            description,
+            model,
+            run_in_background,
+            isolation,
+            is_fork: false,
+            fork_messages: None,
+            query_source: None,
+        })
     }
 }
 
@@ -111,6 +128,79 @@ pub fn build_child_context(
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: Some(parent_ctx.agent_depth + 1),
         query_source: parent_ctx.query_source.clone(),
+    }
+}
+
+/// Remove assistant messages that have tool_use blocks without matching tool_result responses.
+/// Important because the parent's in-flight Agent tool_use won't have a result yet.
+fn filter_incomplete_tool_calls(
+    messages: &[crate::types::message::ApiMessage],
+) -> Vec<crate::types::message::ApiMessage> {
+    use crate::types::content::ContentBlock;
+    use crate::types::message::Role;
+
+    let answered_ids: HashSet<&str> = messages
+        .iter()
+        .flat_map(|m| m.content.iter())
+        .filter_map(|block| match block {
+            ContentBlock::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    messages
+        .iter()
+        .filter(|msg| {
+            if msg.role != Role::Assistant {
+                return true;
+            }
+            !msg.content.iter().any(|block| {
+                matches!(
+                    block,
+                    ContentBlock::ToolUse { id, .. } if !answered_ids.contains(id.as_str())
+                )
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// Build a QueryContext for fork children. Unlike `build_child_context`, this:
+/// - Uses filtered parent history + fork messages (not just the prompt)
+/// - Sets max_turns = 200 (fork agent limit)
+/// - Propagates query_source from params
+pub fn build_fork_context(
+    params: &AgentSpawnParams,
+    parent_ctx: &ToolUseContext,
+    tools: Vec<Box<dyn Tool>>,
+) -> QueryContext {
+    let model = params.model.clone().unwrap_or_else(|| parent_ctx.model.clone());
+    let max_tokens = parent_ctx.provider.model_info().max_output_tokens;
+
+    let mut messages = filter_incomplete_tool_calls(parent_ctx.messages.as_ref());
+    if let Some(ref fork_msgs) = params.fork_messages {
+        messages.extend(fork_msgs.clone());
+    }
+
+    QueryContext {
+        messages,
+        tools,
+        system_prompt: Some(parent_ctx.system_prompt.clone()),
+        model,
+        max_tokens,
+        permission_ctx: parent_ctx.permission_ctx.clone(),
+        permission_tx: parent_ctx.permission_tx.clone(),
+        question_tx: parent_ctx.question_tx.clone(),
+        hooks: crate::services::hooks::load_all_hooks(&parent_ctx.cwd),
+        cwd: parent_ctx.cwd.clone(),
+        max_turns: Some(200),
+        max_budget_usd: None,
+        commands: parent_ctx.commands.clone(),
+        provider: parent_ctx.provider.clone(),
+        app_state: parent_ctx.app_state.clone(),
+        mcp_manager: parent_ctx.mcp_manager.clone(),
+        agent_depth: Some(parent_ctx.agent_depth + 1),
+        query_source: params.query_source.clone(),
     }
 }
 
@@ -415,6 +505,9 @@ mod tests {
             model: Some("custom-model".into()),
             run_in_background: false,
             isolation: None,
+            is_fork: false,
+            fork_messages: None,
+            query_source: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
@@ -434,10 +527,127 @@ mod tests {
             model: None,
             run_in_background: false,
             isolation: None,
+            is_fork: false,
+            fork_messages: None,
+            query_source: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
 
         assert_eq!(child.model, "test"); // inherited from parent_ctx.model
+    }
+
+    #[test]
+    fn test_filter_incomplete_tool_calls_removes_orphans() {
+        use crate::types::content::{ContentBlock, ToolResultContent};
+        use crate::types::message::{ApiMessage, Role};
+
+        let messages = vec![
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "tu_1".into(),
+                    name: "Read".into(),
+                    input: serde_json::json!({}),
+                }],
+            },
+            ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "tu_1".into(),
+                    content: ToolResultContent::Text("ok".into()),
+                    is_error: false,
+                }],
+            },
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "tu_2".into(),
+                    name: "Agent".into(),
+                    input: serde_json::json!({}),
+                }],
+            },
+        ];
+
+        let filtered = filter_incomplete_tool_calls(&messages);
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].role, Role::Assistant);
+        assert_eq!(filtered[1].role, Role::User);
+    }
+
+    #[test]
+    fn test_filter_incomplete_tool_calls_keeps_complete() {
+        use crate::types::content::{ContentBlock, ToolResultContent};
+        use crate::types::message::{ApiMessage, Role};
+
+        let messages = vec![
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "tu_1".into(),
+                    name: "Read".into(),
+                    input: serde_json::json!({}),
+                }],
+            },
+            ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "tu_1".into(),
+                    content: ToolResultContent::Text("ok".into()),
+                    is_error: false,
+                }],
+            },
+        ];
+
+        let filtered = filter_incomplete_tool_calls(&messages);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_agent_spawn_params_fork_fields() {
+        let input = serde_json::json!({ "prompt": "test" });
+        let params = AgentSpawnParams::from_input(&input).unwrap();
+        assert!(!params.is_fork);
+        assert!(params.fork_messages.is_none());
+        assert!(params.query_source.is_none());
+    }
+
+    #[test]
+    fn test_build_fork_context_fields() {
+        use crate::types::content::ContentBlock;
+        use crate::types::message::{ApiMessage, Role};
+
+        let parent_ctx = ToolUseContext::test(serde_json::json!({}));
+        let fork_msgs = vec![
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text {
+                    text: "cloned".into(),
+                }],
+            },
+            ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::Text {
+                    text: "directive".into(),
+                }],
+            },
+        ];
+        let params = AgentSpawnParams {
+            prompt: "test".into(),
+            description: "test".into(),
+            model: None,
+            run_in_background: false,
+            isolation: None,
+            is_fork: true,
+            fork_messages: Some(fork_msgs),
+            query_source: Some("agent:builtin:fork".into()),
+        };
+        let tools = get_agent_tools(false);
+        let ctx = build_fork_context(&params, &parent_ctx, tools);
+
+        assert_eq!(ctx.messages.len(), 2);
+        assert_eq!(ctx.max_turns, Some(200));
+        assert_eq!(ctx.agent_depth, Some(1));
+        assert_eq!(ctx.query_source, Some("agent:builtin:fork".into()));
     }
 }
