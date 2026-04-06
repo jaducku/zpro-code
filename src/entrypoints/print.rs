@@ -30,6 +30,7 @@ pub async fn run_print_mode(
     allow_rules: Vec<PermissionRule>,
     deny_rules: Vec<PermissionRule>,
     tools_filter: Option<Vec<String>>,
+    registry: Arc<crate::services::api::registry::ProviderRegistry>,
 ) -> anyhow::Result<()> {
     // 1. Get prompt
     let prompt_text = match prompt {
@@ -92,7 +93,7 @@ pub async fn run_print_mode(
         max_budget_usd,
         commands: Arc::new(CommandRegistry::empty()),
         provider: provider.clone(),
-        registry: None,
+        registry: Some(registry.clone()),
         app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
         mcp_manager: None,
         agent_depth: None,
