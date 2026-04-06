@@ -5,7 +5,9 @@ use std::path::Path;
 /// Provider connection template (api_base + api_key only, no models)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfigJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
 }
 
@@ -13,57 +15,62 @@ pub struct ProviderConfigJson {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfigJson {
     /// Reference to a provider in the `providers` map
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     /// Raw model ID sent to the API
     pub model_id: String,
-    /// Inline connection info (when no provider reference)
+    /// Inline connection info (when no provider reference — omit if using provider)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
     /// Optional overrides
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
+}
+
+fn is_empty_map<K, V>(m: &HashMap<K, V>) -> bool {
+    m.is_empty()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AtomConfig {
-    /// Provider: "openrouter", "codex", "openai", "ollama", "custom"
-    #[serde(default)]
-    pub provider: Option<String>,
-
-    /// API key
-    #[serde(default)]
-    pub api_key: Option<String>,
-
-    /// Custom API base URL (only needed for "custom" provider)
-    #[serde(default)]
-    pub api_base: Option<String>,
-
-    /// Default model alias (key into models map)
-    #[serde(default)]
+    /// Default model name (key into llms or models map)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
 
-    /// Named model aliases: { "fast": "google/gemma-3-27b-it:free", ... }
-    #[serde(default)]
-    pub models: HashMap<String, String>,
-
-    /// Default permission mode
-    #[serde(default)]
-    pub permission_mode: Option<String>,
-
-    /// Tavily API key for web search
-    #[serde(default)]
-    pub tavily_api_key: Option<String>,
-
     /// Provider registry: named providers with their configs
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub providers: Option<HashMap<String, ProviderConfigJson>>,
 
     /// Registered LLMs: name → config (provider ref or inline)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub llms: Option<HashMap<String, LlmConfigJson>>,
 
-    /// Default provider name (key into providers map)
-    #[serde(default)]
+    // --- Legacy v1 fields (backward compat, hidden when null) ---
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_base: Option<String>,
+
+    /// Legacy named model aliases: { "fast": "model-id", ... }
+    #[serde(default, skip_serializing_if = "is_empty_map")]
+    pub models: HashMap<String, String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tavily_api_key: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_provider: Option<String>,
 }
 
