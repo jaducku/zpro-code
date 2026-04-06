@@ -3,7 +3,6 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use zpro_code::commands::CommandRegistry;
-use zpro_code::services::api::create_provider;
 use zpro_code::services::api::provider::LlmProvider;
 use zpro_code::services::config::AtomConfig;
 use zpro_code::services::context::{assemble_system_prompt, assemble_system_prompt_with_config, SystemPromptConfig};
@@ -653,25 +652,8 @@ async fn main() -> anyhow::Result<()> {
     // Load config file (CLI flags override config values)
     let config = AtomConfig::load();
 
-    // Merge CLI flags with config: CLI wins
-    let effective_provider = cli.provider.clone().or_else(|| config.provider.clone());
-    let config_api_base = config.api_base_for_provider();
-    let effective_api_base = cli.api_base.clone().or(config_api_base);
-    let effective_api_key = cli.api_key.clone().or_else(|| config.api_key.clone());
-
-    // Warn if API key still uses legacy encrypted format
-    if let Some(ref key) = effective_api_key {
-        if key.starts_with("enc:") {
-            eprintln!("Warning: API key uses legacy encrypted format. Please re-set with:");
-            eprintln!("  zpro-code config set api_key YOUR_KEY");
-        }
-    }
-
-    let effective_model = cli
-        .model
-        .as_deref()
-        .map(|m| config.resolve_model(m))
-        .or_else(|| config.default_model());
+    // CLI model override (if any)
+    let effective_model = cli.model.clone().or_else(|| config.default_model.clone());
 
     // Warn about unimplemented flags
     if cli.json_schema.is_some() {
@@ -705,33 +687,25 @@ async fn main() -> anyhow::Result<()> {
             zpro_code::services::api::registry::ProviderRegistry::new(None)
         });
 
-    // Register CLI provider template in registry
-    if let Some(ref api_base) = effective_api_base {
-        registry.register_provider("_cli".into(), api_base.clone(), effective_api_key.clone());
+    // CLI overrides: register as _cli provider template
+    if let Some(ref api_base) = cli.api_base {
+        registry.register_provider("_cli".into(), api_base.clone(), cli.api_key.clone());
     }
-    registry.set_default_model(effective_model.clone());
+    if effective_model.is_some() {
+        registry.set_default_model(effective_model.clone());
+    }
     let registry = Arc::new(registry);
 
     match cli.subcommand {
         Some(sub) => execute_subcommand(sub).await?,
         None if cli.print => {
-            // Print mode: non-interactive
-            let provider: Arc<dyn LlmProvider> = match create_provider(
-                effective_provider.as_deref(),
-                effective_api_base.as_deref(),
-                effective_api_key.as_deref(),
-                effective_model.as_deref(),
-            ) {
-                Ok(p) => Arc::from(p),
-                Err(_) => {
-                    // v1 fields missing — try v2 registry
-                    match registry.default_provider() {
-                        Ok(p) => p,
-                        Err(e) => {
-                            eprintln!("Error: No provider configured. {}", e);
-                            std::process::exit(1);
-                        }
-                    }
+            // Print mode: non-interactive — resolve provider from registry
+            let provider: Arc<dyn LlmProvider> = match registry.default_provider() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Error: No provider configured. {}", e);
+                    eprintln!("Edit ~/.zpro-code/config.json to set up providers and models.");
+                    std::process::exit(1);
                 }
             };
 
@@ -775,22 +749,8 @@ async fn main() -> anyhow::Result<()> {
             ).await?;
         }
         None => {
-            let provider: Option<Arc<dyn LlmProvider>> = match create_provider(
-                effective_provider.as_deref(),
-                effective_api_base.as_deref(),
-                effective_api_key.as_deref(),
-                effective_model.as_deref(),
-            ) {
-                Ok(p) => Some(Arc::from(p)),
-                Err(e) if effective_provider.is_some() || effective_api_base.is_some() => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-                Err(_) => {
-                    // v1 fields missing — try v2 registry
-                    registry.default_provider().ok()
-                }
-            };
+            // Resolve provider from registry (None = no-provider mode)
+            let provider: Option<Arc<dyn LlmProvider>> = registry.default_provider().ok();
 
             let cwd = std::env::current_dir().unwrap_or_default();
 
