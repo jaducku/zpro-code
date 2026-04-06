@@ -82,6 +82,28 @@ impl ProviderRegistry {
             }
         }
 
+        // Legacy fallback: if no `providers` section, build from top-level fields
+        if config.providers.is_none() {
+            if let Some(ref api_base) = config.api_base_for_provider() {
+                let mut models = HashMap::new();
+                for (alias, raw_id) in &config.models {
+                    models.insert(alias.clone(), ModelEntry {
+                        id: raw_id.clone(),
+                        context_window: None,
+                        max_output_tokens: None,
+                    });
+                }
+                let provider_name = config.provider.clone().unwrap_or_else(|| "default".into());
+                registry.register(provider_name.clone(), ProviderConfig {
+                    provider_type: "openai".into(),
+                    api_base: Some(api_base.clone()),
+                    api_key: config.api_key.clone(),
+                    models,
+                });
+                registry.set_default(provider_name, config.default_model.clone());
+            }
+        }
+
         Ok(registry)
     }
 
@@ -341,5 +363,56 @@ mod tests {
         });
         let provider = registry.resolve("gpt-4o").unwrap();
         assert_eq!(provider.model_info().id, "gpt-4o");
+    }
+
+    #[test]
+    fn test_from_config_legacy_no_providers() {
+        let json = r#"{
+            "provider": "openrouter",
+            "api_base": "https://openrouter.ai/api/v1",
+            "api_key": "sk-test",
+            "default_model": "fast",
+            "models": { "fast": "google/gemma-3-27b-it:free" }
+        }"#;
+        let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
+        let registry = ProviderRegistry::from_config(&config).unwrap();
+        let provider = registry.resolve("fast").unwrap();
+        assert_eq!(provider.model_info().id, "google/gemma-3-27b-it:free");
+    }
+
+    #[test]
+    fn test_from_config_with_providers() {
+        let json = r#"{
+            "providers": {
+                "or": {
+                    "type": "openai",
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "api_key": "sk-test",
+                    "models": { "sonnet": "anthropic/claude-sonnet-4-20250514" }
+                }
+            },
+            "default_provider": "or",
+            "default_model": "sonnet"
+        }"#;
+        let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
+        let registry = ProviderRegistry::from_config(&config).unwrap();
+        let provider = registry.default_provider().unwrap();
+        assert_eq!(provider.model_info().id, "anthropic/claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn test_from_config_reserved_name_rejected() {
+        let json = r#"{
+            "providers": {
+                "_bad": {
+                    "type": "openai",
+                    "api_base": "http://localhost:8000/v1"
+                }
+            },
+            "default_provider": "_bad"
+        }"#;
+        let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
+        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
+        assert!(err.to_string().contains("reserved"));
     }
 }
