@@ -723,9 +723,15 @@ async fn main() -> anyhow::Result<()> {
                 effective_model.as_deref(),
             ) {
                 Ok(p) => Arc::from(p),
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                Err(_) => {
+                    // v1 fields missing — try v2 registry
+                    match registry.default_provider() {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("Error: No provider configured. {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
             };
 
@@ -780,7 +786,10 @@ async fn main() -> anyhow::Result<()> {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
-                Err(_) => None, // no-provider mode
+                Err(_) => {
+                    // v1 fields missing — try v2 registry
+                    registry.default_provider().ok()
+                }
             };
 
             let cwd = std::env::current_dir().unwrap_or_default();
