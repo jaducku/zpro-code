@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-use super::app::{App, DisplayRole};
+use super::app::{App, DisplayMessage, TextRole};
 
 // Logo is rendered with colors in render_welcome(), not as a static string
 
@@ -47,9 +47,11 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Show logo if no conversation yet (only system messages)
-    let has_conversation = app.messages.iter().any(|m| {
-        m.role == DisplayRole::User || m.role == DisplayRole::Assistant
-    });
+    let has_conversation = app.messages.iter().any(|m| matches!(m,
+        DisplayMessage::Text { role: TextRole::User | TextRole::Assistant, .. }
+        | DisplayMessage::ToolCall { .. }
+        | DisplayMessage::Agent { .. }
+    ));
 
     if !has_conversation {
         render_welcome(&mut lines, app, area.width);
@@ -150,31 +152,33 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
 
 fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     for msg in &app.messages {
-        match msg.role {
-            DisplayRole::System => {}
-            DisplayRole::User => {
+        match msg {
+            DisplayMessage::Text { role: TextRole::System, .. } => {}
+            DisplayMessage::Text { role: TextRole::User, content } => {
                 lines.push(Line::from(""));
-                let first = msg.content.lines().next().unwrap_or("").to_string();
+                let first = content.lines().next().unwrap_or("").to_string();
                 lines.push(Line::from(vec![
                     Span::styled(" > ", Style::default().fg(Color::Green).bold()),
                     Span::styled(first, Style::default().fg(Color::White).bold()),
                 ]));
-                for line in msg.content.lines().skip(1) {
+                for line in content.lines().skip(1) {
                     lines.push(Line::from(format!("   {}", line)));
                 }
             }
-            DisplayRole::Assistant => {
+            DisplayMessage::Text { role: TextRole::Assistant, content } => {
                 lines.push(Line::from(""));
-                for line in msg.content.lines() {
+                for line in content.lines() {
                     lines.push(Line::from(Span::styled(
                         format!("  {}", line),
                         Style::default().fg(Color::White),
                     )));
                 }
             }
-            DisplayRole::Tool => {
-                let name = msg.tool_name.as_deref().unwrap_or("Tool").to_string();
-                let content = truncate_content(&msg.content, 80);
+            DisplayMessage::ToolCall { name, result, input_summary, .. } => {
+                let content = truncate_content(
+                    result.as_deref().unwrap_or(input_summary),
+                    80,
+                );
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("  {} ", name),
@@ -183,6 +187,17 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
                     Span::raw(" "),
                     Span::styled(content, Style::default().fg(Color::DarkGray)),
                 ]));
+            }
+            DisplayMessage::Agent { description, status, .. } => {
+                let status_str = match status {
+                    super::app::AgentStatus::Running => "running",
+                    super::app::AgentStatus::Completed => "completed",
+                    super::app::AgentStatus::Failed => "failed",
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  [agent] '{}' {}", description, status_str),
+                    Style::default().fg(Color::DarkGray),
+                )));
             }
         }
     }
