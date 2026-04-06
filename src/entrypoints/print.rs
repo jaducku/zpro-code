@@ -197,6 +197,7 @@ pub async fn run_print_mode(
                 let status = if *is_error { "failed" } else { "completed" };
                 eprintln!("[agent] '{}' {}", description, status);
             }
+            QueryEvent::QueryCompleted { .. } => {}
         }
     }
 

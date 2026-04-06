@@ -670,7 +670,13 @@ async fn submit_query(
     let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
         match crate::query::engine::query(ctx, event_tx.clone(), cancel).await {
-            Ok(_) => {}
+            Ok(result) => {
+                // Send full message history back so TUI can sync api_messages
+                // (includes tool_use/tool_result that would otherwise be lost)
+                let _ = event_tx.send(crate::query::QueryEvent::QueryCompleted {
+                    messages: result.messages,
+                });
+            }
             Err(e) => {
                 let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
             }
@@ -771,7 +777,11 @@ async fn submit_query_skill(
     let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
         match crate::query::engine::query(ctx, event_tx.clone(), cancel).await {
-            Ok(_) => {}
+            Ok(result) => {
+                let _ = event_tx.send(crate::query::QueryEvent::QueryCompleted {
+                    messages: result.messages,
+                });
+            }
             Err(e) => {
                 let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
             }

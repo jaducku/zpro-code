@@ -102,6 +102,11 @@ pub enum QueryEvent {
         result: Option<String>,
         is_error: bool,
     },
+    /// Query completed — carries the full message history (including tool_use/tool_result)
+    /// so the TUI can sync api_messages for conversation continuity.
+    QueryCompleted {
+        messages: Vec<crate::types::message::ApiMessage>,
+    },
     /// Brief/SendUserMessage output for TUI rendering
     BriefMessage {
         message: String,

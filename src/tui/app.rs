@@ -553,22 +553,19 @@ impl App {
             }
             QueryEvent::ResponseComplete { .. } => {
                 self.is_loading = false;
-                // Add assistant response to api_messages for conversation continuity
+                // Token estimation for display
                 if let Some(last) = self.messages.last() {
-                    if last.role == DisplayRole::Assistant {
-                        // Estimate tokens if provider didn't send usage
-                        if self.token_count == 0 {
-                            let estimated = crate::services::token_estimation::estimate_tokens(&last.content);
-                            self.token_count = estimated;
-                        }
-                        self.api_messages.push(ApiMessage {
-                            role: Role::Assistant,
-                            content: vec![crate::types::content::ContentBlock::Text {
-                                text: last.content.clone(),
-                            }],
-                        });
+                    if last.role == DisplayRole::Assistant && self.token_count == 0 {
+                        self.token_count = crate::services::token_estimation::estimate_tokens(&last.content);
                     }
                 }
+                // Note: api_messages sync is handled by QueryCompleted event
+            }
+            QueryEvent::QueryCompleted { messages } => {
+                // Replace api_messages with the full message history from the query engine.
+                // This preserves tool_use/tool_result messages that were accumulated during
+                // the agentic loop, ensuring conversation continuity across turns.
+                self.api_messages = messages;
             }
             QueryEvent::Usage { input_tokens, output_tokens } => {
                 self.token_count += input_tokens + output_tokens;
