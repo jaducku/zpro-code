@@ -181,9 +181,9 @@ impl TuiCommand for ModelCommand {
                 CommandAction::Continue
             }
             KeyCode::Enter => {
-                if let Some((_alias, full_id, _)) = state.models.get(state.selected) {
+                if let Some((alias, _full_id, _)) = state.models.get(state.selected) {
                     CommandAction::Done(Some(CommandDoneResult {
-                        text: Some(full_id.clone()), // actual model ID for hot-swap
+                        text: Some(alias.clone()), // alias for registry resolve
                         ..Default::default()
                     }))
                 } else {
