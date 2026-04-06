@@ -291,9 +291,23 @@ pub async fn run_foreground(
         None
     };
 
-    let mut child_ctx = build_child_context(&params, parent_ctx, tools);
+    let mut child_ctx = if params.is_fork {
+        build_fork_context(&params, parent_ctx, tools)
+    } else {
+        build_child_context(&params, parent_ctx, tools)
+    };
     if let Some((ref worktree_path, _)) = worktree_session {
         child_ctx.cwd = worktree_path.clone();
+        // Inject worktree notice for fork children
+        if params.is_fork {
+            let notice = crate::services::fork_subagent::build_worktree_notice(
+                &parent_ctx.cwd, worktree_path,
+            );
+            child_ctx.messages.push(crate::types::message::ApiMessage {
+                role: crate::types::message::Role::User,
+                content: vec![crate::types::content::ContentBlock::Text { text: notice }],
+            });
+        }
     }
 
     let result = crate::query::engine::query(child_ctx, parent_ctx.event_tx.clone(), child_abort).await;
@@ -328,8 +342,12 @@ pub async fn run_background(
 ) -> Result<crate::tool::ToolResult, crate::types::AtomError> {
     let agent_id = uuid::Uuid::new_v4().to_string();
     let description = params.description.clone();
-    let mut tools = get_agent_tools(true); // background = restricted tools
-    // Share parent's MCP tools with background agent (read-only MCP tools are safe)
+    let mut tools = if params.is_fork {
+        get_agent_tools(false) // fork: full tool access
+    } else {
+        get_agent_tools(true) // normal background: restricted tools
+    };
+    // Share parent's MCP tools with child agent
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
     }
@@ -368,9 +386,23 @@ pub async fn run_background(
         None
     };
 
-    let mut child_ctx = build_child_context(&params, parent_ctx, tools);
+    let mut child_ctx = if params.is_fork {
+        build_fork_context(&params, parent_ctx, tools)
+    } else {
+        build_child_context(&params, parent_ctx, tools)
+    };
     if let Some((ref worktree_path, _)) = worktree_session {
         child_ctx.cwd = worktree_path.clone();
+        // Inject worktree notice for fork children
+        if params.is_fork {
+            let notice = crate::services::fork_subagent::build_worktree_notice(
+                &parent_ctx.cwd, worktree_path,
+            );
+            child_ctx.messages.push(crate::types::message::ApiMessage {
+                role: crate::types::message::Role::User,
+                content: vec![crate::types::content::ContentBlock::Text { text: notice }],
+            });
+        }
     }
 
     let event_tx = parent_ctx.event_tx.clone();
