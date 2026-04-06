@@ -102,12 +102,25 @@ pub async fn query(
         let mut current_tool_name = String::new();
         let mut current_tool_input = String::new();
 
-        while let Some(event) = stream.next().await {
+        // 5-minute timeout between stream chunks — if API stops sending data, don't hang forever.
+        let chunk_timeout = std::time::Duration::from_secs(300);
+
+        loop {
             if abort_signal.is_cancelled() {
                 return Err(crate::types::AtomError::Cancelled);
             }
 
-            let event = event?;
+            let next = tokio::time::timeout(chunk_timeout, stream.next()).await;
+            let event = match next {
+                Ok(Some(event)) => event?,
+                Ok(None) => break, // stream ended normally
+                Err(_) => {
+                    return Err(crate::types::AtomError::Api {
+                        message: "Stream timeout: no response from API for 300 seconds".into(),
+                        status: None,
+                    });
+                }
+            };
 
             match event {
                 StreamEvent::ContentBlockStart {
@@ -446,6 +459,8 @@ async fn execute_tool(
         app_state: ctx.app_state.clone(),
         mcp_manager: ctx.mcp_manager.clone(),
         agent_depth: ctx.agent_depth.unwrap_or(0),
+        messages: std::sync::Arc::new(ctx.messages.clone()),
+        query_source: ctx.query_source.clone(),
     };
 
     tool.execute(tool_ctx).await
@@ -486,6 +501,7 @@ mod tests {
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
             mcp_manager: None,
             agent_depth: None,
+            query_source: None,
         }
     }
 

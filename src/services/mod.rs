@@ -6,6 +6,7 @@ pub mod coordinator;
 pub mod context;
 pub mod cron;
 pub mod file_index;
+pub mod fork_subagent;
 pub mod hooks;
 pub mod keychain;
 pub mod mailbox;

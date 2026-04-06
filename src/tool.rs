@@ -94,6 +94,10 @@ pub struct ToolUseContext {
     pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
     pub mcp_manager: Option<Arc<crate::services::mcp::connection_manager::McpConnectionManager>>,
     pub agent_depth: u32,
+    /// Parent conversation messages (shared ownership to avoid deep clone)
+    pub messages: std::sync::Arc<Vec<crate::types::message::ApiMessage>>,
+    /// Source identifier for recursion guard (e.g., "agent:builtin:fork")
+    pub query_source: Option<String>,
 }
 
 #[cfg(test)]
@@ -124,6 +128,8 @@ impl ToolUseContext {
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
             mcp_manager: None,
             agent_depth: 0,
+            messages: std::sync::Arc::new(Vec::new()),
+            query_source: None,
         }
     }
 }

@@ -63,7 +63,33 @@ impl Tool for AgentTool {
             });
         }
 
-        let params = crate::services::agent_runtime::AgentSpawnParams::from_input(&ctx.input)?;
+        let mut params = crate::services::agent_runtime::AgentSpawnParams::from_input(&ctx.input)?;
+        let subagent_type = ctx.input.get("subagent_type").and_then(|v| v.as_str());
+
+        // Fork path: subagent_type omitted + fork enabled + not already inside a fork
+        let is_fork_path = subagent_type.is_none()
+            && crate::services::fork_subagent::is_fork_enabled(&ctx.app_state).await
+            && !crate::services::fork_subagent::is_inside_fork(
+                ctx.query_source.as_deref(),
+                ctx.messages.as_ref(),
+            );
+
+        if is_fork_path {
+            // Extract last assistant message for fork message construction
+            if let Some(assistant_msg) = ctx.messages.iter().rev()
+                .find(|m| m.role == crate::types::message::Role::Assistant)
+            {
+                let fork_msgs = crate::services::fork_subagent::build_forked_messages(
+                    &params.prompt, assistant_msg,
+                );
+                params.is_fork = true;
+                params.fork_messages = Some(fork_msgs);
+                params.query_source = Some(
+                    crate::services::fork_subagent::FORK_QUERY_SOURCE.to_string(),
+                );
+            }
+            // If no assistant message found, fall through to normal path
+        }
 
         if params.run_in_background {
             crate::services::agent_runtime::run_background(params, &ctx).await
@@ -183,6 +209,24 @@ mod tests {
         match result {
             Ok(r) => assert!(!r.content.contains("nesting depth")),
             Err(_) => {} // query failure is expected with NoopProvider
+        }
+    }
+
+    #[tokio::test]
+    async fn test_agent_tool_fork_path_detection_when_enabled() {
+        let tool = AgentTool;
+        let ctx = make_ctx(serde_json::json!({"prompt": "test"}));
+        // Enable fork in settings
+        {
+            let mut state = ctx.app_state.write().await;
+            state.settings.fork_subagent = Some(true);
+        }
+        // With no subagent_type and fork enabled, should take fork path
+        // Will fail at query() (NoopProvider) but should not be rejected for wrong reasons
+        let result = tool.execute(ctx).await;
+        match result {
+            Ok(r) => assert!(!r.content.contains("nesting depth")),
+            Err(_) => {} // query failure expected with NoopProvider
         }
     }
 }

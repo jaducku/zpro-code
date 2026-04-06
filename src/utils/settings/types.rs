@@ -71,6 +71,9 @@ pub struct SettingsJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_memory_directory: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fork_subagent: Option<bool>,
+
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_style: Option<String>,
@@ -113,6 +116,7 @@ impl Default for SettingsJson {
             enable_all_project_mcp_servers: None,
             auto_memory_enabled: None,
             auto_memory_directory: None,
+            fork_subagent: None,
             output_style: None,
             enabled_plugins: None,
             extra: HashMap::new(),
@@ -220,6 +224,19 @@ mod tests {
         let parsed: SettingsJson = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.model, settings.model);
         assert_eq!(parsed.fast_mode, settings.fast_mode);
+    }
+
+    #[test]
+    fn test_settings_fork_subagent() {
+        let json = r#"{"forkSubagent": true}"#;
+        let settings: SettingsJson = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.fork_subagent, Some(true));
+    }
+
+    #[test]
+    fn test_settings_fork_subagent_default_none() {
+        let settings = SettingsJson::default();
+        assert_eq!(settings.fork_subagent, None);
     }
 
     #[test]

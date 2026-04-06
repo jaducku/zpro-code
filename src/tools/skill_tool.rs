@@ -191,6 +191,7 @@ async fn execute_forked_skill(
         app_state: parent_ctx.app_state.clone(),
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: None,
+        query_source: None,
     };
 
     let result = query(query_ctx, event_tx, child_abort).await;
