@@ -332,6 +332,7 @@ pub async fn run_app(
             } => {
                 // Question prompt shown only in the input area (no chat message)
                 app.input_mode = InputMode::Question {
+                    question: ask.question,
                     options: ask.options.into_iter().map(|o| (o.label, o.description)).collect(),
                     selected: 0,
                     text_input: String::new(),

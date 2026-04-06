@@ -152,6 +152,7 @@ pub enum InputMode {
     },
     /// User question prompt inline
     Question {
+        question: String, // the question text from the tool
         options: Vec<(String, Option<String>)>, // (label, description)
         selected: usize,
         text_input: String,
@@ -560,14 +561,17 @@ impl App {
                 });
             }
             QueryEvent::ToolCallStart { id, name } => {
-                self.messages.push(DisplayMessage::ToolCall {
-                    id,
-                    name,
-                    input_summary: String::new(),
-                    result: None,
-                    is_error: false,
-                    collapsed: true,
-                });
+                // AskUserQuestion is handled by the Question input UI — skip the ToolCall badge
+                if name != "AskUserQuestion" {
+                    self.messages.push(DisplayMessage::ToolCall {
+                        id,
+                        name,
+                        input_summary: String::new(),
+                        result: None,
+                        is_error: false,
+                        collapsed: true,
+                    });
+                }
             }
             QueryEvent::ToolCallComplete { id, result } => {
                 // Reverse scan to find the matching ToolCall by id

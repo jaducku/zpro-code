@@ -352,13 +352,25 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             let input_text = Paragraph::new(vec![desc_line, keys_line]).block(input_block);
             frame.render_widget(input_text, expanded_area);
         }
-        InputMode::Question { options, selected, text_input, .. } => {
+        InputMode::Question { question, options, selected, text_input, .. } => {
             let border_style = Style::default().fg(Color::Blue);
+            let title = if question.is_empty() {
+                " Question ".to_string()
+            } else {
+                let max_title = (area.width as usize).saturating_sub(4);
+                let q = if question.chars().count() > max_title {
+                    let truncated: String = question.chars().take(max_title.saturating_sub(1)).collect();
+                    format!("{}…", truncated)
+                } else {
+                    question.clone()
+                };
+                format!(" {} ", q)
+            };
             let input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .title(Span::styled(" Question ", Style::default().fg(Color::Blue).bold()));
+                .title(Span::styled(title, Style::default().fg(Color::Blue).bold()));
 
             if options.is_empty() {
                 // Free text input
