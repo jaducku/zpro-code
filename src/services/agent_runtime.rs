@@ -110,6 +110,56 @@ pub fn build_child_context(
     }
 }
 
+/// Extract the last assistant message text from a completed query's messages.
+fn extract_agent_output(messages: &[crate::types::message::ApiMessage]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.role == crate::types::message::Role::Assistant)
+        .map(|m| {
+            m.content
+                .iter()
+                .filter_map(|c| match c {
+                    crate::types::content::ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_else(|| "Agent completed with no text output.".into())
+}
+
+/// Run an agent in foreground (blocking) mode.
+/// Calls query() and waits for completion, returning the assistant's response.
+pub async fn run_foreground(
+    params: AgentSpawnParams,
+    parent_ctx: &ToolUseContext,
+) -> Result<AgentResult, crate::types::AtomError> {
+    let agent_id = uuid::Uuid::new_v4().to_string();
+    let tools = get_agent_tools(false);
+    let child_abort = parent_ctx.abort_signal.child_token();
+
+    let child_ctx = build_child_context(&params, parent_ctx, tools);
+
+    let result = crate::query::engine::query(child_ctx, parent_ctx.event_tx.clone(), child_abort).await;
+
+    match result {
+        Ok(query_result) => {
+            let output = extract_agent_output(&query_result.messages);
+            Ok(AgentResult {
+                agent_id,
+                output,
+                is_error: false,
+            })
+        }
+        Err(e) => Ok(AgentResult {
+            agent_id,
+            output: format!("Agent failed: {}", e),
+            is_error: true,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
