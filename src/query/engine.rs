@@ -288,6 +288,7 @@ pub async fn query(
             }
 
             // PreToolUse hooks
+            let hook_ctx = HookContext { provider: Some(ctx.provider.clone()) };
             if !ctx.hooks.is_empty() {
                 let hook_result = execute_event_hooks(
                     "PreToolUse",
@@ -295,7 +296,7 @@ pub async fn query(
                     &tc.input,
                     &ctx.hooks,
                     &ctx.cwd,
-                    &HookContext { provider: None },
+                    &hook_ctx,
                 ).await;
                 match hook_result.outcome {
                     HookOutcome::Success => {}
@@ -331,7 +332,7 @@ pub async fn query(
                             &tc.input,
                             &ctx.hooks,
                             &ctx.cwd,
-                            &HookContext { provider: None },
+                            &hook_ctx,
                         ).await;
                         match hook_result.outcome {
                             HookOutcome::Blocking { reason } => {
