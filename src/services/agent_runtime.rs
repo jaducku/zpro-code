@@ -160,6 +160,90 @@ pub async fn run_foreground(
     }
 }
 
+/// Run an agent in background (async) mode.
+/// Spawns a tokio task, registers as BackgroundTask, returns immediately.
+pub async fn run_background(
+    params: AgentSpawnParams,
+    parent_ctx: &ToolUseContext,
+) -> Result<crate::tool::ToolResult, crate::types::AtomError> {
+    let agent_id = uuid::Uuid::new_v4().to_string();
+    let description = params.description.clone();
+    let tools = get_agent_tools(true); // background = restricted tools
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+    // Register as BackgroundTask in AppState
+    {
+        let mut state = parent_ctx.app_state.write().await;
+        state.background_tasks.insert(
+            agent_id.clone(),
+            crate::state::BackgroundTask {
+                id: agent_id.clone(),
+                task_type: "agent".into(),
+                command: Some(format!("Agent: {}", &description)),
+                status: crate::state::BackgroundTaskStatus::Running,
+                cancel_token: cancel_token.clone(),
+                output: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
+                created_at: chrono::Utc::now(),
+            },
+        );
+    }
+
+    let child_ctx = build_child_context(&params, parent_ctx, tools);
+
+    let event_tx = parent_ctx.event_tx.clone();
+    let app_state = parent_ctx.app_state.clone();
+    let agent_id_clone = agent_id.clone();
+    let description_clone = description.clone();
+
+    tokio::spawn(async move {
+        let result = crate::query::engine::query(child_ctx, event_tx.clone(), cancel_token).await;
+
+        let (result_text, is_error) = match result {
+            Ok(query_result) => {
+                let output = extract_agent_output(&query_result.messages);
+                (output, false)
+            }
+            Err(e) => (format!("Agent failed: {}", e), true),
+        };
+
+        // Update BackgroundTask status and store pending result
+        {
+            let mut state = app_state.write().await;
+            if let Some(task) = state.background_tasks.get_mut(&agent_id_clone) {
+                task.status = if is_error {
+                    crate::state::BackgroundTaskStatus::Failed
+                } else {
+                    crate::state::BackgroundTaskStatus::Completed
+                };
+                *task.output.lock().unwrap() = result_text.clone();
+            }
+
+            state.pending_agent_results.push(crate::state::app_state::PendingAgentResult {
+                agent_id: agent_id_clone,
+                description: description_clone,
+                result: result_text,
+                is_error,
+            });
+        }
+
+        // Note: QueryEvent::AgentCompleted will be added in Task 7
+    });
+
+    // Return immediately
+    let response = serde_json::json!({
+        "status": "background_started",
+        "agent_id": agent_id,
+        "description": description,
+        "note": "Agent is running in the background. You will be notified when it completes."
+    });
+
+    Ok(crate::tool::ToolResult {
+        content: serde_json::to_string_pretty(&response).unwrap_or_default(),
+        is_error: false,
+        content_blocks: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
