@@ -219,14 +219,20 @@ pub async fn run_background(
             }
 
             state.pending_agent_results.push(crate::state::app_state::PendingAgentResult {
-                agent_id: agent_id_clone,
-                description: description_clone,
-                result: result_text,
+                agent_id: agent_id_clone.clone(),
+                description: description_clone.clone(),
+                result: result_text.clone(),
                 is_error,
             });
         }
 
-        // Note: QueryEvent::AgentCompleted will be added in Task 7
+        // Notify TUI
+        let _ = event_tx.send(crate::query::types::QueryEvent::AgentCompleted {
+            agent_id: agent_id_clone,
+            description: description_clone,
+            result: Some(result_text),
+            is_error,
+        });
     });
 
     // Return immediately

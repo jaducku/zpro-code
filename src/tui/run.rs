@@ -594,6 +594,24 @@ async fn submit_query(
         }],
     });
 
+    // Inject pending background agent results
+    {
+        let mut state = app_state.write().await;
+        let pending = std::mem::take(&mut state.pending_agent_results);
+        for result in pending {
+            let status = if result.is_error { "failed" } else { "completed" };
+            app.api_messages.push(ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::Text {
+                    text: format!(
+                        "[Background agent '{}' {}: {}]",
+                        result.description, status, result.result
+                    ),
+                }],
+            });
+        }
+    }
+
     app.is_loading = true;
 
     // Create permission channel for this query

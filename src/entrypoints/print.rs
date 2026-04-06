@@ -192,6 +192,10 @@ pub async fn run_print_mode(
                     )?;
                 }
             }
+            QueryEvent::AgentCompleted { description, is_error, .. } => {
+                let status = if *is_error { "failed" } else { "completed" };
+                eprintln!("[agent] '{}' {}", description, status);
+            }
         }
     }
 

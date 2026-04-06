@@ -93,6 +93,13 @@ pub enum QueryEvent {
     Usage { input_tokens: u64, output_tokens: u64 },
     /// Error occurred
     Error(String),
+    /// Background agent completed or failed
+    AgentCompleted {
+        agent_id: String,
+        description: String,
+        result: Option<String>,
+        is_error: bool,
+    },
     /// Brief/SendUserMessage output for TUI rendering
     BriefMessage {
         message: String,

@@ -590,6 +590,18 @@ impl App {
                 });
                 self.is_loading = false;
             }
+            QueryEvent::AgentCompleted { agent_id: _, description, result, is_error } => {
+                let status = if is_error { "failed" } else { "completed" };
+                let summary = result
+                    .as_deref()
+                    .map(|r| if r.len() > 200 { &r[..200] } else { r })
+                    .unwrap_or("no output");
+                self.push_message(DisplayMessage {
+                    role: DisplayRole::System,
+                    content: format!("Background agent '{}' {}: {}", description, status, summary),
+                    tool_name: None,
+                });
+            }
         }
     }
 }
