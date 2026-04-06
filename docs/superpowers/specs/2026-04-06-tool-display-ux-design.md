@@ -107,8 +107,9 @@ pub fn tool_input_summary(name: &str, input: &serde_json::Value) -> String {
 
 fn truncate_line(s: &str, max: usize) -> String {
     let first_line = s.lines().next().unwrap_or(s);
-    if first_line.len() > max {
-        format!("{}…", &first_line[..max])
+    if first_line.chars().count() > max {
+        let truncated: String = first_line.chars().take(max).collect();
+        format!("{}…", truncated)
     } else {
         first_line.to_string()
     }
@@ -149,20 +150,43 @@ fn truncate_line(s: &str, max: usize) -> String {
 **Enable:** `crossterm::execute!(stdout, EnableMouseCapture)` in `run_app`, `DisableMouseCapture` on exit.
 
 **Hit area tracking:**
+
+`render_conversation` currently takes `&App` (immutable). To record hit areas during render, return them from the render function instead of mutating App:
+
 ```rust
+// ui.rs
+fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, width: u16) -> Vec<HitArea> {
+    let mut hit_areas = Vec::new();
+    // ... when rendering ToolCall/Agent header:
+    hit_areas.push(HitArea { y: current_line_y, message_idx: i });
+    // ...
+    hit_areas
+}
+
 pub struct HitArea {
     pub y: u16,
     pub message_idx: usize,
 }
+```
 
+`render_messages` returns `Vec<HitArea>`, `render`/`render_in_area` returns it out to `run.rs`, which stores it on `app.hit_areas` after `terminal.draw()`.
+
+```rust
 // In App:
 pub hit_areas: Vec<HitArea>,
 ```
 
-**Flow:**
-1. `render_conversation` records `HitArea` for each ToolCall/Agent header line
-2. `hit_areas` cleared at start of each frame
-3. `Event::Mouse(Down(Left), row, ..)` → find `hit_areas` entry where `y == row` → toggle `collapsed`
+**Mouse event handling:**
+```rust
+Event::Mouse(MouseEvent {
+    kind: MouseEventKind::Down(MouseButton::Left),
+    row, ..
+}) => {
+    if let Some(ha) = app.hit_areas.iter().find(|h| h.y == row) {
+        // toggle collapsed on messages[ha.message_idx]
+    }
+}
+```
 
 ### 6. Subagent Display
 
@@ -170,6 +194,16 @@ Subagent events map to `DisplayMessage::Agent`:
 - `QueryEvent::AgentCompleted { agent_id, description, result, is_error }` → update existing Agent entry or create new one
 - Background agent start: create `Agent { status: Running }` (requires new event or creation at AgentTool execution)
 - For now, agents appear on completion (matching current behavior), with `AgentStatus::Completed` or `Failed`
+
+### 7. Migration Notes
+
+**DisplayMessage call sites:** All existing `DisplayMessage { role: DisplayRole::..., content, tool_name }` constructions in `run.rs`, `app.rs` must migrate to `DisplayMessage::Text { role: TextRole::..., content }`. This is mechanical — ~30 call sites, all in `run.rs` and `app.rs`.
+
+**`restore_display_messages`:** `App::restore_display_messages` currently creates `DisplayMessage` structs from `ApiMessage`. Updated to create `DisplayMessage::Text` variants. Tool call history from persisted sessions will display as text (no ToolCall/Agent variants) — acceptable since tool inputs aren't stored in `ApiMessage`.
+
+**ToolCall lookup by id:** `handle_query_event` uses `messages.iter_mut().rev().find()` to locate ToolCall by id. Reverse scan is efficient since the target is always near the end of the vec. No HashMap needed.
+
+**Per-tool spinner:** Use the existing global `app.start_time.elapsed()` for spinner frame calculation — all in-progress tool calls share the same spinner frame. Simpler than per-tool timing.
 
 ## File Changes
 
