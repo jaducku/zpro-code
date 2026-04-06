@@ -29,6 +29,7 @@ pub struct QueryContext {
     pub max_budget_usd: Option<f64>,
     pub commands: Arc<CommandRegistry>,
     pub provider: Arc<dyn LlmProvider>,
+    pub registry: Option<Arc<crate::services::api::registry::ProviderRegistry>>,
     pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
     pub mcp_manager: Option<Arc<crate::services::mcp::connection_manager::McpConnectionManager>>,
     /// Current agent nesting depth (0 = top-level)

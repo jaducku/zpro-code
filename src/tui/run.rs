@@ -37,6 +37,7 @@ pub async fn run_app(
     allow_rules: Vec<PermissionRule>,
     deny_rules: Vec<PermissionRule>,
     tools_filter: Option<Vec<String>>,
+    registry: Arc<crate::services::api::registry::ProviderRegistry>,
 ) -> io::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -234,12 +235,12 @@ pub async fn run_app(
                                     app.accept_typeahead();
                                 }
                                 let input = app.take_input();
-                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state).await;
+                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
                             } else {
                                 let typeahead_accepted = app.handle_key(key);
                                 if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
                                 }
                             }
                         }
@@ -329,14 +330,15 @@ async fn handle_submit(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
-        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
+        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
+    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -364,6 +366,7 @@ async fn dispatch_slash_command(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     // First pass: identify the command kind and extract needed data without
     // holding a mutable borrow on app.
@@ -533,7 +536,7 @@ async fn dispatch_slash_command(
                     } else {
                         // Submit the prompt text as a query — but DON'T show the raw skill content
                         // submit_query_hidden sends to LLM without displaying the prompt in chat
-                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
+                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
                     }
                 }
                 Err(e) => {
@@ -571,6 +574,7 @@ async fn submit_query(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     let Some(provider) = provider.clone() else {
         app.push_message(DisplayMessage {
@@ -658,6 +662,7 @@ async fn submit_query(
         max_budget_usd: None,  // TUI mode: no budget limit
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        registry: Some(registry.clone()),
         app_state: app_state.clone(),
         mcp_manager: None,
         agent_depth: None,
@@ -703,6 +708,7 @@ async fn submit_query_skill(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     let Some(provider) = provider.clone() else {
         app.loading_label = None;
@@ -767,6 +773,7 @@ async fn submit_query_skill(
         max_budget_usd: None,
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        registry: Some(registry.clone()),
         app_state: app_state.clone(),
         mcp_manager: None,
         agent_depth: None,

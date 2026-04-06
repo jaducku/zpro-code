@@ -188,6 +188,7 @@ async fn execute_forked_skill(
         max_budget_usd: None,
         commands: parent_ctx.commands.clone(),
         provider: parent_ctx.provider.clone(),
+        registry: None,
         app_state: parent_ctx.app_state.clone(),
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: None,

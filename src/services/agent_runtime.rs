@@ -124,6 +124,7 @@ pub fn build_child_context(
         max_budget_usd: None,
         commands: parent_ctx.commands.clone(),
         provider: parent_ctx.provider.clone(),
+        registry: None, // TODO: propagate parent_ctx.registry.clone() when subagents need multi-provider
         app_state: parent_ctx.app_state.clone(),
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: Some(parent_ctx.agent_depth + 1),
@@ -197,6 +198,7 @@ pub fn build_fork_context(
         max_budget_usd: None,
         commands: parent_ctx.commands.clone(),
         provider: parent_ctx.provider.clone(),
+        registry: None, // TODO: propagate parent_ctx.registry.clone() when subagents need multi-provider
         app_state: parent_ctx.app_state.clone(),
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: Some(parent_ctx.agent_depth + 1),

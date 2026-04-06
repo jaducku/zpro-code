@@ -301,7 +301,7 @@ pub async fn query(
             }
 
             // PreToolUse hooks
-            let hook_ctx = HookContext { provider: Some(ctx.provider.clone()) };
+            let hook_ctx = HookContext { provider: Some(ctx.provider.clone()), registry: ctx.registry.clone() };
             if !ctx.hooks.is_empty() {
                 let hook_result = execute_event_hooks(
                     "PreToolUse",
@@ -446,6 +446,7 @@ async fn execute_tool(
         abort_signal: abort_signal.clone(),
         progress_tx,
         provider: ctx.provider.clone(),
+        registry: ctx.registry.clone(),
         tools: tools_arc.clone(),
         commands: ctx.commands.clone(),
         system_prompt: ctx.system_prompt.clone().unwrap_or_default(),
@@ -498,6 +499,7 @@ mod tests {
             max_budget_usd: None,
             commands: Arc::new(crate::commands::registry::CommandRegistry::empty()),
             provider: Arc::new(crate::services::api::provider::NoopProvider),
+            registry: None,
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
             mcp_manager: None,
             agent_depth: None,

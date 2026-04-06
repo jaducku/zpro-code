@@ -81,6 +81,7 @@ pub struct ToolUseContext {
     pub progress_tx: tokio::sync::mpsc::UnboundedSender<ToolProgress>,
     // Shared state for sub-agent spawning (SkillTool, AgentTool)
     pub provider: Arc<dyn crate::services::api::provider::LlmProvider>,
+    pub registry: Option<Arc<crate::services::api::registry::ProviderRegistry>>,
     pub tools: Arc<Vec<Box<dyn Tool>>>,
     pub commands: Arc<crate::commands::registry::CommandRegistry>,
     pub system_prompt: Vec<crate::services::api::types::SystemBlock>,
@@ -112,6 +113,7 @@ impl ToolUseContext {
             abort_signal: CancellationToken::new(),
             progress_tx,
             provider: Arc::new(crate::services::api::provider::NoopProvider),
+            registry: None,
             tools: Arc::new(Vec::new()),
             commands: Arc::new(crate::commands::registry::CommandRegistry::empty()),
             system_prompt: Vec::new(),
