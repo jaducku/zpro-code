@@ -68,9 +68,13 @@ pub struct AtomConfig {
 }
 
 impl AtomConfig {
-    /// Load config from ~/.zpro-code/config.json
+    /// Load config from ~/.zpro-code/config.json.
+    /// If no config file exists, creates a sample config first.
     pub fn load() -> Self {
         let path = crate::utils::paths::global_config_dir().join("config.json");
+        if !path.exists() {
+            let _ = Self::save_sample_to(&path);
+        }
         Self::load_from(&path)
     }
 
@@ -79,6 +83,73 @@ impl AtomConfig {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => Self::default(),
         }
+    }
+
+    /// Create a sample config with OpenRouter free models pre-registered.
+    /// User only needs to replace the API key placeholder to get started.
+    pub fn save_sample() -> anyhow::Result<()> {
+        let path = crate::utils::paths::global_config_dir().join("config.json");
+        Self::save_sample_to(&path)
+    }
+
+    pub fn save_sample_to(path: &Path) -> anyhow::Result<()> {
+        let mut providers = HashMap::new();
+        providers.insert(
+            "openrouter".to_string(),
+            ProviderConfigJson {
+                api_base: Some("https://openrouter.ai/api/v1".to_string()),
+                api_key: Some("YOUR_OPENROUTER_API_KEY".to_string()),
+            },
+        );
+
+        let mut llms = HashMap::new();
+        llms.insert(
+            "sonnet".to_string(),
+            LlmConfigJson {
+                provider: Some("openrouter".to_string()),
+                model_id: "anthropic/claude-sonnet-4-20250514".to_string(),
+                api_base: None,
+                api_key: None,
+                context_window: None,
+                max_output_tokens: None,
+            },
+        );
+        llms.insert(
+            "flash".to_string(),
+            LlmConfigJson {
+                provider: Some("openrouter".to_string()),
+                model_id: "google/gemini-2.5-flash-preview-04-17".to_string(),
+                api_base: None,
+                api_key: None,
+                context_window: None,
+                max_output_tokens: None,
+            },
+        );
+        llms.insert(
+            "free".to_string(),
+            LlmConfigJson {
+                provider: Some("openrouter".to_string()),
+                model_id: "google/gemma-3-27b-it:free".to_string(),
+                api_base: None,
+                api_key: None,
+                context_window: None,
+                max_output_tokens: None,
+            },
+        );
+
+        let config = AtomConfig {
+            default_model: Some("free".to_string()),
+            providers: Some(providers),
+            llms: Some(llms),
+            ..Default::default()
+        };
+
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let json = serde_json::to_string_pretty(&config)?;
+        std::fs::write(path, json)?;
+        Ok(())
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
@@ -231,6 +302,52 @@ mod tests {
         assert_eq!(llms["sonnet"].model_id, "anthropic/claude-sonnet-4-20250514");
         assert_eq!(llms["qwen"].api_base.as_deref(), Some("http://localhost:8000/v1"));
         assert_eq!(llms["flash"].context_window, Some(1_000_000));
+    }
+
+    #[test]
+    fn test_save_sample_creates_valid_v2_config() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("config.json");
+        AtomConfig::save_sample_to(&path).unwrap();
+
+        assert!(path.exists());
+        let config = AtomConfig::load_from(&path);
+
+        // Must have v2 fields
+        let providers = config.providers.as_ref().expect("providers should exist");
+        assert!(providers.contains_key("openrouter"));
+        assert_eq!(
+            providers["openrouter"].api_base.as_deref(),
+            Some("https://openrouter.ai/api/v1")
+        );
+
+        let llms = config.llms.as_ref().expect("llms should exist");
+        assert!(llms.contains_key("sonnet"));
+        assert!(llms.contains_key("flash"));
+        assert!(llms.contains_key("free"));
+        assert_eq!(llms["sonnet"].provider.as_deref(), Some("openrouter"));
+        assert_eq!(llms["free"].model_id, "google/gemma-3-27b-it:free");
+
+        assert_eq!(config.default_model.as_deref(), Some("free"));
+
+        // v1 fields should NOT be populated
+        assert!(config.provider.is_none());
+        assert!(config.api_key.is_none());
+        assert!(config.models.is_empty());
+    }
+
+    #[test]
+    fn test_load_auto_creates_sample_when_missing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("config.json");
+        assert!(!path.exists());
+
+        // Simulate what load() does for a missing file
+        AtomConfig::save_sample_to(&path).unwrap();
+        let config = AtomConfig::load_from(&path);
+
+        assert!(config.providers.is_some());
+        assert!(config.llms.is_some());
     }
 
     #[test]
