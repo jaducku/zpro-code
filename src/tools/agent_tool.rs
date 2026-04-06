@@ -54,51 +54,27 @@ impl Tool for AgentTool {
     }
 
     async fn execute(&self, ctx: ToolUseContext) -> crate::types::Result<ToolResult> {
-        let prompt = ctx
-            .input
-            .get("prompt")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::types::AtomError::Tool {
-                tool_name: "Agent".into(),
-                message: "Missing required 'prompt' parameter".into(),
-            })?;
+        // Enforce max nesting depth
+        if ctx.agent_depth >= 3 {
+            return Ok(ToolResult {
+                content: "Maximum agent nesting depth (3) reached. Cannot spawn further sub-agents.".into(),
+                is_error: true,
+                content_blocks: None,
+            });
+        }
 
-        let description = ctx
-            .input
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("agent task");
+        let params = crate::services::agent_runtime::AgentSpawnParams::from_input(&ctx.input)?;
 
-        let subagent_type = ctx.input.get("subagent_type").and_then(|v| v.as_str());
-        let model = ctx.input.get("model").and_then(|v| v.as_str());
-        let run_in_background = ctx
-            .input
-            .get("run_in_background")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let isolation = ctx.input.get("isolation").and_then(|v| v.as_str());
-
-        let response = serde_json::json!({
-            "status": "agent_dispatched",
-            "prompt": prompt,
-            "description": description,
-            "subagent_type": subagent_type,
-            "model": model,
-            "run_in_background": run_in_background,
-            "isolation": isolation,
-            "note": "Agent dispatched. The agent will process this task and return results."
-        });
-
-        Ok(ToolResult {
-            content: serde_json::to_string_pretty(&response).map_err(|e| {
-                crate::types::AtomError::Tool {
-                    tool_name: "Agent".into(),
-                    message: format!("Failed to serialize response: {}", e),
-                }
-            })?,
-            is_error: false,
-            content_blocks: None,
-        })
+        if params.run_in_background {
+            crate::services::agent_runtime::run_background(params, &ctx).await
+        } else {
+            let result = crate::services::agent_runtime::run_foreground(params, &ctx).await?;
+            Ok(ToolResult {
+                content: result.output,
+                is_error: result.is_error,
+                content_blocks: None,
+            })
+        }
     }
 
     fn can_use(&self, _ctx: &ToolUseContext) -> ValidationResult {
@@ -136,6 +112,7 @@ impl Tool for AgentTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     fn make_ctx(input: serde_json::Value) -> ToolUseContext {
         ToolUseContext::test(input)
     }
@@ -178,66 +155,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_tool_execute_dispatch() {
-        let tool = AgentTool;
-        let ctx = make_ctx(serde_json::json!({
-            "prompt": "Fix the build errors",
-            "description": "fix build"
-        }));
-        let result = tool.execute(ctx).await.unwrap();
-        assert!(!result.is_error);
-
-        let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
-        assert_eq!(parsed["status"], "agent_dispatched");
-        assert_eq!(parsed["prompt"], "Fix the build errors");
-        assert_eq!(parsed["description"], "fix build");
-        assert_eq!(parsed["run_in_background"], false);
-        assert!(parsed["subagent_type"].is_null());
-        assert!(parsed["model"].is_null());
-        assert!(parsed["isolation"].is_null());
-    }
-
-    #[tokio::test]
-    async fn test_agent_tool_execute_all_fields() {
-        let tool = AgentTool;
-        let ctx = make_ctx(serde_json::json!({
-            "prompt": "Refactor the parser",
-            "description": "refactor parser",
-            "subagent_type": "research",
-            "model": "claude-sonnet-4-20250514",
-            "run_in_background": true,
-            "isolation": "worktree"
-        }));
-        let result = tool.execute(ctx).await.unwrap();
-        assert!(!result.is_error);
-
-        let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
-        assert_eq!(parsed["status"], "agent_dispatched");
-        assert_eq!(parsed["subagent_type"], "research");
-        assert_eq!(parsed["model"], "claude-sonnet-4-20250514");
-        assert_eq!(parsed["run_in_background"], true);
-        assert_eq!(parsed["isolation"], "worktree");
-    }
-
-    #[tokio::test]
-    async fn test_agent_tool_execute_defaults() {
-        let tool = AgentTool;
-        let ctx = make_ctx(serde_json::json!({
-            "prompt": "Do something"
-        }));
-        let result = tool.execute(ctx).await.unwrap();
-        assert!(!result.is_error);
-
-        let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
-        assert_eq!(parsed["description"], "agent task");
-        assert_eq!(parsed["run_in_background"], false);
-    }
-
-    #[tokio::test]
     async fn test_agent_tool_missing_prompt() {
         let tool = AgentTool;
         let ctx = make_ctx(serde_json::json!({}));
         let result = tool.execute(ctx).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_agent_tool_max_depth_rejected() {
+        let tool = AgentTool;
+        let mut ctx = make_ctx(serde_json::json!({"prompt": "test"}));
+        ctx.agent_depth = 3;
+        let result = tool.execute(ctx).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("nesting depth"));
+    }
+
+    #[tokio::test]
+    async fn test_agent_tool_depth_2_allowed() {
+        let tool = AgentTool;
+        let mut ctx = make_ctx(serde_json::json!({"prompt": "test"}));
+        ctx.agent_depth = 2;
+        // This will try to run a real query which will fail with NoopProvider,
+        // but should NOT be rejected for depth
+        let result = tool.execute(ctx).await;
+        match result {
+            Ok(r) => assert!(!r.content.contains("nesting depth")),
+            Err(_) => {} // query failure is expected with NoopProvider
+        }
     }
 }
