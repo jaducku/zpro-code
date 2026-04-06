@@ -2,6 +2,29 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Deserializes from either:
+/// - String: "anthropic/claude-sonnet-4-20250514" (shorthand)
+/// - Object: { "id": "...", "context_window": 200000 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ModelEntryJson {
+    Short(String),
+    Full {
+        id: String,
+        context_window: Option<u64>,
+        max_output_tokens: Option<u32>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConfigJson {
+    #[serde(rename = "type")]
+    pub provider_type: Option<String>,
+    pub api_base: Option<String>,
+    pub api_key: Option<String>,
+    pub models: Option<HashMap<String, ModelEntryJson>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AtomConfig {
     /// Provider: "openrouter", "codex", "openai", "ollama", "custom"
@@ -31,6 +54,14 @@ pub struct AtomConfig {
     /// Tavily API key for web search
     #[serde(default)]
     pub tavily_api_key: Option<String>,
+
+    /// Provider registry: named providers with their configs
+    #[serde(default)]
+    pub providers: Option<HashMap<String, ProviderConfigJson>>,
+
+    /// Default provider name (key into providers map)
+    #[serde(default)]
+    pub default_provider: Option<String>,
 }
 
 impl AtomConfig {
@@ -156,5 +187,81 @@ mod tests {
         let config = AtomConfig::load_from(std::path::Path::new("/nonexistent/path/config.json"));
         assert!(config.provider.is_none());
         assert!(config.models.is_empty());
+    }
+
+    #[test]
+    fn test_parse_config_with_providers() {
+        let json = r#"{
+            "providers": {
+                "or": {
+                    "type": "openai",
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "api_key": "sk-or-test",
+                    "models": {
+                        "sonnet": "anthropic/claude-sonnet-4-20250514",
+                        "flash": {
+                            "id": "google/gemini-2.5-flash",
+                            "context_window": 1000000,
+                            "max_output_tokens": 65536
+                        }
+                    }
+                },
+                "vllm": {
+                    "type": "openai",
+                    "api_base": "http://localhost:8000/v1",
+                    "models": {
+                        "qwen": { "id": "Qwen/Qwen2.5-72B" }
+                    }
+                }
+            },
+            "default_provider": "or",
+            "default_model": "sonnet"
+        }"#;
+        let config: AtomConfig = serde_json::from_str(json).unwrap();
+        let providers = config.providers.as_ref().unwrap();
+        assert_eq!(providers.len(), 2);
+
+        let or = &providers["or"];
+        assert_eq!(or.api_base.as_deref(), Some("https://openrouter.ai/api/v1"));
+        let models = or.models.as_ref().unwrap();
+        assert_eq!(models.len(), 2);
+
+        // String shorthand
+        match &models["sonnet"] {
+            ModelEntryJson::Short(id) => assert_eq!(id, "anthropic/claude-sonnet-4-20250514"),
+            _ => panic!("Expected Short variant"),
+        }
+        // Object form
+        match &models["flash"] {
+            ModelEntryJson::Full {
+                id,
+                context_window,
+                max_output_tokens,
+            } => {
+                assert_eq!(id, "google/gemini-2.5-flash");
+                assert_eq!(*context_window, Some(1_000_000));
+                assert_eq!(*max_output_tokens, Some(65536));
+            }
+            _ => panic!("Expected Full variant"),
+        }
+
+        assert_eq!(config.default_provider.as_deref(), Some("or"));
+    }
+
+    #[test]
+    fn test_parse_config_without_providers_backward_compat() {
+        let json = r#"{
+            "provider": "openrouter",
+            "api_key": "sk-test",
+            "default_model": "fast",
+            "models": { "fast": "google/gemma-3-27b-it:free" }
+        }"#;
+        let config: AtomConfig = serde_json::from_str(json).unwrap();
+        assert!(config.providers.is_none());
+        assert_eq!(config.provider.as_deref(), Some("openrouter"));
+        assert_eq!(
+            config.default_model(),
+            Some("google/gemma-3-27b-it:free".into())
+        );
     }
 }
