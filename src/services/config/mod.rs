@@ -2,27 +2,26 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Deserializes from either:
-/// - String: "anthropic/claude-sonnet-4-20250514" (shorthand)
-/// - Object: { "id": "...", "context_window": 200000 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ModelEntryJson {
-    Short(String),
-    Full {
-        id: String,
-        context_window: Option<u64>,
-        max_output_tokens: Option<u32>,
-    },
-}
-
+/// Provider connection template (api_base + api_key only, no models)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfigJson {
-    #[serde(rename = "type")]
-    pub provider_type: Option<String>,
     pub api_base: Option<String>,
     pub api_key: Option<String>,
-    pub models: Option<HashMap<String, ModelEntryJson>>,
+}
+
+/// LLM registration entry — references a provider or has inline connection info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmConfigJson {
+    /// Reference to a provider in the `providers` map
+    pub provider: Option<String>,
+    /// Raw model ID sent to the API
+    pub model_id: String,
+    /// Inline connection info (when no provider reference)
+    pub api_base: Option<String>,
+    pub api_key: Option<String>,
+    /// Optional overrides
+    pub context_window: Option<u64>,
+    pub max_output_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -58,6 +57,10 @@ pub struct AtomConfig {
     /// Provider registry: named providers with their configs
     #[serde(default)]
     pub providers: Option<HashMap<String, ProviderConfigJson>>,
+
+    /// Registered LLMs: name → config (provider ref or inline)
+    #[serde(default)]
+    pub llms: Option<HashMap<String, LlmConfigJson>>,
 
     /// Default provider name (key into providers map)
     #[serde(default)]
@@ -190,62 +193,44 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_config_with_providers() {
+    fn test_parse_config_with_providers_and_llms() {
         let json = r#"{
             "providers": {
                 "or": {
-                    "type": "openai",
                     "api_base": "https://openrouter.ai/api/v1",
-                    "api_key": "sk-or-test",
-                    "models": {
-                        "sonnet": "anthropic/claude-sonnet-4-20250514",
-                        "flash": {
-                            "id": "google/gemini-2.5-flash",
-                            "context_window": 1000000,
-                            "max_output_tokens": 65536
-                        }
-                    }
-                },
-                "vllm": {
-                    "type": "openai",
-                    "api_base": "http://localhost:8000/v1",
-                    "models": {
-                        "qwen": { "id": "Qwen/Qwen2.5-72B" }
-                    }
+                    "api_key": "sk-or-test"
                 }
             },
-            "default_provider": "or",
+            "llms": {
+                "sonnet": {
+                    "provider": "or",
+                    "model_id": "anthropic/claude-sonnet-4-20250514"
+                },
+                "qwen": {
+                    "api_base": "http://localhost:8000/v1",
+                    "model_id": "Qwen/Qwen2.5-72B"
+                },
+                "flash": {
+                    "provider": "or",
+                    "model_id": "google/gemini-2.5-flash",
+                    "context_window": 1000000,
+                    "max_output_tokens": 65536
+                }
+            },
             "default_model": "sonnet"
         }"#;
         let config: AtomConfig = serde_json::from_str(json).unwrap();
+
         let providers = config.providers.as_ref().unwrap();
-        assert_eq!(providers.len(), 2);
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers["or"].api_base.as_deref(), Some("https://openrouter.ai/api/v1"));
 
-        let or = &providers["or"];
-        assert_eq!(or.api_base.as_deref(), Some("https://openrouter.ai/api/v1"));
-        let models = or.models.as_ref().unwrap();
-        assert_eq!(models.len(), 2);
-
-        // String shorthand
-        match &models["sonnet"] {
-            ModelEntryJson::Short(id) => assert_eq!(id, "anthropic/claude-sonnet-4-20250514"),
-            _ => panic!("Expected Short variant"),
-        }
-        // Object form
-        match &models["flash"] {
-            ModelEntryJson::Full {
-                id,
-                context_window,
-                max_output_tokens,
-            } => {
-                assert_eq!(id, "google/gemini-2.5-flash");
-                assert_eq!(*context_window, Some(1_000_000));
-                assert_eq!(*max_output_tokens, Some(65536));
-            }
-            _ => panic!("Expected Full variant"),
-        }
-
-        assert_eq!(config.default_provider.as_deref(), Some("or"));
+        let llms = config.llms.as_ref().unwrap();
+        assert_eq!(llms.len(), 3);
+        assert_eq!(llms["sonnet"].provider.as_deref(), Some("or"));
+        assert_eq!(llms["sonnet"].model_id, "anthropic/claude-sonnet-4-20250514");
+        assert_eq!(llms["qwen"].api_base.as_deref(), Some("http://localhost:8000/v1"));
+        assert_eq!(llms["flash"].context_window, Some(1_000_000));
     }
 
     #[test]
@@ -258,6 +243,7 @@ mod tests {
         }"#;
         let config: AtomConfig = serde_json::from_str(json).unwrap();
         assert!(config.providers.is_none());
+        assert!(config.llms.is_none());
         assert_eq!(config.provider.as_deref(), Some("openrouter"));
         assert_eq!(
             config.default_model(),

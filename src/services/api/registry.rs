@@ -41,70 +41,9 @@ impl ProviderRegistry {
     }
 
     /// Build from AtomConfig.
-    pub fn from_config(config: &crate::services::config::AtomConfig) -> anyhow::Result<Self> {
-        use crate::services::config::ModelEntryJson;
-
-        let default_provider = config.default_provider.clone()
-            .unwrap_or_else(|| "_cli".into());
-        let default_model = config.default_model.clone();
-
-        let mut registry = Self::new(default_provider, default_model);
-
-        if let Some(ref providers) = config.providers {
-            for (name, pcj) in providers {
-                if name.starts_with('_') {
-                    anyhow::bail!("Provider name '{}' uses reserved '_' prefix", name);
-                }
-                let mut models = HashMap::new();
-                if let Some(ref model_map) = pcj.models {
-                    for (alias, entry_json) in model_map {
-                        let entry = match entry_json {
-                            ModelEntryJson::Short(id) => ModelEntry {
-                                id: id.clone(),
-                                context_window: None,
-                                max_output_tokens: None,
-                            },
-                            ModelEntryJson::Full { id, context_window, max_output_tokens } => ModelEntry {
-                                id: id.clone(),
-                                context_window: *context_window,
-                                max_output_tokens: *max_output_tokens,
-                            },
-                        };
-                        models.insert(alias.clone(), entry);
-                    }
-                }
-                registry.register(name.clone(), ProviderConfig {
-                    provider_type: pcj.provider_type.clone().unwrap_or_else(|| "openai".into()),
-                    api_base: pcj.api_base.clone(),
-                    api_key: pcj.api_key.clone(),
-                    models,
-                });
-            }
-        }
-
-        // Legacy fallback: if no `providers` section, build from top-level fields
-        if config.providers.is_none() {
-            if let Some(ref api_base) = config.api_base_for_provider() {
-                let mut models = HashMap::new();
-                for (alias, raw_id) in &config.models {
-                    models.insert(alias.clone(), ModelEntry {
-                        id: raw_id.clone(),
-                        context_window: None,
-                        max_output_tokens: None,
-                    });
-                }
-                let provider_name = config.provider.clone().unwrap_or_else(|| "default".into());
-                registry.register(provider_name.clone(), ProviderConfig {
-                    provider_type: "openai".into(),
-                    api_base: Some(api_base.clone()),
-                    api_key: config.api_key.clone(),
-                    models,
-                });
-                registry.set_default(provider_name, config.default_model.clone());
-            }
-        }
-
-        Ok(registry)
+    /// TODO(Task 2): rewrite for v2 model-centric schema (LlmConfigJson)
+    pub fn from_config(_config: &crate::services::config::AtomConfig) -> anyhow::Result<Self> {
+        todo!("Task 2: rewrite from_config for v2 LlmConfigJson schema")
     }
 
     /// Register a provider config. Must be called before wrapping in Arc.
