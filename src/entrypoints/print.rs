@@ -92,6 +92,7 @@ pub async fn run_print_mode(
         max_budget_usd,
         commands: Arc::new(CommandRegistry::empty()),
         provider: provider.clone(),
+        registry: None,
         app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
         mcp_manager: None,
         agent_depth: None,

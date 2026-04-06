@@ -658,6 +658,7 @@ async fn submit_query(
         max_budget_usd: None,  // TUI mode: no budget limit
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        registry: None,
         app_state: app_state.clone(),
         mcp_manager: None,
         agent_depth: None,
@@ -767,6 +768,7 @@ async fn submit_query_skill(
         max_budget_usd: None,
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        registry: None,
         app_state: app_state.clone(),
         mcp_manager: None,
         agent_depth: None,

@@ -415,7 +415,7 @@ mod tests {
             &serde_json::json!({}),
             &empty_settings(),
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -444,7 +444,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -473,7 +473,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(
@@ -507,7 +507,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(
@@ -540,7 +540,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         match &result.outcome {
@@ -629,7 +629,7 @@ more output"#;
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         // HTTP hook should be filtered out, resulting in Success (no hooks executed)
