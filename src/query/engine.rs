@@ -50,7 +50,7 @@ pub async fn query(
 
         // 0. Check token budget — auto-compact if needed
         let estimated_tokens = crate::services::token_estimation::estimate_message_tokens(&ctx.messages);
-        let context_window = 128_000; // TODO: get from provider.model_info()
+        let context_window = ctx.provider.model_info().context_window;
         if crate::services::compact::needs_compaction(estimated_tokens, context_window) && ctx.messages.len() > 4 {
             // Simple compaction: keep system context + last N messages
             let keep_last = 6; // keep last 3 turns (6 messages: user+assistant pairs)

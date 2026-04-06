@@ -37,10 +37,24 @@ impl LocalCommand for CostCommand {
         &Self::META
     }
 
-    async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        // TODO: read actual cost/token data from session state
+    async fn call(&self, _args: &str, ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
+        let state = ctx.app_state.read().await;
+        let usage = &state.token_usage;
+        let cost = state.session_cost;
+        let total_tokens = usage.input_tokens + usage.output_tokens;
+        let cache_info = if usage.cache_read_input_tokens > 0 || usage.cache_creation_input_tokens > 0 {
+            format!(
+                " | Cache: {} read, {} created",
+                usage.cache_read_input_tokens, usage.cache_creation_input_tokens
+            )
+        } else {
+            String::new()
+        };
         Ok(LocalCommandResult::Text {
-            value: "Session cost: $0.00 | Tokens: 0 in / 0 out".to_string(),
+            value: format!(
+                "Session cost: ${:.4} | Tokens: {} in / {} out ({} total){}",
+                cost, usage.input_tokens, usage.output_tokens, total_tokens, cache_info
+            ),
         })
     }
 }
