@@ -314,4 +314,74 @@ mod tests {
         let state = std::sync::Arc::new(tokio::sync::RwLock::new(app_state));
         assert!(!is_fork_enabled(&state).await);
     }
+
+    #[test]
+    fn test_full_fork_message_flow() {
+        let parent_messages = vec![
+            ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::Text {
+                    text: "Help me fix a bug".into(),
+                }],
+            },
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![
+                    ContentBlock::Text {
+                        text: "I'll investigate.".into(),
+                    },
+                    ContentBlock::ToolUse {
+                        id: "tu_read".into(),
+                        name: "Read".into(),
+                        input: serde_json::json!({"path": "/src/main.rs"}),
+                    },
+                ],
+            },
+            ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "tu_read".into(),
+                    content: ToolResultContent::Text("fn main() {}".into()),
+                    is_error: false,
+                }],
+            },
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![
+                    ContentBlock::Text {
+                        text: "Let me spawn an agent.".into(),
+                    },
+                    ContentBlock::ToolUse {
+                        id: "tu_agent".into(),
+                        name: "Agent".into(),
+                        input: serde_json::json!({"prompt": "fix bug"}),
+                    },
+                ],
+            },
+        ];
+
+        // Last assistant has the Agent tool_use
+        let last_assistant = parent_messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::Assistant)
+            .unwrap();
+
+        // Build fork messages
+        let fork_msgs = build_forked_messages("Fix the bug in main.rs", last_assistant);
+        assert_eq!(fork_msgs.len(), 2);
+
+        // Verify fork child can't re-fork (recursion guard)
+        assert!(is_in_fork_child(&fork_msgs));
+
+        // Verify the directive is in the output
+        let user_msg = &fork_msgs[1];
+        let has_directive = user_msg.content.iter().any(|block| {
+            matches!(
+                block,
+                ContentBlock::Text { text } if text.contains("Fix the bug in main.rs")
+            )
+        });
+        assert!(has_directive);
+    }
 }
