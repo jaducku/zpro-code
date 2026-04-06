@@ -8,9 +8,10 @@ use crossterm::{
 };
 use futures::StreamExt;
 use ratatui::prelude::*;
+use ratatui::widgets::Clear;
 use tokio::sync::mpsc;
 
-use super::app::{App, DisplayMessage, DisplayRole, InputMode};
+use super::app::{App, DisplayMessage, TextRole, InputMode};
 use super::ui;
 use crate::commands::registry::CommandRegistry;
 use crate::commands::traits::Command;
@@ -43,6 +44,7 @@ pub async fn run_app(
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, crossterm::event::EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -62,13 +64,12 @@ pub async fn run_app(
         let restored = App::restore_display_messages(&transcript.messages);
         app.messages.extend(restored);
         app.api_messages = transcript.messages;
-        app.messages.push(DisplayMessage {
-            role: DisplayRole::System,
+        app.messages.push(DisplayMessage::Text {
+            role: TextRole::System,
             content: format!(
                 "Resumed session {} ({} messages)",
                 transcript.session_id, msg_count
             ),
-            tool_name: None,
         });
     }
 
@@ -79,25 +80,30 @@ pub async fn run_app(
     let mut event_stream = EventStream::new();
 
     loop {
-        // Render
-        terminal.draw(|frame| {
-            if app.active_command.is_some() {
-                // Command active: split layout — messages shrink, command panel below
-                let term_height = frame.area().height;
-                let cmd_height = (term_height / 3).max(8).min(term_height.saturating_sub(8));
-                let cmd_area = ui::render_with_command(frame, &app, cmd_height);
+        // Force full redraw if needed (e.g. after /clear)
+        if app.needs_redraw {
+            terminal.clear()?;
+            app.needs_redraw = false;
+        }
 
-                if let Some(active) = &mut app.active_command {
-                    let cmd_name = active.command_name.clone();
-                    if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
-                        let active = app.active_command.as_mut().unwrap();
-                        tui_cmd.render(frame, cmd_area, active.state.as_mut());
-                    }
+        // Render
+        let mut frame_hit_areas = Vec::new();
+        terminal.draw(|frame| {
+            // Always render full chat UI
+            frame_hit_areas = ui::render(frame, &app);
+
+            // If a command is active, render it as overlay above input
+            if let Some(active) = &mut app.active_command {
+                let cmd_name = active.command_name.clone();
+                if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
+                    let overlay_area = ui::compute_command_overlay_area(frame.area());
+                    frame.render_widget(Clear, overlay_area);
+                    let active = app.active_command.as_mut().unwrap();
+                    tui_cmd.render(frame, overlay_area, active.state.as_mut());
                 }
-            } else {
-                ui::render(frame, &app);
             }
         })?;
+        app.hit_areas = frame_hit_areas;
 
         // Use tokio::select! to handle terminal events, query events, and permission
         // requests concurrently. Uses crossterm's async EventStream for true non-blocking.
@@ -206,17 +212,15 @@ pub async fn run_app(
                                                                 app.model_override = Some(actual_model_id.clone());
                                                                 app.model = actual_model_id.clone();
                                                                 provider = Some(new_provider);
-                                                                app.push_message(DisplayMessage {
-                                                                    role: DisplayRole::System,
+                                                                app.push_message(DisplayMessage::Text {
+                                                                    role: TextRole::System,
                                                                     content: format!("Model switched to: {} ({})", model_id, actual_model_id),
-                                                                    tool_name: None,
                                                                 });
                                                             }
                                                             Err(e) => {
-                                                                app.push_message(DisplayMessage {
-                                                                    role: DisplayRole::System,
+                                                                app.push_message(DisplayMessage::Text {
+                                                                    role: TextRole::System,
                                                                     content: format!("Failed to switch model: {}", e),
-                                                                    tool_name: None,
                                                                 });
                                                             }
                                                         }
@@ -227,10 +231,9 @@ pub async fn run_app(
                                                 if let Some(ref r) = result {
                                                     if let Some(ref style_name) = r.text {
                                                         app.output_style = style_name.clone();
-                                                        app.push_message(DisplayMessage {
-                                                            role: DisplayRole::System,
+                                                        app.push_message(DisplayMessage::Text {
+                                                            role: TextRole::System,
                                                             content: format!("Output style set to: {}", style_name),
-                                                            tool_name: None,
                                                         });
                                                     }
                                                 }
@@ -261,6 +264,26 @@ pub async fn run_app(
                         }
                         Event::Resize(w, h) => {
                             app.status = format!("Model: {} | {}x{}", model, w, h);
+                        }
+                        Event::Mouse(mouse_event) => {
+                            use crossterm::event::{MouseEventKind, MouseButton};
+                            if let MouseEventKind::Down(MouseButton::Left) = mouse_event.kind {
+                                let row = mouse_event.row;
+                                if let Some(ha) = app.hit_areas.iter().find(|h| h.y == row) {
+                                    let idx = ha.message_idx;
+                                    if let Some(msg) = app.messages.get_mut(idx) {
+                                        match msg {
+                                            DisplayMessage::ToolCall { ref mut collapsed, .. } => {
+                                                *collapsed = !*collapsed;
+                                            }
+                                            DisplayMessage::Agent { ref mut collapsed, .. } => {
+                                                *collapsed = !*collapsed;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -309,6 +332,7 @@ pub async fn run_app(
             } => {
                 // Question prompt shown only in the input area (no chat message)
                 app.input_mode = InputMode::Question {
+                    question: ask.question,
                     options: ask.options.into_iter().map(|o| (o.label, o.description)).collect(),
                     selected: 0,
                     text_input: String::new(),
@@ -324,6 +348,7 @@ pub async fn run_app(
 
     // Restore terminal
     disable_raw_mode()?;
+    execute!(terminal.backend_mut(), crossterm::event::DisableMouseCapture)?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
@@ -405,10 +430,9 @@ async fn dispatch_slash_command(
             use tokio::sync::RwLock;
 
             // Show the user's command first
-            app.push_message(DisplayMessage {
-                role: DisplayRole::User,
+            app.push_message(DisplayMessage::Text {
+                role: TextRole::User,
                 content: format!("/{}{}", name, if args.is_empty() { String::new() } else { format!(" {}", args) }),
-                tool_name: None,
             });
 
             // Build a CommandContext (same pattern as the Tui branch)
@@ -429,29 +453,27 @@ async fn dispatch_slash_command(
             if let Some(Command::Local(cmd)) = app.command_registry.find(name) {
                 match cmd.call(args, &ctx).await {
                     Ok(LocalCommandResult::Text { value }) => {
-                        app.push_message(DisplayMessage {
-                            role: DisplayRole::System,
+                        app.push_message(DisplayMessage::Text {
+                            role: TextRole::System,
                             content: value,
-                            tool_name: None,
                         });
                     }
                     Ok(LocalCommandResult::Compact { display_text }) => {
                         app.messages.clear();
                         app.api_messages.clear();
+                        app.needs_redraw = true;
                         if let Some(text) = display_text {
-                            app.push_message(DisplayMessage {
-                                role: DisplayRole::System,
+                            app.push_message(DisplayMessage::Text {
+                                role: TextRole::System,
                                 content: text,
-                                tool_name: None,
                             });
                         }
                     }
                     Ok(LocalCommandResult::Skip) => {}
                     Err(e) => {
-                        app.push_message(DisplayMessage {
-                            role: DisplayRole::System,
+                        app.push_message(DisplayMessage::Text {
+                            role: TextRole::System,
                             content: format!("Error: {}", e),
-                            tool_name: None,
                         });
                     }
                 }
@@ -497,10 +519,9 @@ async fn dispatch_slash_command(
             use tokio::sync::RwLock;
 
             // Show skill usage (not the full prompt content)
-            app.push_message(DisplayMessage {
-                role: DisplayRole::User,
+            app.push_message(DisplayMessage::Text {
+                role: TextRole::User,
                 content: format!("/{}{}", name, if args.is_empty() { String::new() } else { format!(" {}", args) }),
-                tool_name: None,
             });
 
             // Set loading label to show which skill is being used
@@ -543,10 +564,9 @@ async fn dispatch_slash_command(
 
                     if text.is_empty() {
                         app.loading_label = None;
-                        app.push_message(DisplayMessage {
-                            role: DisplayRole::System,
+                        app.push_message(DisplayMessage::Text {
+                            role: TextRole::System,
                             content: format!("/{} produced no prompt content.", name),
-                            tool_name: None,
                         });
                     } else {
                         // Submit the prompt text as a query — but DON'T show the raw skill content
@@ -556,19 +576,17 @@ async fn dispatch_slash_command(
                 }
                 Err(e) => {
                     app.loading_label = None;
-                    app.push_message(DisplayMessage {
-                        role: DisplayRole::System,
+                    app.push_message(DisplayMessage::Text {
+                        role: TextRole::System,
                         content: format!("Error running /{}: {}", name, e),
-                        tool_name: None,
                     });
                 }
             }
         }
         FoundCommand::NotFound => {
-            app.push_message(DisplayMessage {
-                role: DisplayRole::System,
+            app.push_message(DisplayMessage::Text {
+                role: TextRole::System,
                 content: format!("Unknown command: /{}. Type /help for available commands.", name),
-                tool_name: None,
             });
         }
     }
@@ -592,19 +610,17 @@ async fn submit_query(
     registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     let Some(provider) = provider.clone() else {
-        app.push_message(DisplayMessage {
-            role: DisplayRole::System,
+        app.push_message(DisplayMessage::Text {
+            role: TextRole::System,
             content: "No LLM provider connected. Use --provider or --api-base.".into(),
-            tool_name: None,
         });
         return;
     };
 
     // Add user message to display and API messages
-    app.push_message(DisplayMessage {
-        role: DisplayRole::User,
+    app.push_message(DisplayMessage::Text {
+        role: TextRole::User,
         content: input.to_string(),
-        tool_name: None,
     });
     app.api_messages.push(ApiMessage {
         role: Role::User,
@@ -727,10 +743,9 @@ async fn submit_query_skill(
 ) {
     let Some(provider) = provider.clone() else {
         app.loading_label = None;
-        app.push_message(DisplayMessage {
-            role: DisplayRole::System,
+        app.push_message(DisplayMessage::Text {
+            role: TextRole::System,
             content: "No LLM provider connected. Use --provider or --api-base.".into(),
-            tool_name: None,
         });
         return;
     };

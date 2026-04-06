@@ -200,6 +200,9 @@ pub async fn run_print_mode(
                 eprintln!("[agent] '{}' {}", description, status);
             }
             QueryEvent::QueryCompleted { .. } => {}
+            QueryEvent::ToolCallInputReady { .. } => {
+                // No-op in print mode — tool input shown when tool executes
+            }
         }
     }
 

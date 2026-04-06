@@ -1,42 +1,31 @@
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-use super::app::{App, DisplayRole};
+use super::app::{AgentStatus, App, DisplayMessage, HitArea, TextRole};
 
 // Logo is rendered with colors in render_welcome(), not as a static string
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-pub fn render(frame: &mut Frame, app: &App) {
-    render_in_area(frame, app, frame.area(), false);
+pub fn render(frame: &mut Frame, app: &App) -> Vec<HitArea> {
+    render_in_area(frame, app, frame.area(), false)
 }
 
-/// Render with an optional command panel area between messages and input.
-/// When `command_height > 0`, messages shrink and the command panel occupies
-/// the space just above the input area.
-pub fn render_with_command(frame: &mut Frame, app: &App, command_height: u16) -> Rect {
-    let area = frame.area();
-    let layout = Layout::vertical([
-        Constraint::Min(1),                      // Messages (shrinks)
-        Constraint::Length(command_height),       // Command panel
-        Constraint::Length(3),                    // Input
-        Constraint::Length(1),                    // Status bar
-    ]);
-    let chunks = layout.split(area);
+/// Compute the overlay area for TUI commands (e.g. /model picker).
+/// Positioned above the input area, similar to typeahead.
+pub fn compute_command_overlay_area(terminal_area: Rect) -> Rect {
+    // Input is 3 rows + status bar is 1 row = 4 rows from bottom
+    let input_top = terminal_area.y + terminal_area.height.saturating_sub(4);
+    let max_height = terminal_area.height / 2;
+    let height = max_height.max(8).min(terminal_area.height.saturating_sub(6));
+    let width = terminal_area.width.min(80);
+    let x = terminal_area.x + (terminal_area.width.saturating_sub(width)) / 2;
+    let y = input_top.saturating_sub(height);
 
-    render_messages(frame, chunks[0], app);
-    // chunks[1] is the command panel — returned to caller
-    render_input(frame, chunks[2], app);
-    render_status_bar(frame, chunks[3], app);
-
-    if let Some(ta) = &app.typeahead {
-        render_typeahead(frame, chunks[2], ta);
-    }
-
-    chunks[1] // return command area for caller to render into
+    Rect { x, y, width, height }
 }
 
-pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: bool) {
+pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: bool) -> Vec<HitArea> {
     let layout = Layout::vertical([
         Constraint::Min(1),    // Messages area
         Constraint::Length(3), // Input
@@ -44,7 +33,7 @@ pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: b
     ]);
     let chunks = layout.split(area);
 
-    render_messages(frame, chunks[0], app);
+    let hit_areas = render_messages(frame, chunks[0], app);
     render_input(frame, chunks[1], app);
     render_status_bar(frame, chunks[2], app);
 
@@ -52,20 +41,25 @@ pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: b
     if let Some(ta) = &app.typeahead {
         render_typeahead(frame, chunks[1], ta);
     }
+
+    hit_areas
 }
 
-fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
+fn render_messages(frame: &mut Frame, area: Rect, app: &App) -> Vec<HitArea> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Show logo if no conversation yet (only system messages)
-    let has_conversation = app.messages.iter().any(|m| {
-        m.role == DisplayRole::User || m.role == DisplayRole::Assistant
-    });
+    let has_conversation = app.messages.iter().any(|m| matches!(m,
+        DisplayMessage::Text { role: TextRole::User | TextRole::Assistant, .. }
+        | DisplayMessage::ToolCall { .. }
+        | DisplayMessage::Agent { .. }
+    ));
 
+    let mut hit_areas = Vec::new();
     if !has_conversation {
         render_welcome(&mut lines, app, area.width);
     } else {
-        render_conversation(&mut lines, app, area.width);
+        hit_areas = render_conversation(&mut lines, app, area.width);
     }
 
     // Scroll logic: scroll_offset 0 = bottom (auto-scroll), higher = further up
@@ -74,6 +68,16 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
     let max_scroll = total.saturating_sub(visible_height);
     let effective_offset = (app.scroll_offset as usize).min(max_scroll);
     let skip = max_scroll.saturating_sub(effective_offset);
+
+    // Convert hit_area y values from line-index to screen-y
+    for ha in &mut hit_areas {
+        let line_idx = ha.y as usize;
+        if line_idx >= skip && line_idx < skip + visible_height {
+            ha.y = area.y + (line_idx - skip) as u16;
+        } else {
+            ha.y = u16::MAX; // off-screen
+        }
+    }
 
     let paragraph = Paragraph::new(lines).scroll((skip as u16, 0));
     frame.render_widget(paragraph, area);
@@ -92,6 +96,8 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App) {
         };
         frame.render_widget(Paragraph::new(Line::from(indicator)), indicator_area);
     }
+
+    hit_areas
 }
 
 fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
@@ -159,50 +165,146 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
     ]));
 }
 
-fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
-    for msg in &app.messages {
-        match msg.role {
-            DisplayRole::System => {}
-            DisplayRole::User => {
+fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) -> Vec<HitArea> {
+    let mut hit_areas = Vec::new();
+    let elapsed = app.start_time.elapsed().as_millis() as usize;
+    let spinner_idx = (elapsed / 80) % SPINNER_FRAMES.len();
+
+    let mut has_in_progress_tool = false;
+
+    for (msg_idx, msg) in app.messages.iter().enumerate() {
+        match msg {
+            DisplayMessage::Text { role: TextRole::System, .. } => {}
+            DisplayMessage::Text { role: TextRole::User, content } => {
                 lines.push(Line::from(""));
-                let first = msg.content.lines().next().unwrap_or("").to_string();
+                let first = content.lines().next().unwrap_or("").to_string();
                 lines.push(Line::from(vec![
                     Span::styled(" > ", Style::default().fg(Color::Green).bold()),
                     Span::styled(first, Style::default().fg(Color::White).bold()),
                 ]));
-                for line in msg.content.lines().skip(1) {
+                for line in content.lines().skip(1) {
                     lines.push(Line::from(format!("   {}", line)));
                 }
             }
-            DisplayRole::Assistant => {
+            DisplayMessage::Text { role: TextRole::Assistant, content } => {
                 lines.push(Line::from(""));
-                for line in msg.content.lines() {
+                for line in content.lines() {
                     lines.push(Line::from(Span::styled(
                         format!("  {}", line),
                         Style::default().fg(Color::White),
                     )));
                 }
             }
-            DisplayRole::Tool => {
-                let name = msg.tool_name.as_deref().unwrap_or("Tool").to_string();
-                let content = truncate_content(&msg.content, 80);
+            DisplayMessage::ToolCall { name, input_summary, result, is_error, collapsed, .. } => {
+                // AskUserQuestion is displayed via Question input UI, not as a ToolCall badge
+                if name == "AskUserQuestion" {
+                    if result.is_none() {
+                        has_in_progress_tool = true;
+                    }
+                    continue;
+                }
+
+                // Status icon
+                let (icon, icon_style) = if result.is_none() {
+                    has_in_progress_tool = true;
+                    (SPINNER_FRAMES[spinner_idx], Style::default().fg(Color::Cyan))
+                } else if *is_error {
+                    ("✗", Style::default().fg(Color::Red))
+                } else {
+                    ("✓", Style::default().fg(Color::Green))
+                };
+
+                // Header line
+                let header_y = lines.len() as u16;
                 lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(icon, icon_style),
+                    Span::raw(" "),
                     Span::styled(
-                        format!("  {} ", name),
-                        Style::default().fg(Color::Black).bg(Color::Magenta),
+                        format!(" {} ", name),
+                        Style::default().fg(Color::Black).bg(Color::Magenta).bold(),
                     ),
                     Span::raw(" "),
-                    Span::styled(content, Style::default().fg(Color::DarkGray)),
+                    Span::styled(input_summary.clone(), Style::default().fg(Color::DarkGray)),
                 ]));
+
+                hit_areas.push(HitArea { y: header_y, message_idx: msg_idx });
+
+                // Expanded result lines
+                if !collapsed {
+                    if let Some(ref result_text) = result {
+                        let result_lines: Vec<&str> = result_text.lines().collect();
+                        let max_preview = 5;
+                        let show_count = result_lines.len().min(max_preview);
+                        for line in &result_lines[..show_count] {
+                            lines.push(Line::from(vec![
+                                Span::styled("    │ ", Style::default().fg(Color::DarkGray)),
+                                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                            ]));
+                        }
+                        if result_lines.len() > max_preview {
+                            lines.push(Line::from(Span::styled(
+                                format!("    (+{} lines)", result_lines.len() - max_preview),
+                                Style::default().fg(Color::DarkGray),
+                            )));
+                        }
+                    }
+                }
+            }
+            DisplayMessage::Agent { description, status, result, collapsed, .. } => {
+                // Status icon
+                let (icon, icon_style) = match status {
+                    AgentStatus::Running => {
+                        has_in_progress_tool = true;
+                        ("◎", Style::default().fg(Color::Cyan))
+                    }
+                    AgentStatus::Completed => ("✓", Style::default().fg(Color::Green)),
+                    AgentStatus::Failed => ("✗", Style::default().fg(Color::Red)),
+                };
+
+                // Header line
+                let header_y = lines.len() as u16;
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(icon, icon_style),
+                    Span::raw(" "),
+                    Span::styled(
+                        " Agent ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan).bold(),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(description.clone(), Style::default().fg(Color::DarkGray)),
+                ]));
+
+                hit_areas.push(HitArea { y: header_y, message_idx: msg_idx });
+
+                // Expanded result lines
+                if !collapsed {
+                    if let Some(ref result_text) = result {
+                        let result_lines: Vec<&str> = result_text.lines().collect();
+                        let max_preview = 5;
+                        let show_count = result_lines.len().min(max_preview);
+                        for line in &result_lines[..show_count] {
+                            lines.push(Line::from(vec![
+                                Span::styled("    │ ", Style::default().fg(Color::DarkGray)),
+                                Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                            ]));
+                        }
+                        if result_lines.len() > max_preview {
+                            lines.push(Line::from(Span::styled(
+                                format!("    (+{} lines)", result_lines.len() - max_preview),
+                                Style::default().fg(Color::DarkGray),
+                            )));
+                        }
+                    }
+                }
             }
         }
     }
 
-    // Loading spinner
-    if app.is_loading {
-        let elapsed = app.start_time.elapsed().as_millis() as usize;
-        let frame_idx = (elapsed / 80) % SPINNER_FRAMES.len();
-        let spinner = SPINNER_FRAMES[frame_idx];
+    // Loading spinner: only show if is_loading AND no in-progress ToolCall exists
+    if app.is_loading && !has_in_progress_tool {
+        let spinner = SPINNER_FRAMES[spinner_idx];
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             format!("  {} Working...", spinner),
@@ -215,6 +317,8 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
             )));
         }
     }
+
+    hit_areas
 }
 
 fn render_input(frame: &mut Frame, area: Rect, app: &App) {
@@ -256,13 +360,25 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             let input_text = Paragraph::new(vec![desc_line, keys_line]).block(input_block);
             frame.render_widget(input_text, expanded_area);
         }
-        InputMode::Question { options, selected, text_input, .. } => {
+        InputMode::Question { question, options, selected, text_input, .. } => {
             let border_style = Style::default().fg(Color::Blue);
+            let title = if question.is_empty() {
+                " Question ".to_string()
+            } else {
+                let max_title = (area.width as usize).saturating_sub(4);
+                let q = if question.chars().count() > max_title {
+                    let truncated: String = question.chars().take(max_title.saturating_sub(1)).collect();
+                    format!("{}…", truncated)
+                } else {
+                    question.clone()
+                };
+                format!(" {} ", q)
+            };
             let input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .title(Span::styled(" Question ", Style::default().fg(Color::Blue).bold()));
+                .title(Span::styled(title, Style::default().fg(Color::Blue).bold()));
 
             if options.is_empty() {
                 // Free text input
@@ -279,8 +395,8 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 let input_text = Paragraph::new(content).block(input_block);
                 frame.render_widget(input_text, area);
             } else {
-                // Options list
-                let mut spans: Vec<Span> = Vec::new();
+                // Options list — one per line, vertically
+                let mut content_lines: Vec<Line> = Vec::new();
                 for (i, (label, desc)) in options.iter().enumerate() {
                     let marker = if i == *selected { "▸ " } else { "  " };
                     let style = if i == *selected {
@@ -288,15 +404,34 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    spans.push(Span::styled(format!("{}{}", marker, label), style));
+                    let mut spans = vec![Span::styled(format!(" {}{}", marker, label), style)];
                     if let Some(d) = desc {
-                        spans.push(Span::styled(format!(" ({})", d), Style::default().fg(Color::DarkGray)));
+                        let desc_style = if i == *selected {
+                            Style::default().fg(Color::Blue)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        };
+                        spans.push(Span::styled(format!("  {}", d), desc_style));
                     }
-                    spans.push(Span::raw("  "));
+                    content_lines.push(Line::from(spans));
                 }
-                let prompt = Line::from(spans);
-                let input_text = Paragraph::new(prompt).block(input_block);
-                frame.render_widget(input_text, area);
+                content_lines.push(Line::from(Span::styled(
+                    " ↑↓ select  Enter confirm  Esc dismiss",
+                    Style::default().fg(Color::DarkGray),
+                )));
+
+                // Expand area to fit all options
+                let needed_height = (content_lines.len() as u16) + 2; // +2 for borders
+                let expanded_area = Rect {
+                    x: area.x,
+                    y: area.y.saturating_sub(needed_height.saturating_sub(area.height)),
+                    width: area.width,
+                    height: needed_height.max(area.height),
+                };
+
+                frame.render_widget(Clear, expanded_area);
+                let input_text = Paragraph::new(content_lines).block(input_block);
+                frame.render_widget(input_text, expanded_area);
             }
         }
         InputMode::Normal => {

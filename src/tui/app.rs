@@ -67,6 +67,10 @@ pub struct App {
     pub output_style: String,
     /// Loading spinner label (e.g. "Working..." or "brainstorming 스킬 사용")
     pub loading_label: Option<String>,
+    /// Force full terminal redraw on next frame (e.g. after /clear)
+    pub needs_redraw: bool,
+    /// Hit areas for mouse click detection on collapsible messages
+    pub hit_areas: Vec<HitArea>,
 }
 
 /// What kind of typeahead is active
@@ -95,18 +99,45 @@ pub struct TypeaheadState {
 
 /// A message for display purposes
 #[derive(Debug, Clone)]
-pub struct DisplayMessage {
-    pub role: DisplayRole,
-    pub content: String,
-    pub tool_name: Option<String>,
+pub enum DisplayMessage {
+    Text {
+        role: TextRole,
+        content: String,
+    },
+    ToolCall {
+        id: String,
+        name: String,
+        input_summary: String,
+        result: Option<String>,
+        is_error: bool,
+        collapsed: bool,
+    },
+    Agent {
+        agent_id: String,
+        description: String,
+        status: AgentStatus,
+        result: Option<String>,
+        collapsed: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum DisplayRole {
+pub enum TextRole {
     User,
     Assistant,
     System,
-    Tool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentStatus {
+    Running,
+    Completed,
+    Failed,
+}
+
+pub struct HitArea {
+    pub y: u16,
+    pub message_idx: usize,
 }
 
 /// What the input area is currently showing
@@ -121,6 +152,7 @@ pub enum InputMode {
     },
     /// User question prompt inline
     Question {
+        question: String, // the question text from the tool
         options: Vec<(String, Option<String>)>, // (label, description)
         selected: usize,
         text_input: String,
@@ -132,31 +164,27 @@ impl App {
     pub fn new(model: String, command_registry: Arc<CommandRegistry>) -> Self {
         let has_provider = model != "(no provider)";
         let mut messages = vec![
-            DisplayMessage {
-                role: DisplayRole::System,
+            DisplayMessage::Text {
+                role: TextRole::System,
                 content: format!("zpro-code v{}", env!("CARGO_PKG_VERSION")),
-                tool_name: None,
             },
         ];
 
         if has_provider {
-            messages.push(DisplayMessage {
-                role: DisplayRole::System,
+            messages.push(DisplayMessage::Text {
+                role: TextRole::System,
                 content: format!("Connected to model: {}", model),
-                tool_name: None,
             });
         } else {
-            messages.push(DisplayMessage {
-                role: DisplayRole::System,
+            messages.push(DisplayMessage::Text {
+                role: TextRole::System,
                 content: "No LLM provider connected. Use --api-base to connect.".into(),
-                tool_name: None,
             });
         }
 
-        messages.push(DisplayMessage {
-            role: DisplayRole::System,
+        messages.push(DisplayMessage::Text {
+            role: TextRole::System,
             content: "Type a message and press Enter. Ctrl+C to quit.".into(),
-            tool_name: None,
         });
 
         Self {
@@ -185,6 +213,8 @@ impl App {
             model_override: None,
             output_style: "default".to_string(),
             loading_label: None,
+            needs_redraw: false,
+            hit_areas: Vec::new(),
         }
     }
 
@@ -504,16 +534,12 @@ impl App {
                 }
 
                 let role = match msg.role {
-                    Role::User => DisplayRole::User,
-                    Role::Assistant => DisplayRole::Assistant,
-                    _ => DisplayRole::System,
+                    Role::User => TextRole::User,
+                    Role::Assistant => TextRole::Assistant,
+                    _ => TextRole::System,
                 };
 
-                Some(DisplayMessage {
-                    role,
-                    content,
-                    tool_name: None,
-                })
+                Some(DisplayMessage::Text { role, content })
             })
             .collect()
     }
@@ -525,38 +551,43 @@ impl App {
 
         match event {
             QueryEvent::TextDelta(text) => {
-                if let Some(last) = self.messages.last_mut() {
-                    if last.role == DisplayRole::Assistant {
-                        last.content.push_str(&text);
-                        return;
-                    }
+                if let Some(DisplayMessage::Text { role: TextRole::Assistant, content }) = self.messages.last_mut() {
+                    content.push_str(&text);
+                    return;
                 }
-                self.messages.push(DisplayMessage {
-                    role: DisplayRole::Assistant,
+                self.messages.push(DisplayMessage::Text {
+                    role: TextRole::Assistant,
                     content: text,
-                    tool_name: None,
                 });
             }
-            QueryEvent::ToolCallStart { name, .. } => {
-                self.messages.push(DisplayMessage {
-                    role: DisplayRole::Tool,
-                    content: format!("Running {}...", name),
-                    tool_name: Some(name),
+            QueryEvent::ToolCallStart { id, name } => {
+                self.messages.push(DisplayMessage::ToolCall {
+                    id,
+                    name,
+                    input_summary: String::new(),
+                    result: None,
+                    is_error: false,
+                    collapsed: true,
                 });
             }
-            QueryEvent::ToolCallComplete { result, .. } => {
-                if let Some(last) = self.messages.last_mut() {
-                    if last.role == DisplayRole::Tool {
-                        last.content = result.content;
+            QueryEvent::ToolCallComplete { id, result } => {
+                // Reverse scan to find the matching ToolCall by id
+                for msg in self.messages.iter_mut().rev() {
+                    if let DisplayMessage::ToolCall { id: msg_id, result: ref mut msg_result, is_error: ref mut msg_is_error, .. } = msg {
+                        if *msg_id == id {
+                            *msg_result = Some(result.content);
+                            *msg_is_error = result.is_error;
+                            break;
+                        }
                     }
                 }
             }
             QueryEvent::ResponseComplete { .. } => {
                 self.is_loading = false;
                 // Token estimation for display
-                if let Some(last) = self.messages.last() {
-                    if last.role == DisplayRole::Assistant && self.token_count == 0 {
-                        self.token_count = crate::services::token_estimation::estimate_tokens(&last.content);
+                if let Some(DisplayMessage::Text { role: TextRole::Assistant, content }) = self.messages.last() {
+                    if self.token_count == 0 {
+                        self.token_count = crate::services::token_estimation::estimate_tokens(content);
                     }
                 }
                 // Note: api_messages sync is handled by QueryCompleted event
@@ -573,30 +604,36 @@ impl App {
                 self.session_cost += (input_tokens + output_tokens) as f64 * 0.00001;
             }
             QueryEvent::BriefMessage { message, .. } => {
-                self.messages.push(DisplayMessage {
-                    role: DisplayRole::Assistant,
+                self.messages.push(DisplayMessage::Text {
+                    role: TextRole::Assistant,
                     content: message,
-                    tool_name: None,
                 });
             }
             QueryEvent::Error(msg) => {
-                self.messages.push(DisplayMessage {
-                    role: DisplayRole::System,
+                self.messages.push(DisplayMessage::Text {
+                    role: TextRole::System,
                     content: format!("Error: {}", msg),
-                    tool_name: None,
                 });
                 self.is_loading = false;
             }
-            QueryEvent::AgentCompleted { agent_id: _, description, result, is_error } => {
-                let status = if is_error { "failed" } else { "completed" };
-                let summary = result
-                    .as_deref()
-                    .map(|r| if r.len() > 200 { &r[..200] } else { r })
-                    .unwrap_or("no output");
-                self.push_message(DisplayMessage {
-                    role: DisplayRole::System,
-                    content: format!("Background agent '{}' {}: {}", description, status, summary),
-                    tool_name: None,
+            QueryEvent::ToolCallInputReady { id, input, name } => {
+                // Find the ToolCall by id (reverse scan — it's near the end)
+                for msg in self.messages.iter_mut().rev() {
+                    if let DisplayMessage::ToolCall { id: ref msg_id, ref mut input_summary, .. } = msg {
+                        if *msg_id == id {
+                            *input_summary = crate::tui::tool_summary::tool_input_summary(&name, &input);
+                            break;
+                        }
+                    }
+                }
+            }
+            QueryEvent::AgentCompleted { agent_id, description, result, is_error } => {
+                self.push_message(DisplayMessage::Agent {
+                    agent_id,
+                    description,
+                    status: if is_error { AgentStatus::Failed } else { AgentStatus::Completed },
+                    result,
+                    collapsed: true,
                 });
             }
         }
@@ -803,7 +840,10 @@ mod tests {
         app.handle_query_event(QueryEvent::TextDelta("Hello ".into()));
         app.handle_query_event(QueryEvent::TextDelta("world".into()));
         assert_eq!(app.messages.len(), initial_count + 1);
-        assert_eq!(app.messages.last().unwrap().content, "Hello world");
+        match app.messages.last().unwrap() {
+            DisplayMessage::Text { content, .. } => assert_eq!(content, "Hello world"),
+            _ => panic!("Expected DisplayMessage::Text"),
+        }
     }
 
     #[test]
