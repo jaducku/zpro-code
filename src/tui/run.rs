@@ -44,6 +44,7 @@ pub async fn run_app(
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, crossterm::event::EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -264,6 +265,26 @@ pub async fn run_app(
                         Event::Resize(w, h) => {
                             app.status = format!("Model: {} | {}x{}", model, w, h);
                         }
+                        Event::Mouse(mouse_event) => {
+                            use crossterm::event::{MouseEventKind, MouseButton};
+                            if let MouseEventKind::Down(MouseButton::Left) = mouse_event.kind {
+                                let row = mouse_event.row;
+                                if let Some(ha) = app.hit_areas.iter().find(|h| h.y == row) {
+                                    let idx = ha.message_idx;
+                                    if let Some(msg) = app.messages.get_mut(idx) {
+                                        match msg {
+                                            DisplayMessage::ToolCall { ref mut collapsed, .. } => {
+                                                *collapsed = !*collapsed;
+                                            }
+                                            DisplayMessage::Agent { ref mut collapsed, .. } => {
+                                                *collapsed = !*collapsed;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -326,6 +347,7 @@ pub async fn run_app(
 
     // Restore terminal
     disable_raw_mode()?;
+    execute!(terminal.backend_mut(), crossterm::event::DisableMouseCapture)?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
