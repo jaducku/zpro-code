@@ -1,6 +1,8 @@
 use crate::tool::Tool;
 use crate::tools::get_builtin_tools;
 use crate::tools::synthetic_output_tool::SyntheticOutputTool;
+use crate::types::content::ContentBlock;
+use crate::types::message::ApiMessage;
 
 /// Maximum number of agentic turns an agent hook may execute.
 pub const MAX_AGENT_HOOK_TURNS: usize = 50;
@@ -48,6 +50,21 @@ pub fn build_agent_hook_tools() -> Vec<Box<dyn Tool>> {
     tools
 }
 
+/// Scan messages backwards for the last StructuredOutput tool_use input.
+/// Returns the `input` JSON value if found.
+pub fn extract_structured_output(messages: &[ApiMessage]) -> Option<serde_json::Value> {
+    for msg in messages.iter().rev() {
+        for block in msg.content.iter().rev() {
+            if let ContentBlock::ToolUse { name, input, .. } = block {
+                if name == "StructuredOutput" {
+                    return Some(input.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Parse agent hook output JSON. Expects `{"ok": true/false, "reason": "..."}`.
 ///
 /// - `ok=true` -> `Ok(())`
@@ -68,6 +85,8 @@ pub fn parse_agent_output(output: &serde_json::Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::content::ContentBlock;
+    use crate::types::message::{ApiMessage, Role};
     use serde_json::json;
 
     #[test]
@@ -119,5 +138,61 @@ mod tests {
         assert!(names.contains(&"Read"));
         assert!(names.contains(&"Glob"));
         assert!(names.contains(&"Grep"));
+    }
+
+    #[test]
+    fn test_extract_structured_output_found() {
+        let messages = vec![
+            ApiMessage {
+                role: Role::User,
+                content: vec![ContentBlock::Text { text: "verify condition".into() }],
+            },
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "tu_1".into(),
+                    name: "StructuredOutput".into(),
+                    input: serde_json::json!({"ok": true}),
+                }],
+            },
+        ];
+        let result = super::extract_structured_output(&messages);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap()["ok"], true);
+    }
+
+    #[test]
+    fn test_extract_structured_output_not_found() {
+        let messages = vec![
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text { text: "I'm done".into() }],
+            },
+        ];
+        assert!(super::extract_structured_output(&messages).is_none());
+    }
+
+    #[test]
+    fn test_extract_structured_output_takes_last() {
+        let messages = vec![
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "tu_1".into(),
+                    name: "StructuredOutput".into(),
+                    input: serde_json::json!({"ok": false, "reason": "first"}),
+                }],
+            },
+            ApiMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "tu_2".into(),
+                    name: "StructuredOutput".into(),
+                    input: serde_json::json!({"ok": true}),
+                }],
+            },
+        ];
+        let result = super::extract_structured_output(&messages).unwrap();
+        assert_eq!(result["ok"], true);
     }
 }
