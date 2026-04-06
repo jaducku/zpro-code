@@ -93,6 +93,7 @@ pub struct ToolUseContext {
     pub model: String,
     pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
     pub mcp_manager: Option<Arc<crate::services::mcp::connection_manager::McpConnectionManager>>,
+    pub agent_depth: u32,
 }
 
 #[cfg(test)]
@@ -122,6 +123,7 @@ impl ToolUseContext {
             model: "test".into(),
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
             mcp_manager: None,
+            agent_depth: 0,
         }
     }
 }

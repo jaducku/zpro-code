@@ -642,6 +642,7 @@ async fn submit_query(
         provider: provider.clone(),
         app_state: app_state.clone(),
         mcp_manager: None,
+        agent_depth: None,
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();
@@ -743,6 +744,7 @@ async fn submit_query_skill(
         provider: provider.clone(),
         app_state: app_state.clone(),
         mcp_manager: None,
+        agent_depth: None,
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();

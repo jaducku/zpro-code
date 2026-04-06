@@ -31,6 +31,8 @@ pub struct QueryContext {
     pub provider: Arc<dyn LlmProvider>,
     pub app_state: Arc<tokio::sync::RwLock<crate::state::AppState>>,
     pub mcp_manager: Option<Arc<crate::services::mcp::connection_manager::McpConnectionManager>>,
+    /// Current agent nesting depth (0 = top-level)
+    pub agent_depth: Option<u32>,
 }
 
 /// Sent to TUI when a tool wants to ask the user a question

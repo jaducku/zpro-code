@@ -441,6 +441,7 @@ async fn execute_tool(
         model: ctx.model.clone(),
         app_state: ctx.app_state.clone(),
         mcp_manager: ctx.mcp_manager.clone(),
+        agent_depth: ctx.agent_depth.unwrap_or(0),
     };
 
     tool.execute(tool_ctx).await
@@ -480,6 +481,7 @@ mod tests {
             provider: Arc::new(crate::services::api::provider::NoopProvider),
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
             mcp_manager: None,
+            agent_depth: None,
         }
     }
 
