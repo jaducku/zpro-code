@@ -255,15 +255,21 @@ async fn execute_single_hook(
                 },
             }
         }
-        HookCommand::Agent { .. } => HookExecutionResult {
-            outcome: HookOutcome::NonBlockingError {
-                message: "Agent hooks require multi-turn agent infrastructure (not yet implemented)"
-                    .to_string(),
-            },
-            additional_contexts: Vec::new(),
-            watch_paths: Vec::new(),
-            hook_specific: None,
-        },
+        HookCommand::Agent {
+            prompt,
+            model,
+            timeout,
+            ..
+        } => {
+            crate::services::hooks::agent_hook::execute_agent_hook(
+                prompt,
+                model.as_deref(),
+                *timeout,
+                env,
+                hook_ctx,
+            )
+            .await
+        }
     }
 }
 
@@ -373,11 +379,20 @@ pub async fn execute_event_hooks(
             combined.hook_specific = result.hook_specific;
         }
 
-        // If any hook blocks, use the first blocking reason
-        if let HookOutcome::Blocking { reason } = result.outcome {
-            if matches!(combined.outcome, HookOutcome::Success) {
-                combined.outcome = HookOutcome::Blocking { reason };
+        // If any hook blocks, use the first blocking reason.
+        // NonBlockingError is also surfaced (but doesn't override Blocking).
+        match result.outcome {
+            HookOutcome::Blocking { reason } => {
+                if matches!(combined.outcome, HookOutcome::Success | HookOutcome::NonBlockingError { .. }) {
+                    combined.outcome = HookOutcome::Blocking { reason };
+                }
             }
+            HookOutcome::NonBlockingError { message } => {
+                if matches!(combined.outcome, HookOutcome::Success) {
+                    combined.outcome = HookOutcome::NonBlockingError { message };
+                }
+            }
+            HookOutcome::Success => {}
         }
     }
 
@@ -415,7 +430,7 @@ mod tests {
             &serde_json::json!({}),
             &empty_settings(),
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -444,7 +459,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -473,7 +488,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(
@@ -507,7 +522,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         assert!(
@@ -540,7 +555,7 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         match &result.outcome {
@@ -629,13 +644,75 @@ more output"#;
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None },
+            &HookContext { provider: None, registry: None },
         )
         .await;
         // HTTP hook should be filtered out, resulting in Success (no hooks executed)
         assert!(
             matches!(result.outcome, HookOutcome::Success),
             "Expected Success (HTTP hook filtered), got {:?}",
+            result.outcome
+        );
+    }
+
+    #[tokio::test]
+    async fn test_agent_hook_no_provider_returns_non_blocking_error() {
+        let dir = TempDir::new().unwrap();
+        let settings = settings_with_hook(
+            "PreToolUse",
+            None,
+            HookCommand::Agent {
+                prompt: "check if tests pass".to_string(),
+                model: None,
+                timeout: None,
+                status_message: None,
+                once: None,
+                r#if: None,
+            },
+        );
+        let result = execute_event_hooks(
+            "PreToolUse",
+            "Bash",
+            &serde_json::json!({}),
+            &settings,
+            dir.path(),
+            &HookContext { provider: None, registry: None },
+        )
+        .await;
+        assert!(
+            matches!(result.outcome, HookOutcome::NonBlockingError { .. }),
+            "Expected NonBlockingError, got {:?}",
+            result.outcome
+        );
+    }
+
+    #[tokio::test]
+    async fn test_agent_hooks_filtered_for_session_start() {
+        let dir = TempDir::new().unwrap();
+        let settings = settings_with_hook(
+            "SessionStart",
+            None,
+            HookCommand::Agent {
+                prompt: "check something".to_string(),
+                model: None,
+                timeout: None,
+                status_message: None,
+                once: None,
+                r#if: None,
+            },
+        );
+        let result = execute_event_hooks(
+            "SessionStart",
+            "",
+            &serde_json::json!({}),
+            &settings,
+            dir.path(),
+            &HookContext { provider: None, registry: None },
+        )
+        .await;
+        assert!(
+            matches!(result.outcome, HookOutcome::Success),
+            "Expected Success (Agent hook filtered), got {:?}",
             result.outcome
         );
     }

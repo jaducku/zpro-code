@@ -37,6 +37,7 @@ pub async fn run_app(
     allow_rules: Vec<PermissionRule>,
     deny_rules: Vec<PermissionRule>,
     tools_filter: Option<Vec<String>>,
+    registry: Arc<crate::services::api::registry::ProviderRegistry>,
 ) -> io::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -74,6 +75,7 @@ pub async fn run_app(
     let (query_event_tx, mut query_event_rx) = mpsc::unbounded_channel::<QueryEvent>();
     let mut permission_rx: Option<mpsc::UnboundedReceiver<PermissionAsk>> = None;
     let mut question_rx: Option<mpsc::UnboundedReceiver<UserQuestionAsk>> = None;
+    let mut provider = provider; // make mutable for /model switching
     let mut event_stream = EventStream::new();
 
     loop {
@@ -197,13 +199,27 @@ pub async fn run_app(
                                             if cmd_name == "model" {
                                                 if let Some(ref r) = result {
                                                     if let Some(ref model_id) = r.text {
-                                                        app.model_override = Some(model_id.clone());
-                                                        app.model = model_id.clone();
-                                                        app.push_message(DisplayMessage {
-                                                            role: DisplayRole::System,
-                                                            content: format!("Model switched to: {}", model_id),
-                                                            tool_name: None,
-                                                        });
+                                                        // Resolve new provider from registry (model_id is an alias)
+                                                        match registry.resolve(model_id) {
+                                                            Ok(new_provider) => {
+                                                                let actual_model_id = new_provider.model_info().id.clone();
+                                                                app.model_override = Some(actual_model_id.clone());
+                                                                app.model = actual_model_id.clone();
+                                                                provider = Some(new_provider);
+                                                                app.push_message(DisplayMessage {
+                                                                    role: DisplayRole::System,
+                                                                    content: format!("Model switched to: {} ({})", model_id, actual_model_id),
+                                                                    tool_name: None,
+                                                                });
+                                                            }
+                                                            Err(e) => {
+                                                                app.push_message(DisplayMessage {
+                                                                    role: DisplayRole::System,
+                                                                    content: format!("Failed to switch model: {}", e),
+                                                                    tool_name: None,
+                                                                });
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -234,12 +250,12 @@ pub async fn run_app(
                                     app.accept_typeahead();
                                 }
                                 let input = app.take_input();
-                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state).await;
+                                handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
                             } else {
                                 let typeahead_accepted = app.handle_key(key);
                                 if typeahead_accepted && !app.is_loading && !app.input.is_empty() {
                                     let input = app.take_input();
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state).await;
+                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
                                 }
                             }
                         }
@@ -329,14 +345,15 @@ async fn handle_submit(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
-        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
+        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
+    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -364,6 +381,7 @@ async fn dispatch_slash_command(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     // First pass: identify the command kind and extract needed data without
     // holding a mutable borrow on app.
@@ -533,7 +551,7 @@ async fn dispatch_slash_command(
                     } else {
                         // Submit the prompt text as a query — but DON'T show the raw skill content
                         // submit_query_hidden sends to LLM without displaying the prompt in chat
-                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state).await;
+                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
                     }
                 }
                 Err(e) => {
@@ -571,6 +589,7 @@ async fn submit_query(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     let Some(provider) = provider.clone() else {
         app.push_message(DisplayMessage {
@@ -658,6 +677,7 @@ async fn submit_query(
         max_budget_usd: None,  // TUI mode: no budget limit
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        registry: Some(registry.clone()),
         app_state: app_state.clone(),
         mcp_manager: None,
         agent_depth: None,
@@ -703,6 +723,7 @@ async fn submit_query_skill(
     deny_rules: &[PermissionRule],
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
+    registry: &Arc<crate::services::api::registry::ProviderRegistry>,
 ) {
     let Some(provider) = provider.clone() else {
         app.loading_label = None;
@@ -767,6 +788,7 @@ async fn submit_query_skill(
         max_budget_usd: None,
         commands: app.command_registry.clone(),
         provider: provider.clone(),
+        registry: Some(registry.clone()),
         app_state: app_state.clone(),
         mcp_manager: None,
         agent_depth: None,

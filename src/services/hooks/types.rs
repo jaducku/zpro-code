@@ -151,6 +151,7 @@ pub enum HookOutcome {
 /// Provides LLM provider access for Prompt/Agent hooks.
 pub struct HookContext {
     pub provider: Option<Arc<dyn crate::services::api::provider::LlmProvider>>,
+    pub registry: Option<Arc<crate::services::api::registry::ProviderRegistry>>,
 }
 
 #[cfg(test)]
