@@ -187,14 +187,74 @@ async fn execute_single_hook(
                 },
             }
         }
-        HookCommand::Prompt { .. } => HookExecutionResult {
-            outcome: HookOutcome::NonBlockingError {
-                message: "Prompt hooks require LLM provider (not yet wired)".to_string(),
-            },
-            additional_contexts: Vec::new(),
-            watch_paths: Vec::new(),
-            hook_specific: None,
-        },
+        HookCommand::Prompt {
+            prompt,
+            model,
+            timeout,
+            ..
+        } => {
+            let Some(provider) = &hook_ctx.provider else {
+                return HookExecutionResult {
+                    outcome: HookOutcome::NonBlockingError {
+                        message: "Prompt hooks require LLM provider (not available)".into(),
+                    },
+                    additional_contexts: Vec::new(),
+                    watch_paths: Vec::new(),
+                    hook_specific: None,
+                };
+            };
+
+            let arguments_json = env.get("ATOM_TOOL_INPUT").cloned().unwrap_or_default();
+            let filled_prompt =
+                crate::services::hooks::prompt_hook::build_prompt_input(prompt, &arguments_json);
+
+            let timeout_ms = timeout.unwrap_or(30_000);
+            let response = crate::services::hooks::prompt_hook::query_without_streaming(
+                provider.as_ref(),
+                &filled_prompt,
+                model.as_deref(),
+                timeout_ms,
+            )
+            .await;
+
+            match response {
+                Ok(text) => {
+                    match crate::services::hooks::prompt_hook::parse_prompt_response(&text) {
+                        Ok(()) => HookExecutionResult {
+                            outcome: HookOutcome::Success,
+                            additional_contexts: Vec::new(),
+                            watch_paths: Vec::new(),
+                            hook_specific: None,
+                        },
+                        Err(reason) => {
+                            // JSON parse failure → NonBlockingError (infrastructure issue)
+                            // ok=false → Blocking (policy decision)
+                            if reason.starts_with("Could not parse JSON") {
+                                HookExecutionResult {
+                                    outcome: HookOutcome::NonBlockingError { message: reason },
+                                    additional_contexts: Vec::new(),
+                                    watch_paths: Vec::new(),
+                                    hook_specific: None,
+                                }
+                            } else {
+                                HookExecutionResult {
+                                    outcome: HookOutcome::Blocking { reason },
+                                    additional_contexts: Vec::new(),
+                                    watch_paths: Vec::new(),
+                                    hook_specific: None,
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => HookExecutionResult {
+                    outcome: HookOutcome::NonBlockingError { message: err },
+                    additional_contexts: Vec::new(),
+                    watch_paths: Vec::new(),
+                    hook_specific: None,
+                },
+            }
+        }
         HookCommand::Agent { .. } => HookExecutionResult {
             outcome: HookOutcome::NonBlockingError {
                 message: "Agent hooks require multi-turn agent infrastructure (not yet implemented)"
