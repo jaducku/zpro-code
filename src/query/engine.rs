@@ -446,6 +446,8 @@ async fn execute_tool(
         app_state: ctx.app_state.clone(),
         mcp_manager: ctx.mcp_manager.clone(),
         agent_depth: ctx.agent_depth.unwrap_or(0),
+        messages: std::sync::Arc::new(ctx.messages.clone()),
+        query_source: ctx.query_source.clone(),
     };
 
     tool.execute(tool_ctx).await
@@ -486,6 +488,7 @@ mod tests {
             app_state: Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default())),
             mcp_manager: None,
             agent_depth: None,
+            query_source: None,
         }
     }
 

@@ -110,6 +110,7 @@ pub fn build_child_context(
         app_state: parent_ctx.app_state.clone(),
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: Some(parent_ctx.agent_depth + 1),
+        query_source: parent_ctx.query_source.clone(),
     }
 }
 
