@@ -201,7 +201,7 @@ pub async fn run_print_mode(
             }
             QueryEvent::QueryCompleted { .. } => {}
             QueryEvent::ToolCallInputReady { .. } => {
-                // Will be implemented in Task 6 after DisplayMessage refactor
+                // No-op in print mode — tool input shown when tool executes
             }
         }
     }
