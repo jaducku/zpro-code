@@ -15,6 +15,16 @@ pub struct ActiveCommand {
     pub state: Box<dyn std::any::Any + Send>,
 }
 
+/// Tracks a tool that is currently executing (not yet in messages)
+#[derive(Clone)]
+pub struct RunningToolInfo {
+    pub id: String,
+    pub name: String,
+    pub input_summary: String,
+    pub input_full: Option<String>,
+    pub start_time: std::time::Instant,
+}
+
 /// Application state
 pub struct App {
     /// Unique session identifier
@@ -91,6 +101,8 @@ pub struct App {
     pub permission_mode_label: String,
     /// Aggregated activity summary for running tools
     pub activity: ActivitySummary,
+    /// Tools currently executing (not yet displayed in messages)
+    pub running_tools: std::collections::HashMap<String, RunningToolInfo>,
     /// When the streaming response started (for elapsed timer)
     pub response_start_time: Option<Instant>,
     /// Output tokens in the current response
@@ -426,6 +438,7 @@ impl App {
             context_window: 0,
             permission_mode_label: "auto".to_string(),
             activity: ActivitySummary::default(),
+            running_tools: std::collections::HashMap::new(),
             response_start_time: None,
             response_token_count: 0,
             cumulative_output_tokens: 0,
