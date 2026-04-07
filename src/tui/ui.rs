@@ -19,8 +19,8 @@ pub fn compute_command_overlay_area(terminal_area: Rect, content_height: u16) ->
     let max_height = terminal_area.height / 2;
     let height = content_height.min(max_height).max(1);
     let y = input_top.saturating_sub(height);
-    let width = terminal_area.width.min(80);
-    let x = terminal_area.x + (terminal_area.width.saturating_sub(width)) / 2;
+    let width = terminal_area.width;
+    let x = terminal_area.x;
 
     Rect { x, y, width, height }
 }
