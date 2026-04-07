@@ -968,13 +968,27 @@ impl App {
 
                 // Get info from running_tools
                 if let Some(tool_info) = self.running_tools.remove(&id) {
+                    // Use content_blocks if available (parsed), else use raw content
+                    let result_text = if let Some(ref blocks) = result.content_blocks {
+                        // Convert ContentBlocks to readable text
+                        blocks.iter()
+                            .filter_map(|block| match block {
+                                crate::types::content::ContentBlock::Text { text } => Some(text.clone()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    } else {
+                        result.content.clone()
+                    };
+
                     // Add completed tool to messages
                     self.messages.push(DisplayMessage::ToolCall {
                         id: id.clone(),
                         name: tool_info.name,
                         input_summary: tool_info.input_summary,
                         input_full: tool_info.input_full,
-                        result: Some(result.content),
+                        result: Some(result_text),
                         is_error: result.is_error,
                         collapsed: true,
                         parent_id: tool_info.parent_id,
