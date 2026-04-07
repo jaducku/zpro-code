@@ -95,6 +95,8 @@ pub struct App {
     pub response_start_time: Option<Instant>,
     /// Output tokens in the current response
     pub response_token_count: u64,
+    /// Cumulative output tokens across all responses in the current query
+    pub cumulative_output_tokens: u64,
 }
 
 /// What kind of typeahead is active
@@ -418,6 +420,7 @@ impl App {
             activity: ActivitySummary::default(),
             response_start_time: None,
             response_token_count: 0,
+            cumulative_output_tokens: 0,
         }
     }
 
@@ -816,6 +819,35 @@ impl App {
             .collect()
     }
 
+    /// Determine the current activity label for the status bar.
+    pub fn activity_label(&self) -> String {
+        // 1. Custom loading label
+        if let Some(ref label) = self.loading_label {
+            return label.clone();
+        }
+        // 2. Active agent description
+        for msg in self.messages.iter().rev() {
+            if let DisplayMessage::Agent {
+                description,
+                status: AgentStatus::Running,
+                ..
+            } = msg
+            {
+                return description.clone();
+            }
+        }
+        // 3. Active tools summary
+        if self.activity.total_active() > 0 {
+            return self.activity.format_summary();
+        }
+        // 4. LLM streaming
+        if self.response_start_time.is_some() {
+            return "Responding".into();
+        }
+        // 5. Default
+        "Thinking".into()
+    }
+
     /// Handle a query event (streaming update)
     pub fn handle_query_event(&mut self, event: QueryEvent) {
         // Auto-scroll to bottom on new content
@@ -914,6 +946,7 @@ impl App {
                 self.activity = ActivitySummary::default();
                 self.response_start_time = None;
                 self.response_token_count = 0;
+                self.cumulative_output_tokens = 0;
                 self.query_start_time = None;
                 self.mark_pending_tools_done();
             }
@@ -923,6 +956,7 @@ impl App {
             } => {
                 self.token_count += input_tokens + output_tokens;
                 self.response_token_count += output_tokens;
+                self.cumulative_output_tokens += output_tokens;
                 // Simple cost estimate: ~$0.01 per 1K tokens (rough average)
                 self.session_cost += (input_tokens + output_tokens) as f64 * 0.00001;
             }
@@ -968,6 +1002,7 @@ impl App {
             }
             QueryEvent::AgentCompleted {
                 agent_id,
+                agent_type,
                 description,
                 result,
                 is_error,
@@ -977,7 +1012,7 @@ impl App {
             } => {
                 self.push_message(DisplayMessage::Agent {
                     agent_id,
-                    agent_type: "Agent".into(),
+                    agent_type,
                     description,
                     status: if is_error {
                         AgentStatus::Failed

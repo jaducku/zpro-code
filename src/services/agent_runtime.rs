@@ -21,6 +21,7 @@ const BACKGROUND_ALLOWED_TOOLS: &[&str] = &[
 pub struct AgentSpawnParams {
     pub prompt: String,
     pub description: String,
+    pub agent_type: String,
     pub model: Option<String>,
     pub run_in_background: bool,
     pub isolation: Option<String>,
@@ -64,9 +65,16 @@ impl AgentSpawnParams {
             .and_then(|v| v.as_str())
             .map(String::from);
 
+        let agent_type = input
+            .get("subagent_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Agent")
+            .to_string();
+
         Ok(Self {
             prompt,
             description,
+            agent_type,
             model,
             run_in_background,
             isolation,
@@ -394,6 +402,7 @@ pub async fn run_background(
 ) -> Result<crate::tool::ToolResult, crate::types::AtomError> {
     let agent_id = uuid::Uuid::new_v4().to_string();
     let description = params.description.clone();
+    let agent_type = params.agent_type.clone();
     let mut tools = if params.is_fork {
         get_agent_tools(false) // fork: full tool access
     } else {
@@ -464,6 +473,7 @@ pub async fn run_background(
     let app_state = parent_ctx.app_state.clone();
     let agent_id_clone = agent_id.clone();
     let description_clone = description.clone();
+    let agent_type_clone = agent_type.clone();
 
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
@@ -528,6 +538,7 @@ pub async fn run_background(
         // Notify parent TUI with stats
         let _ = parent_event_tx.send(crate::query::types::QueryEvent::AgentCompleted {
             agent_id: agent_id_clone,
+            agent_type: agent_type_clone,
             description: description_clone,
             result: Some(result_text),
             is_error,
@@ -616,6 +627,7 @@ mod tests {
         let params = AgentSpawnParams {
             prompt: "test prompt".into(),
             description: "test".into(),
+            agent_type: "Agent".into(),
             model: Some("custom-model".into()),
             run_in_background: false,
             isolation: None,
@@ -638,6 +650,7 @@ mod tests {
         let params = AgentSpawnParams {
             prompt: "test".into(),
             description: "test".into(),
+            agent_type: "Agent".into(),
             model: None,
             run_in_background: false,
             isolation: None,
@@ -749,6 +762,7 @@ mod tests {
         let params = AgentSpawnParams {
             prompt: "test".into(),
             description: "test".into(),
+            agent_type: "Agent".into(),
             model: None,
             run_in_background: false,
             isolation: None,

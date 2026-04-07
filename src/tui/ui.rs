@@ -664,30 +664,44 @@ fn compute_activity_height(app: &App) -> u16 {
     }
 }
 
+fn format_tokens(tokens: u64) -> String {
+    if tokens >= 1_000 {
+        format!("{:.1}k tokens", tokens as f64 / 1000.0)
+    } else {
+        format!("{} tokens", tokens)
+    }
+}
+
 /// Render the fixed activity bar: Thinking (reasoning) or Working (tools running).
 fn render_activity(frame: &mut Frame, area: Rect, app: &App) {
     let elapsed_ms = app.start_time.elapsed().as_millis() as usize;
     let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spinner = spinner_frames[(elapsed_ms / 80) % spinner_frames.len()];
+    let frame_idx = (elapsed_ms / 80) % spinner_frames.len();
+    let spinner = spinner_frames[frame_idx];
 
     let elapsed = app
         .query_start_time
         .map(|s| crate::tui::app::format_elapsed(s))
         .unwrap_or_default();
-    let tokens = crate::tui::app::format_token_count_short(app.response_token_count);
 
-    let (label, color) = if app.activity.total_active() > 0 {
-        ("Working", Color::Cyan)
+    let label = app.activity_label();
+
+    let color = if app.activity.total_active() > 0 {
+        Color::Cyan
     } else if app.response_start_time.is_some() {
-        ("Working", Color::Green)
+        Color::Green
     } else {
-        ("Thinking", Color::Yellow)
+        Color::Yellow
     };
 
-    let status = if app.response_token_count > 0 {
-        format!("{}… ({} · ↑ {} tokens)", label, elapsed, tokens)
-    } else if !elapsed.is_empty() {
-        format!("{}… ({})", label, elapsed)
+    let token_str = if app.cumulative_output_tokens > 0 {
+        format!(" · ↓ {}", format_tokens(app.cumulative_output_tokens))
+    } else {
+        String::new()
+    };
+
+    let status = if !elapsed.is_empty() {
+        format!("{}… ({}{})", label, elapsed, token_str)
     } else {
         format!("{}…", label)
     };
