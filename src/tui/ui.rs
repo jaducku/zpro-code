@@ -237,7 +237,17 @@ fn render_conversation(
         while i < app.messages.len() {
             let run_start = i;
             while i < app.messages.len() {
-                if let DisplayMessage::ToolCall { name, result, .. } = &app.messages[i] {
+                if let DisplayMessage::ToolCall {
+                    name,
+                    result,
+                    parent_id,
+                    ..
+                } = &app.messages[i]
+                {
+                    // Child tools are rendered inside Agent blocks, skip them
+                    if parent_id.is_some() {
+                        break;
+                    }
                     if name != "AskUserQuestion" && result.is_some() {
                         i += 1;
                         continue;
@@ -355,9 +365,11 @@ fn render_conversation(
             DisplayMessage::ToolCall {
                 name,
                 input_summary,
+                input_full,
                 result,
                 is_error,
                 collapsed,
+                parent_id,
                 ..
             } => {
                 // AskUserQuestion is displayed via Question input UI, not as a ToolCall badge
@@ -365,50 +377,81 @@ fn render_conversation(
                     continue;
                 }
 
-                // Running tools are shown via activity summary, not individually
-                if result.is_none() {
+                // Child tools are rendered inside their parent Agent block
+                if parent_id.is_some() {
                     continue;
                 }
 
-                // Completed state: ToolName(summary)
-                let header_y = lines.len() as u16;
-                let header_text = if input_summary.is_empty() {
+                // Build header text: prefer input_full when available
+                let args = input_full.as_deref().unwrap_or(input_summary.as_str());
+                let header_text = if args.is_empty() {
                     name.clone()
                 } else {
-                    format!("{}({})", name, input_summary)
+                    format!("{}({})", name, args)
                 };
-                let header_style = if *is_error {
-                    Style::default().fg(Color::Red).bold()
-                } else {
-                    Style::default().fg(Color::White).bold()
-                };
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(header_text, header_style),
-                ]));
-                hit_areas.push(HitArea {
-                    y: header_y,
-                    message_idx: msg_idx,
-                });
 
-                // Result lines — white text with ⎿ prefix
-                if !collapsed {
-                    if let Some(ref result_text) = result {
-                        if !result_text.is_empty() {
-                            let result_lines: Vec<&str> = result_text.lines().collect();
-                            let max_preview = 20;
-                            let show_count = result_lines.len().min(max_preview);
-                            for line_text in &result_lines[..show_count] {
-                                lines.push(Line::from(vec![
-                                    Span::styled("    ⎿ ", Style::default().fg(Color::DarkGray)),
-                                    Span::raw(line_text.to_string()),
-                                ]));
-                            }
-                            if result_lines.len() > max_preview {
-                                lines.push(Line::from(Span::styled(
-                                    format!("      (+{} lines)", result_lines.len() - max_preview),
-                                    Style::default().fg(Color::DarkGray),
-                                )));
+                let header_y = lines.len() as u16;
+
+                if result.is_none() {
+                    // Running standalone tool — show with yellow "Running..."
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(header_text, Style::default().fg(Color::White).bold()),
+                    ]));
+                    hit_areas.push(HitArea {
+                        y: header_y,
+                        message_idx: msg_idx,
+                    });
+                    lines.push(Line::from(vec![
+                        Span::styled("    ⎿ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            "Running...",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::ITALIC),
+                        ),
+                    ]));
+                } else {
+                    // Completed state
+                    let header_style = if *is_error {
+                        Style::default().fg(Color::Red).bold()
+                    } else {
+                        Style::default().fg(Color::White).bold()
+                    };
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(header_text, header_style),
+                    ]));
+                    hit_areas.push(HitArea {
+                        y: header_y,
+                        message_idx: msg_idx,
+                    });
+
+                    // Result lines — white text with ⎿ prefix
+                    if !collapsed {
+                        if let Some(ref result_text) = result {
+                            if !result_text.is_empty() {
+                                let result_lines: Vec<&str> = result_text.lines().collect();
+                                let max_preview = 20;
+                                let show_count = result_lines.len().min(max_preview);
+                                for line_text in &result_lines[..show_count] {
+                                    lines.push(Line::from(vec![
+                                        Span::styled(
+                                            "    ⎿ ",
+                                            Style::default().fg(Color::DarkGray),
+                                        ),
+                                        Span::raw(line_text.to_string()),
+                                    ]));
+                                }
+                                if result_lines.len() > max_preview {
+                                    lines.push(Line::from(Span::styled(
+                                        format!(
+                                            "      (+{} lines)",
+                                            result_lines.len() - max_preview
+                                        ),
+                                        Style::default().fg(Color::DarkGray),
+                                    )));
+                                }
                             }
                         }
                     }
@@ -422,6 +465,8 @@ fn render_conversation(
                 tool_count,
                 token_count,
                 duration_secs,
+                child_tool_ids,
+                visible_child_count,
                 ..
             } => {
                 // Status icon — matches original Claude Code style
@@ -447,6 +492,92 @@ fn render_conversation(
                     y: header_y,
                     message_idx: msg_idx,
                 });
+
+                // Render child tools inline (when not collapsed)
+                if !collapsed && !child_tool_ids.is_empty() {
+                    let show_count = (*visible_child_count).min(child_tool_ids.len());
+                    let remaining = child_tool_ids.len().saturating_sub(show_count);
+
+                    for (ci, child_id) in child_tool_ids.iter().take(show_count).enumerate() {
+                        let is_last_visible = ci + 1 == show_count && remaining == 0;
+                        let branch = if is_last_visible { "└─" } else { "├─" };
+
+                        // Find the child ToolCall in app.messages
+                        let child_msg = app.messages.iter().find(
+                            |m| matches!(m, DisplayMessage::ToolCall { id, .. } if id == child_id),
+                        );
+
+                        if let Some(DisplayMessage::ToolCall {
+                            name,
+                            input_summary,
+                            input_full,
+                            result,
+                            ..
+                        }) = child_msg
+                        {
+                            let args = input_full.as_deref().unwrap_or(input_summary.as_str());
+                            let child_header = if args.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{}({})", name, args)
+                            };
+
+                            lines.push(Line::from(vec![
+                                Span::raw("  "),
+                                Span::styled(
+                                    format!("{} ", branch),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                                Span::styled(name.clone(), Style::default().bold()),
+                                Span::styled(
+                                    if args.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!("({})", args)
+                                    },
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                            ]));
+                            let _ = child_header; // used above via name/args directly
+
+                            if result.is_none() {
+                                // Running child tool
+                                lines.push(Line::from(vec![
+                                    Span::raw("  │    "),
+                                    Span::styled(
+                                        "Running...",
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::ITALIC),
+                                    ),
+                                ]));
+                            } else if let Some(ref result_text) = result {
+                                // Completed child — show first result line only
+                                if let Some(first_line) = result_text.lines().next() {
+                                    if !first_line.is_empty() {
+                                        lines.push(Line::from(vec![
+                                            Span::styled(
+                                                "  │  ⎿ ",
+                                                Style::default().fg(Color::DarkGray),
+                                            ),
+                                            Span::styled(
+                                                first_line.to_string(),
+                                                Style::default().fg(Color::DarkGray),
+                                            ),
+                                        ]));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if remaining > 0 {
+                        lines.push(Line::from(Span::styled(
+                            format!("  +{} more tool uses (ctrl+o to expand)", remaining),
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                    }
+                }
 
                 // Stats line: └ Done (N tool uses · Xk tokens · Ys)
                 if *status != AgentStatus::Running {
