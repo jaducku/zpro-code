@@ -896,9 +896,33 @@ async fn dispatch_slash_command(
                         });
                     }
                     Ok(LocalCommandResult::Clear) => {
+                        // Clear UI messages
                         app.messages.clear();
                         app.api_messages.clear();
                         app.needs_redraw = true;
+
+                        // Reinitialize app_state for fresh session
+                        let mut state = app_state.write().await;
+                        // Generate new session ID for fresh context
+                        state.session_id = uuid::Uuid::new_v4().to_string();
+                        // Clear message history
+                        state.messages.clear();
+                        // Reset UI indices
+                        state.selected_ip_agent_index = 0;
+                        state.coordinator_task_index = 0;
+                        // Clear task and agent state
+                        state.tasks.clear();
+                        state.background_tasks.clear();
+                        state.pending_agent_results.clear();
+                        state.agent_message_queues.clear();
+                        state.swarm_agents.clear();
+                        state.todos.clear();
+                        state.foreground_task_id = None;
+                        // Reset context tracking
+                        state.session_cost = 0.0;
+                        state.token_usage = crate::state::app_state::TokenUsage::default();
+                        drop(state);
+
                         app.push_message(DisplayMessage::Text {
                             role: TextRole::System,
                             content: "Conversation cleared.".into(),
