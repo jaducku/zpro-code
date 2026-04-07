@@ -103,7 +103,8 @@ impl ProviderRegistry {
                 // Look up model_options from the provider config
                 let (reasoning, reasoning_effort) = if let Some(providers) = &config.providers {
                     let provider_name = spec.split_once(':').map(|(l, _)| l).unwrap_or("");
-                    providers.get(provider_name)
+                    providers
+                        .get(provider_name)
                         .and_then(|p| p.model_options.as_ref())
                         .and_then(|opts| opts.get(&model_id))
                         .map(|o| (o.reasoning, o.reasoning_effort.clone()))

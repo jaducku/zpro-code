@@ -944,17 +944,20 @@ impl App {
             }
             QueryEvent::ToolCallInputReady { id, input, name } => {
                 let summary = crate::tui::tool_summary::tool_input_summary(&name, &input);
+                let full = crate::tui::tool_summary::tool_input_full(&name, &input);
                 self.activity.last_detail = summary.clone();
                 // Find the ToolCall by id (reverse scan — it's near the end)
                 for msg in self.messages.iter_mut().rev() {
                     if let DisplayMessage::ToolCall {
                         id: ref msg_id,
                         ref mut input_summary,
+                        ref mut input_full,
                         ..
                     } = msg
                     {
                         if *msg_id == id {
                             *input_summary = summary;
+                            *input_full = Some(full);
                             break;
                         }
                     }

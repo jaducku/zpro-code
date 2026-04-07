@@ -436,7 +436,10 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                     for choice in &chunk.choices {
                         // Reasoning/thinking delta (Qwen 3, DeepSeek, Gemma4, etc.)
                         // Some providers use "reasoning_content", others use "reasoning"
-                        let thinking = choice.delta.reasoning_content.as_deref()
+                        let thinking = choice
+                            .delta
+                            .reasoning_content
+                            .as_deref()
                             .or(choice.delta.reasoning.as_deref());
                         if let Some(reasoning) = thinking {
                             if !reasoning.is_empty() {
@@ -551,8 +554,10 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                     // (helps diagnose models with unexpected response formats)
                     let buf = &state.buffer;
                     if !buf.trim().is_empty() {
-                        tracing::debug!("SSE chunk produced no events, buffer: {}...",
-                            &buf[..buf.len().min(200)]);
+                        tracing::debug!(
+                            "SSE chunk produced no events, buffer: {}...",
+                            &buf[..buf.len().min(200)]
+                        );
                     }
                     None
                 } else {
