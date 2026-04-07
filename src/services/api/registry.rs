@@ -58,9 +58,10 @@ impl ProviderRegistry {
                 if name.starts_with('_') {
                     anyhow::bail!("Provider name '{}' is reserved (starts with '_')", name);
                 }
-                let api_base = pcfg.api_base.clone().ok_or_else(|| {
-                    anyhow::anyhow!("Provider '{}': api_base is required", name)
-                })?;
+                let api_base = pcfg
+                    .api_base
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("Provider '{}': api_base is required", name))?;
                 registry.provider_templates.insert(
                     name.clone(),
                     ProviderTemplate {
@@ -82,7 +83,11 @@ impl ProviderRegistry {
             // treat it as provider:model if the left side matches a registered provider.
             let resolved = if let Some((left, right)) = spec.split_once(':') {
                 if let Some(tmpl) = registry.provider_templates.get(left) {
-                    Some((tmpl.api_base.clone(), tmpl.api_key.clone(), right.to_string()))
+                    Some((
+                        tmpl.api_base.clone(),
+                        tmpl.api_key.clone(),
+                        right.to_string(),
+                    ))
                 } else {
                     None
                 }
@@ -262,11 +267,7 @@ mod tests {
             "https://openrouter.ai/api/v1".into(),
             Some("sk-test".into()),
         );
-        r.register_provider(
-            "ollama".into(),
-            "http://localhost:11434/v1".into(),
-            None,
-        );
+        r.register_provider("ollama".into(), "http://localhost:11434/v1".into(), None);
         r.register_llm(
             "sonnet".into(),
             ResolvedLlm {
@@ -415,7 +416,9 @@ mod tests {
     fn test_from_config_reserved_name_provider() {
         let json = r#"{ "providers": { "_bad": { "api_base": "http://x" } } }"#;
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
+        let err = ProviderRegistry::from_config(&config)
+            .err()
+            .expect("should fail");
         assert!(err.to_string().contains("reserved"));
     }
 
@@ -426,7 +429,9 @@ mod tests {
             "models": { "_bad": "p:model" }
         }"#;
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
+        let err = ProviderRegistry::from_config(&config)
+            .err()
+            .expect("should fail");
         assert!(err.to_string().contains("reserved"));
     }
 
@@ -439,7 +444,11 @@ mod tests {
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
         let mut r = ProviderRegistry::from_config(&config).unwrap();
         // No colon → stored as legacy, needs _cli to resolve
-        r.register_provider("_cli".into(), "https://openrouter.ai/api/v1".into(), Some("sk-test".into()));
+        r.register_provider(
+            "_cli".into(),
+            "https://openrouter.ai/api/v1".into(),
+            Some("sk-test".into()),
+        );
         let p = r.resolve("fast").unwrap();
         assert_eq!(p.model_info().id, "google/gemma-3-27b-it:free");
     }

@@ -94,20 +94,32 @@ fn setup_openrouter() -> AtomConfig {
 
     let mut default_model = None;
     loop {
-        let hint = if default_model.is_none() { " (e.g. fast, smart, code)" } else { "" };
+        let hint = if default_model.is_none() {
+            " (e.g. fast, smart, code)"
+        } else {
+            ""
+        };
         eprint!("  Model alias{}: ", hint);
         io::stderr().flush().ok();
         let mut alias = String::new();
-        if io::stdin().read_line(&mut alias).is_err() { break; }
+        if io::stdin().read_line(&mut alias).is_err() {
+            break;
+        }
         let alias = alias.trim().to_string();
-        if alias.is_empty() { break; }
+        if alias.is_empty() {
+            break;
+        }
 
         eprint!("  Model ID for '{}': ", alias);
         io::stderr().flush().ok();
         let mut model_id = String::new();
-        if io::stdin().read_line(&mut model_id).is_err() { break; }
+        if io::stdin().read_line(&mut model_id).is_err() {
+            break;
+        }
         let model_id = model_id.trim().to_string();
-        if model_id.is_empty() { continue; }
+        if model_id.is_empty() {
+            continue;
+        }
 
         provider_models.push(model_id.clone());
         models.insert(alias.clone(), format!("openrouter:{}", model_id));
@@ -132,7 +144,10 @@ fn setup_openrouter() -> AtomConfig {
         eprintln!("  No models registered. Add them later in config.json");
     } else {
         eprintln!();
-        eprintln!("  Default model: {}", default_model.as_deref().unwrap_or("(none)"));
+        eprintln!(
+            "  Default model: {}",
+            default_model.as_deref().unwrap_or("(none)")
+        );
     }
 
     AtomConfig {
@@ -154,7 +169,11 @@ fn setup_custom() -> AtomConfig {
     let mut url = String::new();
     let api_base = if io::stdin().read_line(&mut url).is_ok() {
         let u = url.trim().to_string();
-        if u.is_empty() { None } else { Some(u) }
+        if u.is_empty() {
+            None
+        } else {
+            Some(u)
+        }
     } else {
         None
     };
@@ -165,7 +184,11 @@ fn setup_custom() -> AtomConfig {
     let mut key = String::new();
     let api_key = if io::stdin().read_line(&mut key).is_ok() {
         let k = key.trim().to_string();
-        if k.is_empty() { None } else { Some(k) }
+        if k.is_empty() {
+            None
+        } else {
+            Some(k)
+        }
     } else {
         None
     };
@@ -190,7 +213,11 @@ fn setup_custom() -> AtomConfig {
 
     providers.insert(
         "custom".to_string(),
-        ProviderConfigJson { api_base, api_key, models: provider_models },
+        ProviderConfigJson {
+            api_base,
+            api_key,
+            models: provider_models,
+        },
     );
 
     AtomConfig {

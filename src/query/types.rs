@@ -101,7 +101,10 @@ pub enum QueryEvent {
     /// LLM response complete
     ResponseComplete { stop_reason: StopReason },
     /// Token usage update
-    Usage { input_tokens: u64, output_tokens: u64 },
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     /// Error occurred
     Error(String),
     /// Background agent completed or failed
@@ -126,10 +129,7 @@ pub enum QueryEvent {
         status: BriefStatus,
     },
     /// Context was compacted to fit token budget
-    Compacted {
-        stage: String,
-        tokens_freed: u64,
-    },
+    Compacted { stage: String, tokens_freed: u64 },
     /// Query was cancelled — carries partial messages and the cancel reason
     QueryCancelled {
         partial_messages: Vec<crate::types::message::ApiMessage>,

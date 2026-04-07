@@ -94,8 +94,7 @@ impl Tool for ExitPlanModeTool {
         // 4. Exit plan mode (restore permission)
         {
             let mut state = ctx.app_state.write().await;
-            PlanModeService::exit(&mut state)
-                .map_err(|e| tool_err(format!("{}", e)))?;
+            PlanModeService::exit(&mut state).map_err(|e| tool_err(format!("{}", e)))?;
         }
 
         // 5. Check if Agent tool available + swarms enabled

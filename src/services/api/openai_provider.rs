@@ -60,7 +60,9 @@ impl ChatCompletionsProvider {
 
     fn build_request(&self, request: &CreateMessageRequest) -> OpenAiRequest {
         let messages = to_openai_messages(&request.messages, request.system.as_deref());
-        let tools = request.tools.as_ref()
+        let tools = request
+            .tools
+            .as_ref()
             .map(|t| to_openai_tools(t))
             .filter(|t| !t.is_empty());
 
@@ -85,25 +87,26 @@ impl ChatCompletionsProvider {
 #[async_trait]
 impl LlmProvider for ChatCompletionsProvider {
     async fn create_message(&self, request: CreateMessageRequest) -> Result<MessageStream> {
-        let url = format!(
-            "{}/chat/completions",
-            self.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
         // Try with full features, auto-retry with fallbacks on errors
         let result = self.send_request(&url, &request, false).await;
 
         match result {
-            Err(AtomError::Api { status: Some(s), ref message })
-                if (s == 400 || s == 404)
-                    && (message.contains("instruction") || message.contains("system")) =>
+            Err(AtomError::Api {
+                status: Some(s),
+                ref message,
+            }) if (s == 400 || s == 404)
+                && (message.contains("instruction") || message.contains("system")) =>
             {
                 // Model doesn't support system role — retry with system-as-user
                 self.send_request(&url, &request, true).await
             }
-            Err(AtomError::Api { status: Some(s), ref message })
-                if (s == 400 || s == 404)
-                    && (message.contains("tool") || message.contains("function")) =>
+            Err(AtomError::Api {
+                status: Some(s),
+                ref message,
+            }) if (s == 400 || s == 404)
+                && (message.contains("tool") || message.contains("function")) =>
             {
                 // Model doesn't support tool use — retry without tools
                 let mut request_no_tools = request.clone();
@@ -136,11 +139,10 @@ impl ChatCompletionsProvider {
             self.build_request(request)
         };
 
-        let body = serde_json::to_string(&openai_req)
-            .map_err(|e| AtomError::Api {
-                message: e.to_string(),
-                status: None,
-            })?;
+        let body = serde_json::to_string(&openai_req).map_err(|e| AtomError::Api {
+            message: e.to_string(),
+            status: None,
+        })?;
 
         let mut http_req = self
             .client
@@ -188,20 +190,27 @@ impl ChatCompletionsProvider {
         if let Some(system) = &request.system {
             let text: String = system
                 .iter()
-                .map(|b| match b { SystemBlock::Text { text } => text.as_str() })
+                .map(|b| match b {
+                    SystemBlock::Text { text } => text.as_str(),
+                })
                 .collect::<Vec<_>>()
                 .join("\n\n");
             if !text.is_empty() {
                 messages.push(OpenAiMessage {
                     role: "user".into(),
-                    content: Some(OpenAiContent::Text(format!("[System Instructions]\n{}", text))),
+                    content: Some(OpenAiContent::Text(format!(
+                        "[System Instructions]\n{}",
+                        text
+                    ))),
                     tool_calls: None,
                     tool_call_id: None,
                     name: None,
                 });
                 messages.push(OpenAiMessage {
                     role: "assistant".into(),
-                    content: Some(OpenAiContent::Text("Understood. I'll follow these instructions.".into())),
+                    content: Some(OpenAiContent::Text(
+                        "Understood. I'll follow these instructions.".into(),
+                    )),
                     tool_calls: None,
                     tool_call_id: None,
                     name: None,
@@ -213,7 +222,9 @@ impl ChatCompletionsProvider {
         let regular = to_openai_messages(&request.messages, None);
         messages.extend(regular);
 
-        let tools = request.tools.as_ref()
+        let tools = request
+            .tools
+            .as_ref()
             .map(|t| to_openai_tools(t))
             .filter(|t| !t.is_empty());
 
@@ -225,13 +236,14 @@ impl ChatCompletionsProvider {
             temperature: request.temperature,
             stream: Some(request.stream),
             stream_options: if request.stream {
-                Some(StreamOptions { include_usage: true })
+                Some(StreamOptions {
+                    include_usage: true,
+                })
             } else {
                 None
             },
         }
     }
-
 }
 
 /// Convert non-streaming response to stream events
@@ -286,7 +298,9 @@ fn non_streaming_to_events(resp: OpenAiResponse) -> Vec<StreamEvent> {
         events.push(StreamEvent::MessageStop { stop_reason });
     } else {
         // Empty choices — still emit MessageStop so TUI doesn't hang
-        events.push(StreamEvent::MessageStop { stop_reason: StopReason::EndTurn });
+        events.push(StreamEvent::MessageStop {
+            stop_reason: StopReason::EndTurn,
+        });
     }
 
     // Usage
@@ -320,7 +334,8 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
     }));
 
     // Map byte_stream to Vec<u8> so we can chain a flush sentinel
-    let byte_stream = resp.bytes_stream()
+    let byte_stream = resp
+        .bytes_stream()
         .map(|r| r.map(|b| b.to_vec()).map_err(|e| e.to_string()));
     // Chain a trailing newline to flush any remaining buffered SSE data
     // when the server closes the connection without a final \n
@@ -374,7 +389,8 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                             tracing::warn!("SSE parse error: {} — raw data: {}", e, data);
                             // Try to extract error from raw JSON
                             if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
-                                if let Some(err_msg) = val.get("error")
+                                if let Some(err_msg) = val
+                                    .get("error")
                                     .and_then(|e| e.get("message"))
                                     .and_then(|m| m.as_str())
                                 {
@@ -400,7 +416,9 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                     // Message start
                     if state.message_id.is_none() {
                         state.message_id = Some(chunk.id.clone());
-                        all_events.push(Ok(StreamEvent::MessageStart { id: chunk.id.clone() }));
+                        all_events.push(Ok(StreamEvent::MessageStart {
+                            id: chunk.id.clone(),
+                        }));
                     }
 
                     for choice in &chunk.choices {
@@ -409,7 +427,9 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                             if !reasoning.is_empty() {
                                 all_events.push(Ok(StreamEvent::ContentBlockDelta {
                                     index: 0,
-                                    delta: ContentDelta::ThinkingDelta { thinking: reasoning.clone() },
+                                    delta: ContentDelta::ThinkingDelta {
+                                        thinking: reasoning.clone(),
+                                    },
                                 }));
                             }
                         }
@@ -420,7 +440,9 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                                 state.text_started = true;
                                 all_events.push(Ok(StreamEvent::ContentBlockStart {
                                     index: state.next_content_index,
-                                    content_block: ContentBlock::Text { text: String::new() },
+                                    content_block: ContentBlock::Text {
+                                        text: String::new(),
+                                    },
                                 }));
                             }
                             if !text.is_empty() {
@@ -455,20 +477,32 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                                         }
                                     }
                                     all_events.push(Ok(StreamEvent::ContentBlockStart {
-                                        index: ci,
-                                        content_block: ContentBlock::ToolUse {
-                                            id: state.tool_ids.get(&oi).cloned().unwrap_or_default(),
-                                            name: state.tool_names.get(&oi).cloned().unwrap_or_default(),
-                                            input: serde_json::Value::Object(serde_json::Map::new()),
-                                        },
-                                    }));
+                                            index: ci,
+                                            content_block: ContentBlock::ToolUse {
+                                                id: state
+                                                    .tool_ids
+                                                    .get(&oi)
+                                                    .cloned()
+                                                    .unwrap_or_default(),
+                                                name: state
+                                                    .tool_names
+                                                    .get(&oi)
+                                                    .cloned()
+                                                    .unwrap_or_default(),
+                                                input: serde_json::Value::Object(
+                                                    serde_json::Map::new(),
+                                                ),
+                                            },
+                                        }));
                                 }
                                 if let Some(func) = &tc_delta.function {
                                     if let Some(args) = &func.arguments {
                                         if let Some(&ci) = state.tool_call_index_map.get(&oi) {
                                             all_events.push(Ok(StreamEvent::ContentBlockDelta {
                                                 index: ci,
-                                                delta: ContentDelta::InputJsonDelta { partial_json: args.clone() },
+                                                delta: ContentDelta::InputJsonDelta {
+                                                    partial_json: args.clone(),
+                                                },
                                             }));
                                         }
                                     }

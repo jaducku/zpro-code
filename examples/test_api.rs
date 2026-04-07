@@ -1,3 +1,4 @@
+use futures::StreamExt;
 /// Minimal test: call OpenRouter API and print the response.
 /// Usage: cargo run --example test_api -- <api_base> <api_key> <model>
 use zpro_code::services::api::openai_provider::ChatCompletionsProvider;
@@ -5,7 +6,6 @@ use zpro_code::services::api::provider::LlmProvider;
 use zpro_code::services::api::types::*;
 use zpro_code::types::content::ContentBlock;
 use zpro_code::types::message::{ApiMessage, Role};
-use futures::StreamExt;
 
 #[tokio::main]
 async fn main() {
@@ -25,11 +25,8 @@ async fn main() {
     println!("Model: {}", model);
     println!();
 
-    let provider = ChatCompletionsProvider::new(
-        api_base.clone(),
-        Some(api_key.clone()),
-        model.clone(),
-    );
+    let provider =
+        ChatCompletionsProvider::new(api_base.clone(), Some(api_key.clone()), model.clone());
 
     let request = CreateMessageRequest {
         model: model.clone(),

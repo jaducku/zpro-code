@@ -124,7 +124,12 @@ pub fn validate_cron(expr: &str) -> Result<String, String> {
     let normalized = match fields.len() {
         5 => format!("0 {}", expr),
         6 => expr.to_string(),
-        _ => return Err(format!("Invalid cron expression '{}': expected 5 or 6 fields", expr)),
+        _ => {
+            return Err(format!(
+                "Invalid cron expression '{}': expected 5 or 6 fields",
+                expr
+            ))
+        }
     };
 
     cron::Schedule::from_str(&normalized)

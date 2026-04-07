@@ -99,8 +99,10 @@ impl Tool for WebFetchTool {
             .unwrap_or("")
             .to_lowercase();
 
-        let is_html = content_type.contains("text/html") || content_type.contains("application/xhtml");
-        let is_text = content_type.contains("text/") || content_type.contains("application/json")
+        let is_html =
+            content_type.contains("text/html") || content_type.contains("application/xhtml");
+        let is_text = content_type.contains("text/")
+            || content_type.contains("application/json")
             || content_type.contains("application/xml");
 
         if !is_html && !is_text {
@@ -131,7 +133,11 @@ impl Tool for WebFetchTool {
 
         if bytes.len() > MAX_BODY_SIZE {
             return Ok(ToolResult {
-                content: format!("Response too large: {} bytes (max {})", bytes.len(), MAX_BODY_SIZE),
+                content: format!(
+                    "Response too large: {} bytes (max {})",
+                    bytes.len(),
+                    MAX_BODY_SIZE
+                ),
                 is_error: true,
                 content_blocks: None,
             });
@@ -190,8 +196,7 @@ fn html_to_markdown(url_str: &str, html_bytes: &[u8]) -> String {
         .and_then(|parsed_url| readability::extractor::extract(&mut cursor, &parsed_url).ok());
 
     if let Some(product) = readability_result {
-        let body_md =
-            htmd::convert(&product.content).unwrap_or(product.text);
+        let body_md = htmd::convert(&product.content).unwrap_or(product.text);
         if !product.title.is_empty() {
             format!("# {}\n\n{}", product.title, body_md)
         } else {

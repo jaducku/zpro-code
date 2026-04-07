@@ -128,43 +128,55 @@ mod tests {
     fn test_deferred_tools() {
         let tools = get_builtin_tools();
         // Tools that opt into deferral via should_defer()
-        let expected_deferred = &["ConfigTool", "CronCreate", "CronList", "CronDelete", "ListMcpResources", "ReadMcpResource", "SendMessage", "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree", "TeamCreate", "TeamDelete"];
+        let expected_deferred = &[
+            "ConfigTool",
+            "CronCreate",
+            "CronList",
+            "CronDelete",
+            "ListMcpResources",
+            "ReadMcpResource",
+            "SendMessage",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "EnterWorktree",
+            "ExitWorktree",
+            "TeamCreate",
+            "TeamDelete",
+        ];
         for tool in &tools {
             let deferred = is_deferred_tool(tool.as_ref());
             if expected_deferred.contains(&tool.name()) {
-                assert!(
-                    deferred,
-                    "Tool '{}' should be deferred",
-                    tool.name()
-                );
+                assert!(deferred, "Tool '{}' should be deferred", tool.name());
             } else {
-                assert!(
-                    !deferred,
-                    "Tool '{}' should not be deferred",
-                    tool.name()
-                );
+                assert!(!deferred, "Tool '{}' should not be deferred", tool.name());
             }
         }
     }
 
     #[test]
     fn test_is_deferred_tool_mcp() {
-        use async_trait::async_trait;
         use crate::tool::{ToolResult, ToolUseContext};
+        use async_trait::async_trait;
 
         struct MockMcpTool;
 
         #[async_trait]
         impl Tool for MockMcpTool {
-            fn name(&self) -> &str { "mcp__test" }
-            fn description(&self) -> &str { "Mock MCP tool" }
+            fn name(&self) -> &str {
+                "mcp__test"
+            }
+            fn description(&self) -> &str {
+                "Mock MCP tool"
+            }
             fn input_schema(&self) -> serde_json::Value {
                 serde_json::json!({"type": "object"})
             }
             async fn execute(&self, _ctx: ToolUseContext) -> crate::types::Result<ToolResult> {
                 unimplemented!()
             }
-            fn is_mcp(&self) -> bool { true }
+            fn is_mcp(&self) -> bool {
+                true
+            }
         }
 
         assert!(is_deferred_tool(&MockMcpTool));
@@ -172,23 +184,31 @@ mod tests {
 
     #[test]
     fn test_is_deferred_tool_always_load_overrides() {
-        use async_trait::async_trait;
         use crate::tool::{ToolResult, ToolUseContext};
+        use async_trait::async_trait;
 
         struct AlwaysLoadMcpTool;
 
         #[async_trait]
         impl Tool for AlwaysLoadMcpTool {
-            fn name(&self) -> &str { "mcp__important" }
-            fn description(&self) -> &str { "Important MCP tool" }
+            fn name(&self) -> &str {
+                "mcp__important"
+            }
+            fn description(&self) -> &str {
+                "Important MCP tool"
+            }
             fn input_schema(&self) -> serde_json::Value {
                 serde_json::json!({"type": "object"})
             }
             async fn execute(&self, _ctx: ToolUseContext) -> crate::types::Result<ToolResult> {
                 unimplemented!()
             }
-            fn is_mcp(&self) -> bool { true }
-            fn always_load(&self) -> bool { true }
+            fn is_mcp(&self) -> bool {
+                true
+            }
+            fn always_load(&self) -> bool {
+                true
+            }
         }
 
         assert!(!is_deferred_tool(&AlwaysLoadMcpTool));

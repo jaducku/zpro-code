@@ -27,7 +27,13 @@ pub struct TeamMember {
 /// Sanitize a team name for use in file paths (same as TS: replace non-alnum with `-`, lowercase).
 fn sanitize_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -53,7 +59,10 @@ impl TeamService {
 
     #[cfg(test)]
     fn with_base(base_dir: PathBuf, tasks_dir: PathBuf) -> Self {
-        Self { base_dir, tasks_dir }
+        Self {
+            base_dir,
+            tasks_dir,
+        }
     }
 
     fn team_dir(&self, name: &str) -> PathBuf {
@@ -155,17 +164,16 @@ mod tests {
 
     fn test_service() -> (TeamService, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().unwrap();
-        let svc = TeamService::with_base(
-            dir.path().join("teams"),
-            dir.path().join("tasks"),
-        );
+        let svc = TeamService::with_base(dir.path().join("teams"), dir.path().join("tasks"));
         (svc, dir)
     }
 
     #[test]
     fn test_create_and_load() {
         let (svc, _dir) = test_service();
-        let (config, path) = svc.create("my-team", Some("A test team"), Some("sess-1")).unwrap();
+        let (config, path) = svc
+            .create("my-team", Some("A test team"), Some("sess-1"))
+            .unwrap();
 
         assert_eq!(config.name, "my-team");
         assert_eq!(config.description.as_deref(), Some("A test team"));

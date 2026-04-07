@@ -77,12 +77,22 @@ impl WorktreeService {
 
         // Get current branch
         let branch_output = tokio::process::Command::new("git")
-            .args(["-C", &git_root.to_string_lossy(), "rev-parse", "--abbrev-ref", "HEAD"])
+            .args([
+                "-C",
+                &git_root.to_string_lossy(),
+                "rev-parse",
+                "--abbrev-ref",
+                "HEAD",
+            ])
             .output()
             .await
             .map_err(|e| format!("failed to get current branch: {e}"))?;
         let original_branch = if branch_output.status.success() {
-            Some(String::from_utf8_lossy(&branch_output.stdout).trim().to_string())
+            Some(
+                String::from_utf8_lossy(&branch_output.stdout)
+                    .trim()
+                    .to_string(),
+            )
         } else {
             None
         };
@@ -94,7 +104,11 @@ impl WorktreeService {
             .await
             .map_err(|e| format!("failed to get HEAD: {e}"))?;
         let original_head_commit = if head_output.status.success() {
-            Some(String::from_utf8_lossy(&head_output.stdout).trim().to_string())
+            Some(
+                String::from_utf8_lossy(&head_output.stdout)
+                    .trim()
+                    .to_string(),
+            )
         } else {
             None
         };
@@ -173,7 +187,9 @@ impl WorktreeService {
         }
 
         let count_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        count_str.parse::<u32>().map_err(|e| format!("failed to parse commit count: {e}"))
+        count_str
+            .parse::<u32>()
+            .map_err(|e| format!("failed to parse commit count: {e}"))
     }
 
     /// Remove a worktree and its branch. Returns stats about discarded work.

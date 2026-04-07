@@ -127,18 +127,14 @@ impl Tool for TaskUpdateTool {
                 s.to_string()
             });
 
-        let status = ctx
-            .input
-            .get("status")
-            .and_then(|v| v.as_str())
-            .map(|s| {
-                updated_fields.push("status");
-                match s {
-                    "in_progress" => TaskStatus::InProgress,
-                    "completed" => TaskStatus::Completed,
-                    _ => TaskStatus::Pending,
-                }
-            });
+        let status = ctx.input.get("status").and_then(|v| v.as_str()).map(|s| {
+            updated_fields.push("status");
+            match s {
+                "in_progress" => TaskStatus::InProgress,
+                "completed" => TaskStatus::Completed,
+                _ => TaskStatus::Pending,
+            }
+        });
 
         let owner = ctx.input.get("owner").and_then(|v| v.as_str()).map(|s| {
             updated_fields.push("owner");

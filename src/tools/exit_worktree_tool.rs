@@ -82,10 +82,7 @@ impl Tool for ExitWorktreeTool {
 
         let original_cwd = session.original_cwd.to_string_lossy().to_string();
         let worktree_path = session.worktree_path.to_string_lossy().to_string();
-        let worktree_branch = session
-            .worktree_branch
-            .clone()
-            .unwrap_or_default();
+        let worktree_branch = session.worktree_branch.clone().unwrap_or_default();
 
         let mut discarded_files: u32 = 0;
         let mut discarded_commits: u32 = 0;
@@ -229,7 +226,11 @@ mod tests {
         let result = ExitWorktreeTool.execute(ctx).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("Missing required field: action"), "Error: {}", err);
+        assert!(
+            err.contains("Missing required field: action"),
+            "Error: {}",
+            err
+        );
     }
 
     #[tokio::test]

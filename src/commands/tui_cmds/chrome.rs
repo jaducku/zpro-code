@@ -56,17 +56,29 @@ impl TuiCommand for ChromeCommand {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled("  Chrome Integration", Style::default().fg(Color::White).bold())),
+            Line::from(Span::styled(
+                "  Chrome Integration",
+                Style::default().fg(Color::White).bold(),
+            )),
             Line::from(""),
             Line::from(vec![
                 Span::styled("  Status: ", Style::default().fg(Color::DarkGray)),
                 Span::styled("not connected", Style::default().fg(Color::Yellow)),
             ]),
             Line::from(""),
-            Line::from(Span::styled("  Use --chrome flag at startup to enable Chrome integration.", Style::default().fg(Color::White))),
-            Line::from(Span::styled("  This allows Claude to interact with web pages via Chrome DevTools.", Style::default().fg(Color::White))),
+            Line::from(Span::styled(
+                "  Use --chrome flag at startup to enable Chrome integration.",
+                Style::default().fg(Color::White),
+            )),
+            Line::from(Span::styled(
+                "  This allows Claude to interact with web pages via Chrome DevTools.",
+                Style::default().fg(Color::White),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

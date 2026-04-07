@@ -145,8 +145,7 @@ mod tests {
     #[test]
     fn test_parse_async_response_skips_async_key() {
         // First JSON line is the async ack, second is the real response
-        let stdout =
-            "{\"async\":true}\n{\"decision\":\"deny\",\"reason\":\"not allowed\"}";
+        let stdout = "{\"async\":true}\n{\"decision\":\"deny\",\"reason\":\"not allowed\"}";
         let output = parse_async_stdout(stdout);
         assert_eq!(output.decision.as_deref(), Some("deny"));
         assert_eq!(output.reason.as_deref(), Some("not allowed"));

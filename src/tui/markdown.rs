@@ -32,7 +32,9 @@ pub fn parse_markdown(text: &str) -> Vec<Line<'static>> {
 
 /// Post-process lines to detect URLs and GitHub issue references in unstyled spans.
 fn auto_detect_links(lines: &mut [Line<'static>]) {
-    let link_style = Style::new().fg(Color::Blue).add_modifier(Modifier::UNDERLINED);
+    let link_style = Style::new()
+        .fg(Color::Blue)
+        .add_modifier(Modifier::UNDERLINED);
 
     for line in lines.iter_mut() {
         let mut new_spans: Vec<Span<'static>> = Vec::new();
@@ -53,7 +55,14 @@ fn auto_detect_links(lines: &mut [Line<'static>]) {
                 let start = search_from + pos;
                 // URL extends until whitespace or end
                 let end = text[start..]
-                    .find(|c: char| c.is_whitespace() || c == ')' || c == ']' || c == '>' || c == '"' || c == '\'')
+                    .find(|c: char| {
+                        c.is_whitespace()
+                            || c == ')'
+                            || c == ']'
+                            || c == '>'
+                            || c == '"'
+                            || c == '\''
+                    })
                     .map(|e| start + e)
                     .unwrap_or(text.len());
                 if end > start + 8 {
@@ -90,7 +99,11 @@ fn auto_detect_links(lines: &mut [Line<'static>]) {
                     // owner = before[..slash_pos], repo = before[slash_pos+1..]
                     // both must be non-empty word chars
                     let repo = &before[slash_pos + 1..];
-                    if repo.is_empty() || !repo.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+                    if repo.is_empty()
+                        || !repo
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+                    {
                         continue;
                     }
                     // Find start of owner (walk back from slash)
@@ -100,7 +113,11 @@ fn auto_detect_links(lines: &mut [Line<'static>]) {
                         .map(|p| p + 1)
                         .unwrap_or(0);
                     let owner = &before[owner_start..owner_end];
-                    if owner.is_empty() || !owner.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+                    if owner.is_empty()
+                        || !owner
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+                    {
                         continue;
                     }
                     let ref_start = owner_start;
@@ -123,7 +140,10 @@ fn auto_detect_links(lines: &mut [Line<'static>]) {
 
             for &(start, end, _is_link) in &splits {
                 if start > last {
-                    new_spans.push(Span::styled(text[last..start].to_string(), Style::default()));
+                    new_spans.push(Span::styled(
+                        text[last..start].to_string(),
+                        Style::default(),
+                    ));
                 }
                 new_spans.push(Span::styled(text[start..end].to_string(), link_style));
                 last = end;
@@ -152,9 +172,15 @@ fn highlight_code(code: &str, lang: &str) -> Vec<Line<'static>> {
     // Top border — left side only (no right border, avoids CJK width issues)
     let mut lines = Vec::new();
     if lang.is_empty() {
-        lines.push(Line::from(Span::styled("  ────────────────────", border_style)));
+        lines.push(Line::from(Span::styled(
+            "  ────────────────────",
+            border_style,
+        )));
     } else {
-        lines.push(Line::from(Span::styled(format!("  ── {} ──────────", lang), border_style)));
+        lines.push(Line::from(Span::styled(
+            format!("  ── {} ──────────", lang),
+            border_style,
+        )));
     }
 
     // Code lines — left border only
@@ -176,7 +202,10 @@ fn highlight_code(code: &str, lang: &str) -> Vec<Line<'static>> {
                 }
             }
             Err(_) => {
-                spans.push(Span::styled(line_str.to_string(), Style::new().fg(Color::White)));
+                spans.push(Span::styled(
+                    line_str.to_string(),
+                    Style::new().fg(Color::White),
+                ));
             }
         }
 
@@ -215,11 +244,7 @@ impl TableBuilder {
         }
 
         // Calculate column widths using display width (CJK = 2 cols)
-        let mut col_widths: Vec<usize> = self
-            .headers
-            .iter()
-            .map(|h| display_width(h))
-            .collect();
+        let mut col_widths: Vec<usize> = self.headers.iter().map(|h| display_width(h)).collect();
 
         for row in &self.rows {
             for (i, cell) in row.iter().enumerate() {
@@ -240,7 +265,8 @@ impl TableBuilder {
             let mut new_widths: Vec<usize> = col_widths
                 .iter()
                 .map(|&w| {
-                    let proportional = (w as f64 / total_content as f64 * available as f64) as usize;
+                    let proportional =
+                        (w as f64 / total_content as f64 * available as f64) as usize;
                     proportional.max(3)
                 })
                 .collect();
@@ -321,10 +347,13 @@ impl TableBuilder {
             let truncated: String = if dw > *width {
                 // Truncate by display width
                 let mut w = 0;
-                cell_text.chars().take_while(|c| {
-                    w += if c.is_ascii() { 1 } else { 2 };
-                    w <= *width
-                }).collect()
+                cell_text
+                    .chars()
+                    .take_while(|c| {
+                        w += if c.is_ascii() { 1 } else { 2 };
+                        w <= *width
+                    })
+                    .collect()
             } else {
                 cell_text.to_string()
             };
@@ -503,7 +532,11 @@ impl MarkdownRenderer {
                 let lang = match kind {
                     CodeBlockKind::Fenced(lang) => {
                         let l = lang.to_string();
-                        if l.is_empty() { None } else { Some(l) }
+                        if l.is_empty() {
+                            None
+                        } else {
+                            Some(l)
+                        }
                     }
                     CodeBlockKind::Indented => None,
                 };
@@ -706,14 +739,17 @@ mod tests {
     fn test_code_block_plain() {
         let md = "```\nfn main() {}\n```";
         let lines = parse_markdown(md);
-        assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains("main"))));
+        assert!(lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.content.contains("main"))));
     }
 
     #[test]
     fn test_code_block_with_language() {
         let md = "```rust\nlet x = 42;\n```";
         let lines = parse_markdown(md);
-        let code_spans: Vec<&Span> = lines.iter()
+        let code_spans: Vec<&Span> = lines
+            .iter()
             .flat_map(|l| l.spans.iter())
             .filter(|s| s.content.contains("42") || s.content.contains("let"))
             .collect();
@@ -748,16 +784,23 @@ mod tests {
     fn test_simple_table() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
         let lines = parse_markdown(md);
-        assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains('┌'))));
-        assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains('├'))));
-        assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains('└'))));
+        assert!(lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.content.contains('┌'))));
+        assert!(lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.content.contains('├'))));
+        assert!(lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.content.contains('└'))));
     }
 
     #[test]
     fn test_table_content() {
         let md = "| Name | Val |\n|---|---|\n| foo | bar |";
         let lines = parse_markdown(md);
-        let all_text: String = lines.iter()
+        let all_text: String = lines
+            .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect();
         assert!(all_text.contains("foo"));
@@ -768,18 +811,24 @@ mod tests {
     fn test_table_header_bold() {
         let md = "| H1 | H2 |\n|---|---|\n| a | b |";
         let lines = parse_markdown(md);
-        let header_spans: Vec<&Span> = lines.iter()
+        let header_spans: Vec<&Span> = lines
+            .iter()
             .flat_map(|l| l.spans.iter())
             .filter(|s| s.content.trim() == "H1" || s.content.trim() == "H2")
             .collect();
-        assert!(header_spans.iter().any(|s| s.style.add_modifier.contains(Modifier::BOLD)));
+        assert!(header_spans
+            .iter()
+            .any(|s| s.style.add_modifier.contains(Modifier::BOLD)));
     }
 
     #[test]
     fn test_auto_link_url() {
         let lines = parse_markdown("visit https://example.com for info");
-        let link_style = Style::new().fg(Color::Blue).add_modifier(Modifier::UNDERLINED);
-        let url_span = lines.iter()
+        let link_style = Style::new()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::UNDERLINED);
+        let url_span = lines
+            .iter()
             .flat_map(|l| l.spans.iter())
             .find(|s| s.content.contains("https://example.com"));
         assert!(url_span.is_some(), "URL span should exist");
@@ -789,8 +838,11 @@ mod tests {
     #[test]
     fn test_auto_link_github_ref() {
         let lines = parse_markdown("see owner/repo#123 for details");
-        let link_style = Style::new().fg(Color::Blue).add_modifier(Modifier::UNDERLINED);
-        let ref_span = lines.iter()
+        let link_style = Style::new()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::UNDERLINED);
+        let ref_span = lines
+            .iter()
             .flat_map(|l| l.spans.iter())
             .find(|s| s.content.contains("owner/repo#123"));
         assert!(ref_span.is_some(), "GitHub ref span should exist");
@@ -801,12 +853,17 @@ mod tests {
     fn test_auto_link_preserves_styled_spans() {
         // Bold text should not be re-styled even if it contains a URL pattern
         let lines = parse_markdown("**https://bold.com**");
-        let url_span = lines.iter()
+        let url_span = lines
+            .iter()
             .flat_map(|l| l.spans.iter())
             .find(|s| s.content.contains("https://bold.com"));
         assert!(url_span.is_some());
         // Should keep bold style, not link style
-        assert!(url_span.unwrap().style.add_modifier.contains(Modifier::BOLD));
+        assert!(url_span
+            .unwrap()
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
     }
 
     #[test]
@@ -819,8 +876,11 @@ mod tests {
     fn test_auto_link_no_false_positive() {
         let lines = parse_markdown("just plain text here");
         // All spans should have default style (no link styling)
-        let link_style = Style::new().fg(Color::Blue).add_modifier(Modifier::UNDERLINED);
-        let has_link = lines.iter()
+        let link_style = Style::new()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::UNDERLINED);
+        let has_link = lines
+            .iter()
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style == link_style);
         assert!(!has_link);

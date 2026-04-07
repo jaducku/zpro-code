@@ -136,9 +136,7 @@ mod tests {
     fn text_msg(role: Role, text: &str) -> ApiMessage {
         ApiMessage {
             role,
-            content: vec![ContentBlock::Text {
-                text: text.into(),
-            }],
+            content: vec![ContentBlock::Text { text: text.into() }],
         }
     }
 

@@ -56,11 +56,20 @@ impl TuiCommand for InstallGithubAppCommand {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled("  GitHub App installation not yet available.", Style::default().fg(Color::White))),
+            Line::from(Span::styled(
+                "  GitHub App installation not yet available.",
+                Style::default().fg(Color::White),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  Visit github.com/apps to install manually.", Style::default().fg(Color::White))),
+            Line::from(Span::styled(
+                "  Visit github.com/apps to install manually.",
+                Style::default().fg(Color::White),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

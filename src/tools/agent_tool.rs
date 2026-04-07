@@ -57,7 +57,9 @@ impl Tool for AgentTool {
         // Enforce max nesting depth
         if ctx.agent_depth >= 3 {
             return Ok(ToolResult {
-                content: "Maximum agent nesting depth (3) reached. Cannot spawn further sub-agents.".into(),
+                content:
+                    "Maximum agent nesting depth (3) reached. Cannot spawn further sub-agents."
+                        .into(),
                 is_error: true,
                 content_blocks: None,
             });
@@ -76,17 +78,20 @@ impl Tool for AgentTool {
 
         if is_fork_path {
             // Extract last assistant message for fork message construction
-            if let Some(assistant_msg) = ctx.messages.iter().rev()
+            if let Some(assistant_msg) = ctx
+                .messages
+                .iter()
+                .rev()
                 .find(|m| m.role == crate::types::message::Role::Assistant)
             {
                 let fork_msgs = crate::services::fork_subagent::build_forked_messages(
-                    &params.prompt, assistant_msg,
+                    &params.prompt,
+                    assistant_msg,
                 );
                 params.is_fork = true;
                 params.fork_messages = Some(fork_msgs);
-                params.query_source = Some(
-                    crate::services::fork_subagent::FORK_QUERY_SOURCE.to_string(),
-                );
+                params.query_source =
+                    Some(crate::services::fork_subagent::FORK_QUERY_SOURCE.to_string());
             }
             // If no assistant message found, fall through to normal path
         }

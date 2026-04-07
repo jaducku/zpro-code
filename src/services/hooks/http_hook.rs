@@ -5,7 +5,10 @@ use regex::Regex;
 
 /// Remove CR, LF, and NUL characters from header values to prevent injection.
 pub fn sanitize_header_value(value: &str) -> String {
-    value.chars().filter(|c| *c != '\r' && *c != '\n' && *c != '\0').collect()
+    value
+        .chars()
+        .filter(|c| *c != '\r' && *c != '\n' && *c != '\0')
+        .collect()
 }
 
 /// Replace `$VAR_NAME` patterns with values from env, but only for vars in allowed_vars.
@@ -62,7 +65,10 @@ pub async fn execute_http_hook(
         request = request.header(key.as_str(), sanitized);
     }
 
-    let response = request.send().await.map_err(|e| format!("HTTP request failed: {}", e))?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
     let status = response.status().as_u16();
     let body = response
         .text()

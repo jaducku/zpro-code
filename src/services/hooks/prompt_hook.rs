@@ -36,30 +36,27 @@ pub async fn query_without_streaming(
         stream: true,
     };
 
-    let stream_result = tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        async {
-            let mut stream = provider
-                .create_message(request)
-                .await
-                .map_err(|e| format!("LLM call failed: {e}"))?;
+    let stream_result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async {
+        let mut stream = provider
+            .create_message(request)
+            .await
+            .map_err(|e| format!("LLM call failed: {e}"))?;
 
-            let mut text = String::new();
-            while let Some(event) = stream.next().await {
-                match event {
-                    Ok(StreamEvent::ContentBlockDelta {
-                        delta: ContentDelta::TextDelta { text: t },
-                        ..
-                    }) => {
-                        text.push_str(&t);
-                    }
-                    Ok(_) => {}
-                    Err(e) => return Err(format!("Stream error: {e}")),
+        let mut text = String::new();
+        while let Some(event) = stream.next().await {
+            match event {
+                Ok(StreamEvent::ContentBlockDelta {
+                    delta: ContentDelta::TextDelta { text: t },
+                    ..
+                }) => {
+                    text.push_str(&t);
                 }
+                Ok(_) => {}
+                Err(e) => return Err(format!("Stream error: {e}")),
             }
-            Ok(text)
-        },
-    )
+        }
+        Ok(text)
+    })
     .await;
 
     match stream_result {

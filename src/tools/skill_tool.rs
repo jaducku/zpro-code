@@ -69,11 +69,7 @@ impl Tool for SkillTool {
                 tool_name: "Skill".into(),
                 message: "Missing required 'skill' parameter".into(),
             })?;
-        let args = ctx
-            .input
-            .get("args")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let args = ctx.input.get("args").and_then(|v| v.as_str()).unwrap_or("");
 
         // Look up skill in registry
         let command = ctx.commands.find(skill_name);

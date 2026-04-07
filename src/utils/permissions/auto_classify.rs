@@ -5,10 +5,7 @@ pub fn auto_classify(tool_name: &str, input: &serde_json::Value) -> PermissionBe
     match tool_name {
         "Read" | "Glob" | "Grep" => PermissionBehavior::Allow,
         "Bash" => {
-            let command = input
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let command = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
             if is_readonly_bash(command) {
                 PermissionBehavior::Allow
             } else {
@@ -37,9 +34,22 @@ fn is_readonly_bash(cmd: &str) -> bool {
     let safe_prefixes: &[(&str, &[&str])] = &[
         (
             "git",
-            &["status", "log", "diff", "branch", "show", "rev-parse", "remote", "tag", "stash list"],
+            &[
+                "status",
+                "log",
+                "diff",
+                "branch",
+                "show",
+                "rev-parse",
+                "remote",
+                "tag",
+                "stash list",
+            ],
         ),
-        ("cargo", &["check", "test", "clippy", "doc", "metadata", "tree"]),
+        (
+            "cargo",
+            &["check", "test", "clippy", "doc", "metadata", "tree"],
+        ),
     ];
 
     for (cmd_name, subcommands) in safe_prefixes {

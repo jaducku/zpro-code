@@ -46,14 +46,13 @@ impl StdioTransport {
                 message: "Failed to capture stdin".into(),
             })?;
 
-        let stdout =
-            child
-                .stdout
-                .take()
-                .ok_or_else(|| crate::types::AtomError::Mcp {
-                    server_name: config.command.clone(),
-                    message: "Failed to capture stdout".into(),
-                })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| crate::types::AtomError::Mcp {
+                server_name: config.command.clone(),
+                message: "Failed to capture stdout".into(),
+            })?;
 
         Ok(Self {
             child,

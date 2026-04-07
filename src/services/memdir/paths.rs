@@ -60,8 +60,7 @@ pub fn get_auto_mem_path(cwd: &Path) -> Option<PathBuf> {
 
 /// Check if auto-memory is enabled using current environment.
 pub fn is_auto_memory_enabled() -> bool {
-    let disable_env = std::env::var("ATOM_CODE_DISABLE_AUTO_MEMORY")
-        .unwrap_or_default();
+    let disable_env = std::env::var("ATOM_CODE_DISABLE_AUTO_MEMORY").unwrap_or_default();
     // bare_mode and settings_enabled would come from runtime config;
     // default to false / true respectively.
     is_auto_memory_enabled_with_env(&disable_env, false, true)

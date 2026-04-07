@@ -44,15 +44,13 @@ impl Tool for ListMcpResourcesTool {
 
         // Build list of (server_name, client_arc) to process
         let clients: Vec<(String, _)> = if let Some(server_name) = server {
-            let client = manager
-                .get_client(server_name)
-                .ok_or_else(|| {
-                    tool_err(format!(
-                        "Server \"{}\" not found. Available servers: {}",
-                        server_name,
-                        manager.connected_servers().join(", ")
-                    ))
-                })?;
+            let client = manager.get_client(server_name).ok_or_else(|| {
+                tool_err(format!(
+                    "Server \"{}\" not found. Available servers: {}",
+                    server_name,
+                    manager.connected_servers().join(", ")
+                ))
+            })?;
             vec![(server_name.to_string(), client)]
         } else {
             manager.get_all_clients()

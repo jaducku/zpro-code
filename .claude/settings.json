@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./**/credentials*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r \".tool_input.command // empty\"); if echo \"$CMD\" | grep -qE \"^git\\s+commit\"; then STAGED=$(git diff --cached --name-only --diff-filter=d 2>/dev/null | grep -E \"\\.rs$\"); if [ -n \"$STAGED\" ]; then FMT=$(cargo fmt --check 2>&1); if [ $? -ne 0 ]; then echo \"BLOCKED: cargo fmt check failed — unformatted Rust code:\" >&2; echo \"$FMT\" | head -20 >&2; exit 2; fi; CLIPPY=$(cargo clippy --all-targets --all-features -- -D warnings 2>&1); if [ $? -ne 0 ]; then echo \"BLOCKED: clippy warnings found:\" >&2; echo \"$CLIPPY\" | head -30 >&2; exit 2; fi; fi; fi; exit 0'"
+          }
+        ],
+        "description": "Run cargo fmt --check and clippy on staged Rust files before commit",
+        "id": "pre:bash:commit-lint-rust"
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r \".tool_input.file_path // .tool_input.filePath // empty\"); if echo \"$FILE\" | grep -qE \"(Cargo\\.toml|rustfmt\\.toml|clippy\\.toml|\\.cargo/config\\.toml)$\"; then echo \"BLOCKED: Do not modify Cargo/rustfmt/clippy config. Fix the code instead.\" >&2; exit 2; fi; exit 0'"
+          }
+        ],
+        "description": "Protect Cargo.toml, rustfmt.toml, clippy.toml, and cargo config from modification",
+        "id": "pre:edit:config-protection-rust"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r \".tool_input.command // empty\"); if echo \"$CMD\" | grep -qE \"^git\\s+commit\"; then MSG=$(echo \"$CMD\" | grep -oP \"(?<=-m\\s)([\\x27\\\"])(.*?)\\1\" | head -1 | tr -d \"\\x27\\\"\"); if [ -n \"$MSG\" ]; then if ! echo \"$MSG\" | grep -qE \"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\\(.+\\))?!?:\\s.+\"; then echo \"BLOCKED: Commit message must follow Conventional Commits format.\" >&2; exit 2; fi; fi; fi; exit 0'"
+          }
+        ],
+        "description": "Enforce Conventional Commits format",
+        "id": "pre:bash:conventional-commits"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r \".tool_input.file_path // .tool_input.filePath // empty\"); if echo \"$FILE\" | grep -qE \"\\.rs$\"; then if grep -nE \"^\\s*(println!\\(|dbg!\\(|eprintln!\\()\" \"$FILE\" 2>/dev/null | grep -vE \"(//|/\\*)\" | head -5; then echo \"{\\\"hookSpecificOutput\\\":{\\\"additionalContext\\\":\\\"⚠️ Debug macro detected in $FILE (println!/dbg!/eprintln!) — remove before commit\\\"}}\"; fi; fi; exit 0'"
+          }
+        ],
+        "description": "Warn about println!, dbg!, eprintln! debug macros after edits",
+        "id": "post:edit:debug-warn-rust"
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'EDITED=$(git diff --name-only 2>/dev/null | grep -E \"\\.rs$\"); if [ -n \"$EDITED\" ]; then cargo fmt 2>/dev/null; CLIPPY=$(cargo clippy --all-targets --all-features -- -D warnings 2>&1); if [ $? -ne 0 ]; then echo \"{\\\"hookSpecificOutput\\\":{\\\"additionalContext\\\":\\\"❌ Clippy warnings:\\n$(echo \"$CLIPPY\" | grep -E \"^(error|warning)\" | head -15)\\\"}}\"; fi; fi; exit 0'",
+            "timeout": 180
+          }
+        ],
+        "description": "Batch format (cargo fmt) and lint (clippy) all edited Rust files at response end",
+        "id": "stop:format-lint-rust"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'MODIFIED=$(git diff --name-only 2>/dev/null | grep -E \"\\.rs$\"); if [ -n \"$MODIFIED\" ]; then DEBUG=$(echo \"$MODIFIED\" | xargs grep -lE \"^\\s*(println!|dbg!|eprintln!)\" 2>/dev/null | xargs grep -lEv \"(//|/\\*).*\\s*(println!|dbg!|eprintln!)\" 2>/dev/null); if [ -n \"$DEBUG\" ]; then echo \"{\\\"hookSpecificOutput\\\":{\\\"additionalContext\\\":\\\"⚠️ Debug macros still present in: $DEBUG\\\"}}\"; fi; fi; exit 0'"
+          }
+        ],
+        "description": "Final debug macro check (println!/dbg!/eprintln!) on all modified files",
+        "id": "stop:check-debug-rust"
+      }
+    ]
+  }
+}

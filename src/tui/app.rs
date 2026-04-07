@@ -203,20 +203,37 @@ impl ActivitySummary {
     }
 
     pub fn total_active(&self) -> u32 {
-        self.read_count + self.search_count + self.edit_count +
-        self.command_count + self.agent_count + self.skill_count + self.other_count
+        self.read_count
+            + self.search_count
+            + self.edit_count
+            + self.command_count
+            + self.agent_count
+            + self.skill_count
+            + self.other_count
     }
 
     pub fn format_summary(&self) -> String {
         let mut parts = Vec::new();
         if self.search_count > 0 {
-            parts.push(format!("searching for {} pattern{}", self.search_count, if self.search_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "searching for {} pattern{}",
+                self.search_count,
+                if self.search_count > 1 { "s" } else { "" }
+            ));
         }
         if self.read_count > 0 {
-            parts.push(format!("reading {} file{}", self.read_count, if self.read_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "reading {} file{}",
+                self.read_count,
+                if self.read_count > 1 { "s" } else { "" }
+            ));
         }
         if self.edit_count > 0 {
-            parts.push(format!("editing {} file{}", self.edit_count, if self.edit_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "editing {} file{}",
+                self.edit_count,
+                if self.edit_count > 1 { "s" } else { "" }
+            ));
         }
         if self.command_count > 0 {
             parts.push("running command".to_string());
@@ -228,7 +245,11 @@ impl ActivitySummary {
             parts.push("loading skill".to_string());
         }
         if self.other_count > 0 {
-            parts.push(format!("{} tool{}", self.other_count, if self.other_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "{} tool{}",
+                self.other_count,
+                if self.other_count > 1 { "s" } else { "" }
+            ));
         }
         if parts.is_empty() {
             "Working".to_string()
@@ -308,7 +329,7 @@ pub enum InputMode {
     },
     /// User question prompt inline
     Question {
-        question: String, // the question text from the tool
+        question: String,                       // the question text from the tool
         options: Vec<(String, Option<String>)>, // (label, description)
         selected: usize,
         text_input: String,
@@ -325,12 +346,10 @@ pub enum InputMode {
 impl App {
     pub fn new(model: String, command_registry: Arc<CommandRegistry>) -> Self {
         let has_provider = model != "(no provider)";
-        let mut messages = vec![
-            DisplayMessage::Text {
-                role: TextRole::System,
-                content: format!("zpro-code v{}", env!("CARGO_PKG_VERSION")),
-            },
-        ];
+        let mut messages = vec![DisplayMessage::Text {
+            role: TextRole::System,
+            content: format!("zpro-code v{}", env!("CARGO_PKG_VERSION")),
+        }];
 
         if has_provider {
             messages.push(DisplayMessage::Text {
@@ -489,10 +508,8 @@ impl App {
                     let lines: Vec<&str> = self.input.split('\n').collect();
                     let prev_line_len = lines[row - 1].chars().count();
                     let target_col = col.min(prev_line_len);
-                    let chars_before_prev_line: usize = lines[..row - 1]
-                        .iter()
-                        .map(|l| l.chars().count() + 1)
-                        .sum();
+                    let chars_before_prev_line: usize =
+                        lines[..row - 1].iter().map(|l| l.chars().count() + 1).sum();
                     self.cursor_pos = chars_before_prev_line + target_col;
                 }
             }
@@ -508,10 +525,8 @@ impl App {
                 } else {
                     let next_line_len = lines[row + 1].chars().count();
                     let target_col = col.min(next_line_len);
-                    let chars_before_next_line: usize = lines[..row + 1]
-                        .iter()
-                        .map(|l| l.chars().count() + 1)
-                        .sum();
+                    let chars_before_next_line: usize =
+                        lines[..row + 1].iter().map(|l| l.chars().count() + 1).sum();
                     self.cursor_pos = chars_before_next_line + target_col;
                 }
             }
@@ -522,7 +537,9 @@ impl App {
                 self.scroll_offset = self.scroll_offset.saturating_sub(20);
             }
             KeyCode::Enter => {
-                if key.modifiers.contains(KeyModifiers::ALT) || key.modifiers.contains(KeyModifiers::SHIFT) {
+                if key.modifiers.contains(KeyModifiers::ALT)
+                    || key.modifiers.contains(KeyModifiers::SHIFT)
+                {
                     let byte_pos = char_to_byte_pos(&self.input, self.cursor_pos);
                     self.input.insert(byte_pos, '\n');
                     self.cursor_pos += 1;
@@ -592,9 +609,7 @@ impl App {
                     false
                 }
             })
-            .map(|cmd| {
-                (cmd.name().to_string(), cmd.meta().description.to_string())
-            })
+            .map(|cmd| (cmd.name().to_string(), cmd.meta().description.to_string()))
             .collect();
 
         items.sort_by(|a, b| a.0.cmp(&b.0));
@@ -720,7 +735,9 @@ impl App {
     fn mark_pending_tools_cancelled(&mut self) {
         for msg in &mut self.messages {
             match msg {
-                DisplayMessage::ToolCall { result, is_error, .. } if result.is_none() => {
+                DisplayMessage::ToolCall {
+                    result, is_error, ..
+                } if result.is_none() => {
                     *result = Some("[cancelled]".into());
                     *is_error = true;
                 }
@@ -801,7 +818,11 @@ impl App {
                 if self.response_start_time.is_none() {
                     self.response_start_time = Some(Instant::now());
                 }
-                if let Some(DisplayMessage::Text { role: TextRole::Assistant, content }) = self.messages.last_mut() {
+                if let Some(DisplayMessage::Text {
+                    role: TextRole::Assistant,
+                    content,
+                }) = self.messages.last_mut()
+                {
                     content.push_str(&text);
                     return;
                 }
@@ -825,7 +846,13 @@ impl App {
                 self.activity.remove(&id);
                 // Reverse scan to find the matching ToolCall by id
                 for msg in self.messages.iter_mut().rev() {
-                    if let DisplayMessage::ToolCall { id: msg_id, result: ref mut msg_result, is_error: ref mut msg_is_error, .. } = msg {
+                    if let DisplayMessage::ToolCall {
+                        id: msg_id,
+                        result: ref mut msg_result,
+                        is_error: ref mut msg_is_error,
+                        ..
+                    } = msg
+                    {
                         if *msg_id == id {
                             *msg_result = Some(result.content);
                             *msg_is_error = result.is_error;
@@ -841,9 +868,14 @@ impl App {
                 self.response_start_time = None;
                 self.response_token_count = 0;
                 // Token estimation for display
-                if let Some(DisplayMessage::Text { role: TextRole::Assistant, content }) = self.messages.last() {
+                if let Some(DisplayMessage::Text {
+                    role: TextRole::Assistant,
+                    content,
+                }) = self.messages.last()
+                {
                     if self.token_count == 0 {
-                        self.token_count = crate::services::token_estimation::estimate_tokens(content);
+                        self.token_count =
+                            crate::services::token_estimation::estimate_tokens(content);
                     }
                 }
             }
@@ -856,7 +888,10 @@ impl App {
                 self.query_start_time = None;
                 self.mark_pending_tools_done();
             }
-            QueryEvent::Usage { input_tokens, output_tokens } => {
+            QueryEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
                 self.token_count += input_tokens + output_tokens;
                 self.response_token_count += output_tokens;
                 // Simple cost estimate: ~$0.01 per 1K tokens (rough average)
@@ -884,7 +919,12 @@ impl App {
                 self.activity.last_detail = summary.clone();
                 // Find the ToolCall by id (reverse scan — it's near the end)
                 for msg in self.messages.iter_mut().rev() {
-                    if let DisplayMessage::ToolCall { id: ref msg_id, ref mut input_summary, .. } = msg {
+                    if let DisplayMessage::ToolCall {
+                        id: ref msg_id,
+                        ref mut input_summary,
+                        ..
+                    } = msg
+                    {
                         if *msg_id == id {
                             *input_summary = summary;
                             break;
@@ -892,11 +932,23 @@ impl App {
                     }
                 }
             }
-            QueryEvent::AgentCompleted { agent_id, description, result, is_error, tool_count, token_count, duration_secs } => {
+            QueryEvent::AgentCompleted {
+                agent_id,
+                description,
+                result,
+                is_error,
+                tool_count,
+                token_count,
+                duration_secs,
+            } => {
                 self.push_message(DisplayMessage::Agent {
                     agent_id,
                     description,
-                    status: if is_error { AgentStatus::Failed } else { AgentStatus::Completed },
+                    status: if is_error {
+                        AgentStatus::Failed
+                    } else {
+                        AgentStatus::Completed
+                    },
                     result,
                     collapsed: true,
                     tool_count,
@@ -904,14 +956,22 @@ impl App {
                     duration_secs,
                 });
             }
-            QueryEvent::Compacted { stage, tokens_freed } => {
+            QueryEvent::Compacted {
+                stage,
+                tokens_freed,
+            } => {
                 self.messages.push(DisplayMessage::Text {
                     role: TextRole::System,
-                    content: format!("[Context compacted ({}): ~{}K tokens freed]",
-                        stage, tokens_freed / 1000),
+                    content: format!(
+                        "[Context compacted ({}): ~{}K tokens freed]",
+                        stage,
+                        tokens_freed / 1000
+                    ),
                 });
             }
-            QueryEvent::QueryCancelled { partial_messages, .. } => {
+            QueryEvent::QueryCancelled {
+                partial_messages, ..
+            } => {
                 self.api_messages = partial_messages;
                 self.is_loading = false;
                 self.activity = ActivitySummary::default();
@@ -929,7 +989,11 @@ impl App {
 pub fn cursor_row_col(input: &str, cursor_pos: usize) -> (usize, usize) {
     let before_cursor: String = input.chars().take(cursor_pos).collect();
     let row = before_cursor.matches('\n').count();
-    let col = before_cursor.chars().rev().take_while(|c| *c != '\n').count();
+    let col = before_cursor
+        .chars()
+        .rev()
+        .take_while(|c| *c != '\n')
+        .count();
     (row, col)
 }
 
@@ -972,9 +1036,7 @@ fn find_at_token(input: &str, cursor_pos: usize) -> Option<(usize, String)> {
         stripped[..end].to_string()
     } else {
         // Unquoted: take until whitespace
-        let end = after_at
-            .find(char::is_whitespace)
-            .unwrap_or(after_at.len());
+        let end = after_at.find(char::is_whitespace).unwrap_or(after_at.len());
         after_at[..end].to_string()
     };
 
@@ -1000,9 +1062,7 @@ fn at_token_len(s: &str) -> usize {
             })
             .unwrap_or(after_at.len() + 1)
     } else {
-        1 + after_at
-            .find(char::is_whitespace)
-            .unwrap_or(after_at.len())
+        1 + after_at.find(char::is_whitespace).unwrap_or(after_at.len())
     }
 }
 

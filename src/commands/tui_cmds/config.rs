@@ -71,14 +71,15 @@ impl TuiCommand for ConfigCommand {
         // Read actual permission mode from app state
         let permission_mode = {
             let state = ctx.app_state.try_read();
-            state.map(|s| format!("{:?}", s.tool_permission_context.mode))
+            state
+                .map(|s| format!("{:?}", s.tool_permission_context.mode))
                 .unwrap_or_else(|_| "default".to_string())
                 .to_lowercase()
         };
 
         // Detect model from app state or environment
-        let model = std::env::var("ATOM_MODEL")
-            .unwrap_or_else(|_| "(from --model flag)".to_string());
+        let model =
+            std::env::var("ATOM_MODEL").unwrap_or_else(|_| "(from --model flag)".to_string());
 
         // Find AGENTS.md (project instructions)
         let agents_md = find_instructions_file(&ctx.cwd);
@@ -95,11 +96,31 @@ impl TuiCommand for ConfigCommand {
             ("Permission mode".to_string(), permission_mode),
             ("Model".to_string(), model),
             ("Theme".to_string(), ctx.options.theme.clone()),
-            ("Working directory".to_string(), ctx.cwd.display().to_string()),
+            (
+                "Working directory".to_string(),
+                ctx.cwd.display().to_string(),
+            ),
             ("Project instructions".to_string(), agents_md),
-            ("MCP servers".to_string(), if mcp_count > 0 { format!("{} configured", mcp_count) } else { "none".to_string() }),
-            ("Skills".to_string(), if skill_count > 0 { format!("{} loaded", skill_count) } else { "none".to_string() }),
-            ("Version".to_string(), format!("v{}", env!("CARGO_PKG_VERSION"))),
+            (
+                "MCP servers".to_string(),
+                if mcp_count > 0 {
+                    format!("{} configured", mcp_count)
+                } else {
+                    "none".to_string()
+                },
+            ),
+            (
+                "Skills".to_string(),
+                if skill_count > 0 {
+                    format!("{} loaded", skill_count)
+                } else {
+                    "none".to_string()
+                },
+            ),
+            (
+                "Version".to_string(),
+                format!("v{}", env!("CARGO_PKG_VERSION")),
+            ),
         ];
 
         Box::new(ConfigState { items, selected: 0 })
@@ -124,7 +145,10 @@ impl TuiCommand for ConfigCommand {
             };
 
             lines.push(Line::from(vec![
-                Span::styled(format!("{marker}{name}: "), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{marker}{name}: "),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(value.clone(), style),
             ]));
         }

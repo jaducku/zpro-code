@@ -3,8 +3,23 @@ use super::types::*;
 
 /// Names of commands considered safe for remote (non-local) execution.
 const REMOTE_SAFE: &[&str] = &[
-    "session", "exit", "clear", "help", "theme", "color", "vim", "cost", "usage", "copy", "btw",
-    "feedback", "plan", "keybindings", "statusline", "stickers", "mobile",
+    "session",
+    "exit",
+    "clear",
+    "help",
+    "theme",
+    "color",
+    "vim",
+    "cost",
+    "usage",
+    "copy",
+    "btw",
+    "feedback",
+    "plan",
+    "keybindings",
+    "statusline",
+    "stickers",
+    "mobile",
 ];
 
 /// Names of commands allowed across the bridge in addition to all Prompt commands.
@@ -83,9 +98,7 @@ impl CommandRegistry {
     pub fn find(&self, name: &str) -> Option<&Command> {
         self.all_commands().find(|cmd| {
             let meta = cmd.meta();
-            meta.name == name
-                || get_command_name(meta) == name
-                || meta.aliases.contains(&name)
+            meta.name == name || get_command_name(meta) == name || meta.aliases.contains(&name)
         })
     }
 
@@ -109,9 +122,7 @@ impl CommandRegistry {
     /// Return all Prompt commands plus commands whose names are in the bridge-safe list.
     pub fn bridge_safe_commands(&self) -> Vec<&Command> {
         self.all_commands()
-            .filter(|cmd| {
-                matches!(cmd, Command::Prompt(_)) || BRIDGE_SAFE.contains(&cmd.name())
-            })
+            .filter(|cmd| matches!(cmd, Command::Prompt(_)) || BRIDGE_SAFE.contains(&cmd.name()))
             .collect()
     }
 
@@ -220,9 +231,9 @@ pub fn meets_availability_requirement(_cmd: &Command) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::context::CommandContext;
     use crate::commands::traits::{Command, LocalCommand};
     use crate::commands::types::{CommandMeta, LocalCommandResult};
-    use crate::commands::context::CommandContext;
     use async_trait::async_trait;
 
     /// A minimal LocalCommand for testing purposes.

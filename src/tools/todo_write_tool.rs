@@ -69,7 +69,11 @@ impl Tool for TodoWriteTool {
                 .get("completed")
                 .and_then(|v| v.as_bool())
                 .ok_or_else(|| tool_err(format!("todos[{}]: missing 'completed'", i)))?;
-            new_todos.push(TodoItem { id, content, completed });
+            new_todos.push(TodoItem {
+                id,
+                content,
+                completed,
+            });
         }
 
         // If all todos are completed, clear the list

@@ -19,9 +19,7 @@ pub fn estimate_message_tokens(messages: &[ApiMessage]) -> u64 {
                 .iter()
                 .map(|c| match c {
                     ContentBlock::Text { text } => estimate_tokens(text),
-                    ContentBlock::ToolUse { input, .. } => {
-                        estimate_tokens(&input.to_string())
-                    }
+                    ContentBlock::ToolUse { input, .. } => estimate_tokens(&input.to_string()),
                     ContentBlock::ToolResult { content, .. } => match content {
                         ToolResultContent::Text(text) => estimate_tokens(text),
                         ToolResultContent::Blocks(blocks) => blocks

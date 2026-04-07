@@ -33,7 +33,6 @@ pub struct AtomConfig {
     pub models: HashMap<String, String>,
 
     // --- Legacy fields (backward compat, hidden when empty) ---
-
     /// Legacy v1: flat provider name
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
@@ -90,9 +89,18 @@ impl AtomConfig {
         );
 
         let mut models = HashMap::new();
-        models.insert("sonnet".into(), "openrouter:anthropic/claude-sonnet-4-20250514".into());
-        models.insert("flash".into(), "openrouter:google/gemini-2.5-flash-preview-04-17".into());
-        models.insert("free".into(), "openrouter:google/gemma-3-27b-it:free".into());
+        models.insert(
+            "sonnet".into(),
+            "openrouter:anthropic/claude-sonnet-4-20250514".into(),
+        );
+        models.insert(
+            "flash".into(),
+            "openrouter:google/gemini-2.5-flash-preview-04-17".into(),
+        );
+        models.insert(
+            "free".into(),
+            "openrouter:google/gemma-3-27b-it:free".into(),
+        );
 
         let config = AtomConfig {
             default_model: Some("free".to_string()),
@@ -153,8 +161,14 @@ mod tests {
     #[test]
     fn test_resolve_model_alias() {
         let mut config = AtomConfig::default();
-        config.models.insert("fast".into(), "openrouter:google/gemma-3-27b-it:free".into());
-        assert_eq!(config.resolve_model("fast"), "openrouter:google/gemma-3-27b-it:free");
+        config.models.insert(
+            "fast".into(),
+            "openrouter:google/gemma-3-27b-it:free".into(),
+        );
+        assert_eq!(
+            config.resolve_model("fast"),
+            "openrouter:google/gemma-3-27b-it:free"
+        );
         assert_eq!(config.resolve_model("unknown"), "unknown");
     }
 
@@ -194,8 +208,14 @@ mod tests {
         assert_eq!(providers["local-mlx"].models.len(), 1);
 
         assert_eq!(config.models.len(), 3);
-        assert_eq!(config.models["sonnet"], "openrouter:anthropic/claude-sonnet-4-20250514");
-        assert_eq!(config.models["qwen"], "local-mlx:mlx-community/Qwen2.5-Coder-7B-Instruct-4bit");
+        assert_eq!(
+            config.models["sonnet"],
+            "openrouter:anthropic/claude-sonnet-4-20250514"
+        );
+        assert_eq!(
+            config.models["qwen"],
+            "local-mlx:mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+        );
 
         assert_eq!(
             config.resolve_model("sonnet"),

@@ -97,7 +97,8 @@ mod tests {
 
     #[test]
     fn test_notification_deserialization() {
-        let json = r#"{"jsonrpc":"2.0","method":"notifications/progress","params":{"progress":50}}"#;
+        let json =
+            r#"{"jsonrpc":"2.0","method":"notifications/progress","params":{"progress":50}}"#;
         let notif: JsonRpcNotification = serde_json::from_str(json).unwrap();
         assert_eq!(notif.method, "notifications/progress");
     }

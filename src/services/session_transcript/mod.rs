@@ -36,7 +36,9 @@ impl SessionStore {
 
     pub fn save(&self, transcript: &SessionTranscript) -> anyhow::Result<()> {
         std::fs::create_dir_all(&self.base_dir)?;
-        let path = self.base_dir.join(format!("{}.json", transcript.session_id));
+        let path = self
+            .base_dir
+            .join(format!("{}.json", transcript.session_id));
         let json = serde_json::to_string_pretty(transcript)?;
         std::fs::write(path, json)?;
         Ok(())

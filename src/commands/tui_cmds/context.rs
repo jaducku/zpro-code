@@ -83,7 +83,12 @@ impl TuiCommand for ContextCommand {
         if state.claude_md_exists {
             lines.push(Line::from(vec![
                 Span::styled("  CLAUDE.md: ", Style::default().fg(Color::White)),
-                Span::styled("found", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "found",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]));
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -107,9 +112,7 @@ impl TuiCommand for ContextCommand {
                 Span::styled("  CLAUDE.md: ", Style::default().fg(Color::White)),
                 Span::styled(
                     "not found",
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
             ]));
             lines.push(Line::from(""));

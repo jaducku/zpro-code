@@ -56,9 +56,15 @@ impl TuiCommand for ExtraUsageCommand {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled("  Additional Usage Tips", Style::default().fg(Color::White).bold())),
+            Line::from(Span::styled(
+                "  Additional Usage Tips",
+                Style::default().fg(Color::White).bold(),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  Keyboard:", Style::default().fg(Color::White).bold())),
+            Line::from(Span::styled(
+                "  Keyboard:",
+                Style::default().fg(Color::White).bold(),
+            )),
             Line::from(vec![
                 Span::styled("    Ctrl+C      ", Style::default().fg(Color::Cyan)),
                 Span::styled("Quit", Style::default().fg(Color::White)),
@@ -72,7 +78,10 @@ impl TuiCommand for ExtraUsageCommand {
                 Span::styled("File mention", Style::default().fg(Color::White)),
             ]),
             Line::from(""),
-            Line::from(Span::styled("  CLI Flags:", Style::default().fg(Color::White).bold())),
+            Line::from(Span::styled(
+                "  CLI Flags:",
+                Style::default().fg(Color::White).bold(),
+            )),
             Line::from(vec![
                 Span::styled("    --model     ", Style::default().fg(Color::Cyan)),
                 Span::styled("Set model", Style::default().fg(Color::White)),
@@ -90,7 +99,10 @@ impl TuiCommand for ExtraUsageCommand {
                 Span::styled("Show all options", Style::default().fg(Color::White)),
             ]),
             Line::from(""),
-            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

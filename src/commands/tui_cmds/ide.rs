@@ -65,7 +65,10 @@ impl TuiCommand for IdeCommand {
         let mut lines = vec![Line::from("")];
         for (name, status) in &state.ides {
             lines.push(Line::from(vec![
-                Span::styled(format!("  {:<14}", name), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("  {:<14}", name),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(status.clone(), Style::default().fg(Color::White)),
             ]));
         }

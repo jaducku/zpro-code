@@ -358,7 +358,11 @@ mod tests {
             "source": "print('hello')"
         }));
         let result = NotebookEditTool.execute(ctx).await.unwrap();
-        assert!(!result.is_error, "Expected success, got: {}", result.content);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            result.content
+        );
 
         let nb = read_notebook(&path);
         let cells = nb["cells"].as_array().unwrap();

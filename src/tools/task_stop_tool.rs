@@ -58,7 +58,8 @@ impl Tool for TaskStopTool {
             )));
         }
 
-        task.cancel_token.cancel(crate::utils::abort_signal::AbortReason::UserCancel);
+        task.cancel_token
+            .cancel(crate::utils::abort_signal::AbortReason::UserCancel);
         task.status = BackgroundTaskStatus::Stopped;
 
         let task_type = task.task_type.clone();

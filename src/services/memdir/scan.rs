@@ -96,14 +96,8 @@ pub fn format_memory_manifest(memories: &[MemoryHeader]) -> String {
     memories
         .iter()
         .map(|m| {
-            let type_tag = m
-                .memory_type
-                .as_deref()
-                .unwrap_or("unknown");
-            let desc = m
-                .description
-                .as_deref()
-                .unwrap_or("");
+            let type_tag = m.memory_type.as_deref().unwrap_or("unknown");
+            let desc = m.description.as_deref().unwrap_or("");
             format!("[{}] {} : {}", type_tag, m.filename, desc)
         })
         .collect::<Vec<_>>()

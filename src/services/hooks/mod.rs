@@ -9,10 +9,10 @@ pub mod prompt_hook;
 pub mod settings;
 pub mod types;
 
-pub use types::*;
+pub use compat::load_legacy_hooks;
 pub use executor::execute_event_hooks;
 pub use settings::load_hooks_from_settings;
-pub use compat::load_legacy_hooks;
+pub use types::*;
 
 use std::path::Path;
 

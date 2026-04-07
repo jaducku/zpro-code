@@ -56,9 +56,15 @@ impl TuiCommand for DesktopCommand {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled("  Desktop app not yet available. Use the terminal CLI.", Style::default().fg(Color::White))),
+            Line::from(Span::styled(
+                "  Desktop app not yet available. Use the terminal CLI.",
+                Style::default().fg(Color::White),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

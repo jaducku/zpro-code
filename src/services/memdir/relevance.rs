@@ -19,12 +19,12 @@ pub async fn find_relevant_memories(
     already_surfaced: &HashSet<String>,
     llm_selector: Option<
         &(dyn for<'a> Fn(
-                &'a str,
-                &'a str,
-            )
-                -> Pin<Box<dyn Future<Output = Result<Vec<String>, String>> + Send + 'a>>
-            + Send
-            + Sync),
+            &'a str,
+            &'a str,
+        )
+            -> Pin<Box<dyn Future<Output = Result<Vec<String>, String>> + Send + 'a>>
+              + Send
+              + Sync),
     >,
 ) -> Vec<RelevantMemory> {
     let headers = scan_memory_files(memory_dir);
@@ -95,14 +95,8 @@ mod tests {
     #[tokio::test]
     async fn test_find_relevant_empty_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let result = find_relevant_memories(
-            "test query",
-            tmp.path(),
-            &[],
-            &HashSet::new(),
-            None,
-        )
-        .await;
+        let result =
+            find_relevant_memories("test query", tmp.path(), &[], &HashSet::new(), None).await;
         assert!(result.is_empty());
     }
 
@@ -117,14 +111,7 @@ mod tests {
         let mut surfaced = HashSet::new();
         surfaced.insert("alpha.md".to_string());
 
-        let result = find_relevant_memories(
-            "test query",
-            dir,
-            &[],
-            &surfaced,
-            None,
-        )
-        .await;
+        let result = find_relevant_memories("test query", dir, &[], &surfaced, None).await;
 
         assert_eq!(result.len(), 1);
         assert!(result[0].path.ends_with("beta.md"));
@@ -139,14 +126,7 @@ mod tests {
         write_md(dir, "b.md", "description: B\ntype: feedback");
         write_md(dir, "c.md", "description: C\ntype: user");
 
-        let result = find_relevant_memories(
-            "test query",
-            dir,
-            &[],
-            &HashSet::new(),
-            None,
-        )
-        .await;
+        let result = find_relevant_memories("test query", dir, &[], &HashSet::new(), None).await;
 
         // All 3 returned (< MAX_SELECTED_MEMORIES)
         assert_eq!(result.len(), 3);
@@ -165,14 +145,7 @@ mod tests {
             );
         }
 
-        let result = find_relevant_memories(
-            "test query",
-            dir,
-            &[],
-            &HashSet::new(),
-            None,
-        )
-        .await;
+        let result = find_relevant_memories("test query", dir, &[], &HashSet::new(), None).await;
 
         assert_eq!(result.len(), MAX_SELECTED_MEMORIES);
     }

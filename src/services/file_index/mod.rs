@@ -42,7 +42,11 @@ impl FileIndex {
         }
 
         self.lower_paths = deduped.iter().map(|p| p.to_ascii_lowercase()).collect();
-        self.char_bits = self.lower_paths.iter().map(|p| compute_char_bitmap(p)).collect();
+        self.char_bits = self
+            .lower_paths
+            .iter()
+            .map(|p| compute_char_bitmap(p))
+            .collect();
         self.path_lens = deduped
             .iter()
             .map(|p| p.len().min(u16::MAX as usize) as u16)
@@ -274,14 +278,14 @@ mod tests {
     #[test]
     fn test_search_test_file_penalty() {
         let mut idx = FileIndex::new();
-        idx.load_from_file_list(vec![
-            "src/utils.rs".into(),
-            "tests/test_utils.rs".into(),
-        ]);
+        idx.load_from_file_list(vec!["src/utils.rs".into(), "tests/test_utils.rs".into()]);
         let results = idx.search("utils", 10);
         assert!(results.len() >= 2);
         // src/utils.rs should rank above tests/test_utils.rs
-        let src_pos = results.iter().position(|r| r.path == "src/utils.rs").unwrap();
+        let src_pos = results
+            .iter()
+            .position(|r| r.path == "src/utils.rs")
+            .unwrap();
         let test_pos = results
             .iter()
             .position(|r| r.path == "tests/test_utils.rs")
@@ -306,10 +310,7 @@ mod tests {
     #[test]
     fn test_search_case_insensitive() {
         let mut idx = FileIndex::new();
-        idx.load_from_file_list(vec![
-            "src/MyFile.rs".into(),
-            "src/other.rs".into(),
-        ]);
+        idx.load_from_file_list(vec!["src/MyFile.rs".into(), "src/other.rs".into()]);
         // All-lowercase query → case-insensitive
         let results = idx.search("myfile", 10);
         assert!(!results.is_empty());
@@ -319,10 +320,7 @@ mod tests {
     #[test]
     fn test_search_case_sensitive() {
         let mut idx = FileIndex::new();
-        idx.load_from_file_list(vec![
-            "src/MyFile.rs".into(),
-            "src/myfile.rs".into(),
-        ]);
+        idx.load_from_file_list(vec!["src/MyFile.rs".into(), "src/myfile.rs".into()]);
         // Mixed-case query → case-sensitive, should prefer exact match
         let results = idx.search("MyFile", 10);
         assert!(!results.is_empty());

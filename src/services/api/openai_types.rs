@@ -255,10 +255,7 @@ mod tests {
         }"#;
         let chunk: OpenAiStreamChunk = serde_json::from_str(json).unwrap();
         assert_eq!(chunk.usage.as_ref().unwrap().total_tokens, 150);
-        assert_eq!(
-            chunk.choices[0].finish_reason.as_deref(),
-            Some("stop")
-        );
+        assert_eq!(chunk.choices[0].finish_reason.as_deref(), Some("stop"));
     }
 
     #[test]

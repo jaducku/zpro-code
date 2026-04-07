@@ -63,7 +63,10 @@ impl TuiCommand for StatsCommand {
             Line::from(""),
             Line::from(vec![
                 Span::styled("  Started:       ", Style::default().fg(Color::DarkGray)),
-                Span::styled(state.started.clone(), Style::default().fg(Color::White).bold()),
+                Span::styled(
+                    state.started.clone(),
+                    Style::default().fg(Color::White).bold(),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("  Directory:     ", Style::default().fg(Color::DarkGray)),

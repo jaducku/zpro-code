@@ -162,7 +162,10 @@ mod tests {
 
         let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
         assert!(parsed["id"].as_str().is_some());
-        assert!(parsed["humanSchedule"].as_str().unwrap().contains("5 minutes"));
+        assert!(parsed["humanSchedule"]
+            .as_str()
+            .unwrap()
+            .contains("5 minutes"));
         assert_eq!(parsed["recurring"], true);
         assert_eq!(parsed["durable"], false);
     }

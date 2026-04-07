@@ -1,31 +1,23 @@
 /// Extract a human-readable one-line summary from tool input JSON.
 pub fn tool_input_summary(name: &str, input: &serde_json::Value) -> String {
     match name {
-        "Bash" => input["command"].as_str()
+        "Bash" => input["command"]
+            .as_str()
             .map(|c| truncate_line(c, 80))
             .unwrap_or_default(),
-        "Read" | "Write" => input["file_path"].as_str()
-            .unwrap_or("").to_string(),
-        "Edit" => input["file_path"].as_str()
-            .unwrap_or("").to_string(),
-        "Grep" => input["pattern"].as_str()
-            .unwrap_or("").to_string(),
-        "Glob" => input["pattern"].as_str()
-            .unwrap_or("").to_string(),
-        "Agent" => input["description"].as_str()
-            .unwrap_or("").to_string(),
-        "TaskCreate" | "TaskUpdate" => input["subject"].as_str()
-            .unwrap_or("").to_string(),
-        "WebFetch" => input["url"].as_str()
-            .unwrap_or("").to_string(),
-        "WebSearch" => input["query"].as_str()
-            .unwrap_or("").to_string(),
-        _ => {
-            input.as_object()
-                .and_then(|o| o.values().find_map(|v| v.as_str()))
-                .map(|s| truncate_line(s, 60))
-                .unwrap_or_default()
-        }
+        "Read" | "Write" => input["file_path"].as_str().unwrap_or("").to_string(),
+        "Edit" => input["file_path"].as_str().unwrap_or("").to_string(),
+        "Grep" => input["pattern"].as_str().unwrap_or("").to_string(),
+        "Glob" => input["pattern"].as_str().unwrap_or("").to_string(),
+        "Agent" => input["description"].as_str().unwrap_or("").to_string(),
+        "TaskCreate" | "TaskUpdate" => input["subject"].as_str().unwrap_or("").to_string(),
+        "WebFetch" => input["url"].as_str().unwrap_or("").to_string(),
+        "WebSearch" => input["query"].as_str().unwrap_or("").to_string(),
+        _ => input
+            .as_object()
+            .and_then(|o| o.values().find_map(|v| v.as_str()))
+            .map(|s| truncate_line(s, 60))
+            .unwrap_or_default(),
     }
 }
 

@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use crate::types::permissions::ToolPermissionContext;
 use crate::utils::abort_signal::AbortSignal;
 use crate::utils::settings::SettingsJson;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Background task (shell, agent) — runtime only, not serialized
 #[derive(Debug)]

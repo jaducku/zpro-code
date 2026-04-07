@@ -46,14 +46,16 @@ impl Tool for TeamDeleteTool {
             state.team_name.clone()
         };
 
-        let team_name = team_name.ok_or_else(|| {
-            tool_err("Not currently leading a team. Nothing to delete.")
-        })?;
+        let team_name = team_name
+            .ok_or_else(|| tool_err("Not currently leading a team. Nothing to delete."))?;
 
         let svc = TeamService::new();
 
         // Check for active members
-        if let Some(config) = svc.load(&team_name).map_err(|e| tool_err(format!("Failed to load team: {}", e)))? {
+        if let Some(config) = svc
+            .load(&team_name)
+            .map_err(|e| tool_err(format!("Failed to load team: {}", e)))?
+        {
             let active = active_member_count(&config);
             if active > 0 {
                 let names: Vec<&str> = config

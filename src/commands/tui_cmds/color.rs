@@ -55,7 +55,10 @@ impl TuiCommand for ColorCommand {
             "red".to_string(),
             "white".to_string(),
         ];
-        Box::new(ColorState { colors, selected: 0 })
+        Box::new(ColorState {
+            colors,
+            selected: 0,
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {

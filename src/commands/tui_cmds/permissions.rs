@@ -79,8 +79,16 @@ impl TuiCommand for PermissionsCommand {
             )),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  default  ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                Span::styled("- Ask before running tools that could modify files or", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    "  default  ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "- Ask before running tools that could modify files or",
+                    Style::default().fg(Color::Gray),
+                ),
             ]),
             Line::from(Span::styled(
                 "             execute commands. Recommended for most use.",
@@ -88,8 +96,16 @@ impl TuiCommand for PermissionsCommand {
             )),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  auto     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled("- Automatically approve tool calls that match your", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    "  auto     ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "- Automatically approve tool calls that match your",
+                    Style::default().fg(Color::Gray),
+                ),
             ]),
             Line::from(Span::styled(
                 "             allowlist. Prompts for everything else.",
@@ -97,8 +113,14 @@ impl TuiCommand for PermissionsCommand {
             )),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  bypass   ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                Span::styled("- Skip all permission prompts. Use with caution.", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    "  bypass   ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "- Skip all permission prompts. Use with caution.",
+                    Style::default().fg(Color::Gray),
+                ),
             ]),
             Line::from(Span::styled(
                 "             Not recommended for untrusted projects.",

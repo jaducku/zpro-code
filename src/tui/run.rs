@@ -14,12 +14,14 @@ use ratatui::prelude::*;
 use ratatui::widgets::Clear;
 use tokio::sync::mpsc;
 
-use super::app::{App, DisplayMessage, TextRole, InputMode};
+use super::app::{App, DisplayMessage, InputMode, TextRole};
 use super::ui;
 use crate::commands::registry::CommandRegistry;
 use crate::commands::traits::Command;
 use crate::commands::types::{CommandAction, LocalCommandResult};
-use crate::query::{PermissionAsk, PermissionReply, QueryEvent, UserQuestionAsk, UserQuestionReply};
+use crate::query::{
+    PermissionAsk, PermissionReply, QueryEvent, UserQuestionAsk, UserQuestionReply,
+};
 use crate::services::api::provider::LlmProvider;
 use crate::services::api::types::SystemBlock;
 use crate::services::mcp::McpConnectionManager;
@@ -56,7 +58,8 @@ pub async fn run_app(
 
     let app_state = Arc::new(tokio::sync::RwLock::new(crate::state::AppState::default()));
 
-    let model = provider.as_ref()
+    let model = provider
+        .as_ref()
         .map(|p| p.model_info().id.clone())
         .unwrap_or_else(|| "(no provider)".into());
     let mut app = App::new(model.clone(), command_registry);
@@ -74,7 +77,8 @@ pub async fn run_app(
         PermissionMode::BypassPermissions => "bypass",
         PermissionMode::DontAsk => "dont-ask",
         PermissionMode::Bubble => "bubble",
-    }.to_string();
+    }
+    .to_string();
 
     // Restore session if resuming
     if let Some(transcript) = resume_transcript {
@@ -132,53 +136,92 @@ pub async fn run_app(
         // Use tokio::select! to handle terminal events, query events, and permission
         // requests concurrently. The tick ensures periodic re-renders (spinner, timers).
         tokio::select! {
-            _ = tokio::time::sleep(render_interval) => {}
+                _ = tokio::time::sleep(render_interval) => {}
 
-            // Terminal events via async EventStream (truly non-blocking)
-            maybe_event = event_stream.next() => {
-                if let Some(Ok(ev)) = maybe_event {
-                    match ev {
-                        Event::Key(key) => {
-                            // === Ctrl+C: interrupt or double-press exit ===
-                            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                                && key.code == KeyCode::Char('c')
-                            {
-                                if app.is_loading {
-                                    if let Some(ref signal) = app.active_abort_signal {
-                                        signal.cancel(crate::utils::abort_signal::AbortReason::Interrupt);
+                // Terminal events via async EventStream (truly non-blocking)
+                maybe_event = event_stream.next() => {
+                    if let Some(Ok(ev)) = maybe_event {
+                        match ev {
+                            Event::Key(key) => {
+                                // === Ctrl+C: interrupt or double-press exit ===
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                    && key.code == KeyCode::Char('c')
+                                {
+                                    if app.is_loading {
+                                        if let Some(ref signal) = app.active_abort_signal {
+                                            signal.cancel(crate::utils::abort_signal::AbortReason::Interrupt);
+                                        } else {
+                                            // No abort signal — query may have already ended but
+                                            // is_loading wasn't cleared. Force reset.
+                                            app.is_loading = false;
+                                            app.activity = super::app::ActivitySummary::default();
+                                            app.response_start_time = None;
+                                            app.response_token_count = 0;
+                                            app.query_start_time = None;
+                                            app.messages.push(DisplayMessage::Text {
+                                                role: TextRole::System,
+                                                content: "[Interrupted]".into(),
+                                            });
+                                        }
+                                        // Kill background agents
+                                        {
+                                            let state = app_state.read().await;
+                                            for task in state.background_tasks.values() {
+                                                task.cancel_token.cancel(crate::utils::abort_signal::AbortReason::Interrupt);
+                                            }
+                                        }
+                                        // Dismiss permission/question prompts
+                                        match std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                            InputMode::Permission { reply_tx, .. } => {
+                                                if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Deny); }
+                                            }
+                                            InputMode::Question { reply_tx, .. } => {
+                                                if let Some(tx) = reply_tx { let _ = tx.send(UserQuestionReply::Dismissed); }
+                                            }
+                                            other => { app.input_mode = other; }
+                                        }
                                     } else {
-                                        // No abort signal — query may have already ended but
-                                        // is_loading wasn't cleared. Force reset.
-                                        app.is_loading = false;
-                                        app.activity = super::app::ActivitySummary::default();
-                                        app.response_start_time = None;
-                                        app.response_token_count = 0;
-                                        app.query_start_time = None;
-                                        app.messages.push(DisplayMessage::Text {
-                                            role: TextRole::System,
-                                            content: "[Interrupted]".into(),
-                                        });
-                                    }
-                                    // Kill background agents
-                                    {
-                                        let state = app_state.read().await;
-                                        for task in state.background_tasks.values() {
-                                            task.cancel_token.cancel(crate::utils::abort_signal::AbortReason::Interrupt);
+                                        let now = Instant::now();
+                                        if let Some(last) = app.last_ctrl_c_press {
+                                            if now.duration_since(last).as_millis() < 800 {
+                                                let has_worktree = {
+                                                    let state = app_state.read().await;
+                                                    state.current_worktree_session.is_some()
+                                                };
+                                                if has_worktree {
+                                                    let state = app_state.read().await;
+                                                    if let Some(ref session) = state.current_worktree_session {
+                                                        let name = session.worktree_name.clone();
+                                                        let count = crate::services::worktree::WorktreeService::count_uncommitted(&session.worktree_path).await.unwrap_or(0);
+                                                        drop(state);
+                                                        app.input_mode = InputMode::ExitConfirm {
+                                                            worktree_name: name,
+                                                            uncommitted_count: count as usize,
+                                                            selected: 0,
+                                                        };
+                                                    }
+                                                } else {
+                                                    app.should_quit = true;
+                                                }
+                                                app.last_ctrl_c_press = None;
+                                            } else {
+                                                app.last_ctrl_c_press = Some(now);
+                                                app.status = "Press Ctrl+C again to exit".into();
+                                            }
+                                        } else {
+                                            app.last_ctrl_c_press = Some(now);
+                                            app.status = "Press Ctrl+C again to exit".into();
                                         }
                                     }
-                                    // Dismiss permission/question prompts
-                                    match std::mem::replace(&mut app.input_mode, InputMode::Normal) {
-                                        InputMode::Permission { reply_tx, .. } => {
-                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Deny); }
-                                        }
-                                        InputMode::Question { reply_tx, .. } => {
-                                            if let Some(tx) = reply_tx { let _ = tx.send(UserQuestionReply::Dismissed); }
-                                        }
-                                        other => { app.input_mode = other; }
-                                    }
-                                } else {
+                                    continue; // skip further key handling
+                                }
+
+                                // === Ctrl+D: double-press exit only ===
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                    && key.code == KeyCode::Char('d')
+                                {
                                     let now = Instant::now();
-                                    if let Some(last) = app.last_ctrl_c_press {
+                                    if let Some(last) = app.last_ctrl_d_press {
                                         if now.duration_since(last).as_millis() < 800 {
                                             let has_worktree = {
                                                 let state = app_state.read().await;
@@ -199,270 +242,214 @@ pub async fn run_app(
                                             } else {
                                                 app.should_quit = true;
                                             }
-                                            app.last_ctrl_c_press = None;
+                                            app.last_ctrl_d_press = None;
                                         } else {
-                                            app.last_ctrl_c_press = Some(now);
-                                            app.status = "Press Ctrl+C again to exit".into();
+                                            app.last_ctrl_d_press = Some(now);
+                                            app.status = "Press Ctrl+D again to exit".into();
                                         }
-                                    } else {
-                                        app.last_ctrl_c_press = Some(now);
-                                        app.status = "Press Ctrl+C again to exit".into();
-                                    }
-                                }
-                                continue; // skip further key handling
-                            }
-
-                            // === Ctrl+D: double-press exit only ===
-                            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                                && key.code == KeyCode::Char('d')
-                            {
-                                let now = Instant::now();
-                                if let Some(last) = app.last_ctrl_d_press {
-                                    if now.duration_since(last).as_millis() < 800 {
-                                        let has_worktree = {
-                                            let state = app_state.read().await;
-                                            state.current_worktree_session.is_some()
-                                        };
-                                        if has_worktree {
-                                            let state = app_state.read().await;
-                                            if let Some(ref session) = state.current_worktree_session {
-                                                let name = session.worktree_name.clone();
-                                                let count = crate::services::worktree::WorktreeService::count_uncommitted(&session.worktree_path).await.unwrap_or(0);
-                                                drop(state);
-                                                app.input_mode = InputMode::ExitConfirm {
-                                                    worktree_name: name,
-                                                    uncommitted_count: count as usize,
-                                                    selected: 0,
-                                                };
-                                            }
-                                        } else {
-                                            app.should_quit = true;
-                                        }
-                                        app.last_ctrl_d_press = None;
                                     } else {
                                         app.last_ctrl_d_press = Some(now);
                                         app.status = "Press Ctrl+D again to exit".into();
                                     }
-                                } else {
-                                    app.last_ctrl_d_press = Some(now);
-                                    app.status = "Press Ctrl+D again to exit".into();
-                                }
-                                continue;
-                            }
-
-                            // === Escape: cancel query ===
-                            if key.code == KeyCode::Esc
-                                && !matches!(app.input_mode, InputMode::Permission { .. })
-                                && !matches!(app.input_mode, InputMode::Question { .. })
-                                && !matches!(app.input_mode, InputMode::ExitConfirm { .. })
-                            {
-                                if app.is_loading {
-                                    if let Some(ref signal) = app.active_abort_signal {
-                                        signal.cancel(crate::utils::abort_signal::AbortReason::UserCancel);
-                                    } else {
-                                        // No abort signal — force reset
-                                        app.is_loading = false;
-                                        app.activity = super::app::ActivitySummary::default();
-                                        app.response_start_time = None;
-                                        app.response_token_count = 0;
-                                        app.query_start_time = None;
-                                        app.messages.push(DisplayMessage::Text {
-                                            role: TextRole::System,
-                                            content: "[Cancelled]".into(),
-                                        });
-                                    }
                                     continue;
                                 }
-                                // Fall through to existing typeahead/command close handling
-                            }
 
-                            // Question inline prompt
-                            if let InputMode::Question { .. } = &app.input_mode {
-                                match key.code {
-                                    KeyCode::Up | KeyCode::Char('k') => {
-                                        if let InputMode::Question { options, selected, .. } = &mut app.input_mode {
-                                            if !options.is_empty() && *selected > 0 {
-                                                *selected -= 1;
+                                // === Escape: cancel query ===
+                                if key.code == KeyCode::Esc
+                                    && !matches!(app.input_mode, InputMode::Permission { .. })
+                                    && !matches!(app.input_mode, InputMode::Question { .. })
+                                    && !matches!(app.input_mode, InputMode::ExitConfirm { .. })
+                                {
+                                    if app.is_loading {
+                                        if let Some(ref signal) = app.active_abort_signal {
+                                            signal.cancel(crate::utils::abort_signal::AbortReason::UserCancel);
+                                        } else {
+                                            // No abort signal — force reset
+                                            app.is_loading = false;
+                                            app.activity = super::app::ActivitySummary::default();
+                                            app.response_start_time = None;
+                                            app.response_token_count = 0;
+                                            app.query_start_time = None;
+                                            app.messages.push(DisplayMessage::Text {
+                                                role: TextRole::System,
+                                                content: "[Cancelled]".into(),
+                                            });
+                                        }
+                                        continue;
+                                    }
+                                    // Fall through to existing typeahead/command close handling
+                                }
+
+                                // Question inline prompt
+                                if let InputMode::Question { .. } = &app.input_mode {
+                                    match key.code {
+                                        KeyCode::Up | KeyCode::Char('k') => {
+                                            if let InputMode::Question { options, selected, .. } = &mut app.input_mode {
+                                                if !options.is_empty() && *selected > 0 {
+                                                    *selected -= 1;
+                                                }
                                             }
                                         }
-                                    }
-                                    KeyCode::Down | KeyCode::Char('j') => {
-                                        if let InputMode::Question { options, selected, .. } = &mut app.input_mode {
-                                            if !options.is_empty() && *selected + 1 < options.len() {
-                                                *selected += 1;
+                                        KeyCode::Down | KeyCode::Char('j') => {
+                                            if let InputMode::Question { options, selected, .. } = &mut app.input_mode {
+                                                if !options.is_empty() && *selected + 1 < options.len() {
+                                                    *selected += 1;
+                                                }
                                             }
                                         }
-                                    }
-                                    KeyCode::Enter => {
-                                        if let InputMode::Question { options, selected, text_input, .. } = &app.input_mode {
-                                            let answer = if options.is_empty() {
-                                                text_input.clone()
-                                            } else {
-                                                options[*selected].0.clone()
-                                            };
+                                        KeyCode::Enter => {
+                                            if let InputMode::Question { options, selected, text_input, .. } = &app.input_mode {
+                                                let answer = if options.is_empty() {
+                                                    text_input.clone()
+                                                } else {
+                                                    options[*selected].0.clone()
+                                                };
+                                                if let InputMode::Question { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                                    if let Some(tx) = reply_tx {
+                                                        let _ = tx.send(UserQuestionReply::Answer(answer));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        KeyCode::Esc => {
                                             if let InputMode::Question { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
                                                 if let Some(tx) = reply_tx {
-                                                    let _ = tx.send(UserQuestionReply::Answer(answer));
+                                                    let _ = tx.send(UserQuestionReply::Dismissed);
                                                 }
                                             }
                                         }
-                                    }
-                                    KeyCode::Esc => {
-                                        if let InputMode::Question { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
-                                            if let Some(tx) = reply_tx {
-                                                let _ = tx.send(UserQuestionReply::Dismissed);
+                                        KeyCode::Backspace => {
+                                            if let InputMode::Question { options, text_input, .. } = &mut app.input_mode {
+                                                if options.is_empty() {
+                                                    text_input.pop();
+                                                }
                                             }
                                         }
-                                    }
-                                    KeyCode::Backspace => {
-                                        if let InputMode::Question { options, text_input, .. } = &mut app.input_mode {
-                                            if options.is_empty() {
-                                                text_input.pop();
+                                        KeyCode::Char(c) => {
+                                            if let InputMode::Question { options, text_input, .. } = &mut app.input_mode {
+                                                if options.is_empty() {
+                                                    text_input.push(c);
+                                                }
                                             }
                                         }
+                                        _ => {}
                                     }
-                                    KeyCode::Char(c) => {
-                                        if let InputMode::Question { options, text_input, .. } = &mut app.input_mode {
-                                            if options.is_empty() {
-                                                text_input.push(c);
-                                            }
-                                        }
-                                    }
-                                    _ => {}
                                 }
-                            }
-                            // Permission inline prompt takes priority over all other key handling
-                            else if let InputMode::Permission { .. } = &app.input_mode {
-                                match key.code {
-                                    KeyCode::Char('y') | KeyCode::Char('Y') => {
-                                        if let InputMode::Permission { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
-                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Allow); }
+                                // Permission inline prompt takes priority over all other key handling
+                                else if let InputMode::Permission { .. } = &app.input_mode {
+                                    match key.code {
+                                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                            if let InputMode::Permission { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                                if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Allow); }
+                                            }
                                         }
-                                    }
-                                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                                        if let InputMode::Permission { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
-                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Deny); }
+                                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                                            if let InputMode::Permission { reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                                if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Deny); }
+                                            }
                                         }
-                                    }
-                                    KeyCode::Char('a') | KeyCode::Char('A') => {
-                                        if let InputMode::Permission { tool_name, reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
-                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::AllowAlways { tool_name, rule_content: None }); }
+                                        KeyCode::Char('a') | KeyCode::Char('A') => {
+                                            if let InputMode::Permission { tool_name, reply_tx, .. } = std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                                if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::AllowAlways { tool_name, rule_content: None }); }
+                                            }
                                         }
+                                        _ => {} // ignore other keys in permission mode
                                     }
-                                    _ => {} // ignore other keys in permission mode
-                                }
-                            } else if let InputMode::ExitConfirm { selected, .. } = &mut app.input_mode {
-                                match key.code {
-                                    KeyCode::Left => { *selected = selected.saturating_sub(1); }
-                                    KeyCode::Right => { *selected = (*selected + 1).min(2); }
-                                    KeyCode::Enter => {
-                                        if let InputMode::ExitConfirm { selected, .. } =
-                                            std::mem::replace(&mut app.input_mode, InputMode::Normal)
-                                        {
-                                            match selected {
-                                                0 => { app.should_quit = true; } // Keep & exit
-                                                1 => { // Remove & exit
-                                                    let state = app_state.read().await;
-                                                    if let Some(ref session) = state.current_worktree_session {
-                                                        let session_clone = session.clone();
-                                                        drop(state);
-                                                        let _ = crate::services::worktree::WorktreeService::remove(&session_clone).await;
-                                                        let mut state = app_state.write().await;
-                                                        state.current_worktree_session = None;
+                                } else if let InputMode::ExitConfirm { selected, .. } = &mut app.input_mode {
+                                    match key.code {
+                                        KeyCode::Left => { *selected = selected.saturating_sub(1); }
+                                        KeyCode::Right => { *selected = (*selected + 1).min(2); }
+                                        KeyCode::Enter => {
+                                            if let InputMode::ExitConfirm { selected, .. } =
+                                                std::mem::replace(&mut app.input_mode, InputMode::Normal)
+                                            {
+                                                match selected {
+                                                    0 => { app.should_quit = true; } // Keep & exit
+                                                    1 => { // Remove & exit
+                                                        let state = app_state.read().await;
+                                                        if let Some(ref session) = state.current_worktree_session {
+                                                            let session_clone = session.clone();
+                                                            drop(state);
+                                                            let _ = crate::services::worktree::WorktreeService::remove(&session_clone).await;
+                                                            let mut state = app_state.write().await;
+                                                            state.current_worktree_session = None;
+                                                        }
+                                                        app.should_quit = true;
                                                     }
-                                                    app.should_quit = true;
+                                                    _ => {} // Cancel — already reset to Normal
                                                 }
-                                                _ => {} // Cancel — already reset to Normal
                                             }
                                         }
+                                        KeyCode::Esc => { app.input_mode = InputMode::Normal; }
+                                        _ => {}
                                     }
-                                    KeyCode::Esc => { app.input_mode = InputMode::Normal; }
-                                    _ => {}
-                                }
-                            } else if app.active_command.is_some() {
-                                let cmd_name = app.active_command.as_ref().unwrap().command_name.clone();
-                                if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
-                                    let state = &mut app.active_command.as_mut().unwrap().state;
-                                    let action = tui_cmd.handle_key(key, state.as_mut());
-                                    match action {
-                                        CommandAction::Done(result) => {
-                                            // Handle command results (e.g., /model selection)
-                                            if cmd_name == "model" {
-                                                if let Some(ref r) = result {
-                                                    if let Some(ref model_id) = r.text {
-                                                        // Resolve new provider from registry (model_id is an alias)
-                                                        match registry.resolve(model_id) {
-                                                            Ok(new_provider) => {
-                                                                let actual_model_id = new_provider.model_info().id.clone();
-                                                                app.model_override = Some(actual_model_id.clone());
-                                                                app.model = actual_model_id.clone();
-                                                                provider = Some(new_provider);
-                                                                app.push_message(DisplayMessage::Text {
-                                                                    role: TextRole::System,
-                                                                    content: format!("Model switched to: {} ({})", model_id, actual_model_id),
-                                                                });
-                                                            }
-                                                            Err(e) => {
-                                                                app.push_message(DisplayMessage::Text {
-                                                                    role: TextRole::System,
-                                                                    content: format!("Failed to switch model: {}", e),
-                                                                });
+                                } else if app.active_command.is_some() {
+                                    let cmd_name = app.active_command.as_ref().unwrap().command_name.clone();
+                                    if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
+                                        let state = &mut app.active_command.as_mut().unwrap().state;
+                                        let action = tui_cmd.handle_key(key, state.as_mut());
+                                        match action {
+                                            CommandAction::Done(result) => {
+                                                // Handle command results (e.g., /model selection)
+                                                if cmd_name == "model" {
+                                                    if let Some(ref r) = result {
+                                                        if let Some(ref model_id) = r.text {
+                                                            // Resolve new provider from registry (model_id is an alias)
+                                                            match registry.resolve(model_id) {
+                                                                Ok(new_provider) => {
+                                                                    let actual_model_id = new_provider.model_info().id.clone();
+                                                                    app.model_override = Some(actual_model_id.clone());
+                                                                    app.model = actual_model_id.clone();
+                                                                    provider = Some(new_provider);
+                                                                    app.push_message(DisplayMessage::Text {
+                                                                        role: TextRole::System,
+                                                                        content: format!("Model switched to: {} ({})", model_id, actual_model_id),
+                                                                    });
+                                                                }
+                                                                Err(e) => {
+                                                                    app.push_message(DisplayMessage::Text {
+                                                                        role: TextRole::System,
+                                                                        content: format!("Failed to switch model: {}", e),
+                                                                    });
+                                                                }
                                                             }
                                                         }
                                                     }
                                                 }
-                                            }
-                                            if cmd_name == "output-style" {
-                                                if let Some(ref r) = result {
-                                                    if let Some(ref style_name) = r.text {
-                                                        app.output_style = style_name.clone();
-                                                        app.push_message(DisplayMessage::Text {
-                                                            role: TextRole::System,
-                                                            content: format!("Output style set to: {}", style_name),
-                                                        });
+                                                if cmd_name == "output-style" {
+                                                    if let Some(ref r) = result {
+                                                        if let Some(ref style_name) = r.text {
+                                                            app.output_style = style_name.clone();
+                                                            app.push_message(DisplayMessage::Text {
+                                                                role: TextRole::System,
+                                                                content: format!("Output style set to: {}", style_name),
+                                                            });
+                                                        }
                                                     }
                                                 }
+                                                app.active_command = None;
                                             }
-                                            app.active_command = None;
+                                            CommandAction::SetInput(text) => {
+                                                app.input = text;
+                                                app.cursor_pos = app.input.chars().count();
+                                                app.active_command = None;
+                                            }
+                                            CommandAction::Continue => {}
                                         }
-                                        CommandAction::SetInput(text) => {
-                                            app.input = text;
-                                            app.cursor_pos = app.input.chars().count();
-                                            app.active_command = None;
-                                        }
-                                        CommandAction::Continue => {}
                                     }
-                                }
-                            } else if key.code == KeyCode::Enter
-    && !key.modifiers.intersects(crossterm::event::KeyModifiers::ALT | crossterm::event::KeyModifiers::SHIFT)
-    && !app.input.is_empty() {
-                                if app.typeahead.is_some() {
-                                    app.accept_typeahead();
-                                }
-                                let input = app.take_input();
-                                if !input.trim().is_empty() {
-                                    app.history.push(input.clone());
-                                }
-                                app.history.reset();
-                                if app.is_loading {
-                                    // Queue input for submission after current query completes
-                                    app.queued_input = Some(input);
-                                    app.messages.push(DisplayMessage::Text {
-                                        role: TextRole::System,
-                                        content: "[Input queued — will submit after current response]".into(),
-                                    });
-                                } else {
-                                    handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
-                                }
-                            } else {
-                                let typeahead_accepted = app.handle_key(key);
-                                if typeahead_accepted && !app.input.is_empty() {
+                                } else if key.code == KeyCode::Enter
+        && !key.modifiers.intersects(crossterm::event::KeyModifiers::ALT | crossterm::event::KeyModifiers::SHIFT)
+        && !app.input.is_empty() {
+                                    if app.typeahead.is_some() {
+                                        app.accept_typeahead();
+                                    }
                                     let input = app.take_input();
                                     if !input.trim().is_empty() {
                                         app.history.push(input.clone());
                                     }
                                     app.history.reset();
                                     if app.is_loading {
+                                        // Queue input for submission after current query completes
                                         app.queued_input = Some(input);
                                         app.messages.push(DisplayMessage::Text {
                                             role: TextRole::System,
@@ -471,131 +458,148 @@ pub async fn run_app(
                                     } else {
                                         handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
                                     }
-                                }
-                            }
-                        }
-                        Event::Resize(w, h) => {
-                            app.status = format!("Model: {} | {}x{}", model, w, h);
-                        }
-                        Event::Mouse(mouse_event) => {
-                            use crossterm::event::{MouseEventKind, MouseButton};
-                            match mouse_event.kind {
-                                MouseEventKind::ScrollUp => {
-                                    app.scroll_offset = app.scroll_offset.saturating_add(5);
-                                }
-                                MouseEventKind::ScrollDown => {
-                                    app.scroll_offset = app.scroll_offset.saturating_sub(5);
-                                }
-                                MouseEventKind::Down(MouseButton::Left) => {
-                                    // Hit area click for collapsible messages
-                                    let row = mouse_event.row;
-                                    if let Some(ha) = app.hit_areas.iter().find(|h| h.y == row) {
-                                        let idx = ha.message_idx;
-                                        if let Some(msg) = app.messages.get_mut(idx) {
-                                            match msg {
-                                                DisplayMessage::ToolCall { ref mut collapsed, .. } => {
-                                                    *collapsed = !*collapsed;
-                                                }
-                                                DisplayMessage::Agent { ref mut collapsed, .. } => {
-                                                    *collapsed = !*collapsed;
-                                                }
-                                                _ => {}
-                                            }
+                                } else {
+                                    let typeahead_accepted = app.handle_key(key);
+                                    if typeahead_accepted && !app.input.is_empty() {
+                                        let input = app.take_input();
+                                        if !input.trim().is_empty() {
+                                            app.history.push(input.clone());
+                                        }
+                                        app.history.reset();
+                                        if app.is_loading {
+                                            app.queued_input = Some(input);
+                                            app.messages.push(DisplayMessage::Text {
+                                                role: TextRole::System,
+                                                content: "[Input queued — will submit after current response]".into(),
+                                            });
+                                        } else {
+                                            handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
                                         }
                                     }
                                 }
-                                _ => {}
+                            }
+                            Event::Resize(w, h) => {
+                                app.status = format!("Model: {} | {}x{}", model, w, h);
+                            }
+                            Event::Mouse(mouse_event) => {
+                                use crossterm::event::{MouseEventKind, MouseButton};
+                                match mouse_event.kind {
+                                    MouseEventKind::ScrollUp => {
+                                        app.scroll_offset = app.scroll_offset.saturating_add(5);
+                                    }
+                                    MouseEventKind::ScrollDown => {
+                                        app.scroll_offset = app.scroll_offset.saturating_sub(5);
+                                    }
+                                    MouseEventKind::Down(MouseButton::Left) => {
+                                        // Hit area click for collapsible messages
+                                        let row = mouse_event.row;
+                                        if let Some(ha) = app.hit_areas.iter().find(|h| h.y == row) {
+                                            let idx = ha.message_idx;
+                                            if let Some(msg) = app.messages.get_mut(idx) {
+                                                match msg {
+                                                    DisplayMessage::ToolCall { ref mut collapsed, .. } => {
+                                                        *collapsed = !*collapsed;
+                                                    }
+                                                    DisplayMessage::Agent { ref mut collapsed, .. } => {
+                                                        *collapsed = !*collapsed;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Query events from the spawned query task
+                Some(event) = query_event_rx.recv() => {
+                    if let QueryEvent::QueryCancelled { ref partial_messages, ref reason } = event {
+                        use crate::utils::abort_signal::AbortReason;
+                        app.api_messages = partial_messages.clone();
+                        if *reason != AbortReason::Interrupt {
+                            app.push_message(DisplayMessage::Text {
+                                role: TextRole::System,
+                                content: "[Request interrupted by user]".into(),
+                            });
+                            app.api_messages.push(ApiMessage {
+                                role: Role::User,
+                                content: vec![ContentBlock::Text {
+                                    text: "[Request interrupted by user]".into(),
+                                }],
+                            });
+                        }
+                        app.is_loading = false;
+                        app.active_abort_signal = None;
+                        app.loading_label = None;
+                    } else {
+                        let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
+                        let is_query_completed = matches!(event, QueryEvent::QueryCompleted { .. });
+                        let is_error = matches!(event, QueryEvent::Error(..));
+                        app.handle_query_event(event);
+
+                        // Clear loading label when response is complete
+                        if is_response_complete {
+                            app.loading_label = None;
+                        }
+
+                        // Reset abort signal when query completes or errors out
+                        if is_query_completed || is_error {
+                            app.active_abort_signal = None;
+                        }
+
+                        // Auto-save session after each completed response
+                        if is_response_complete && !app.no_session_persistence {
+                            if let Ok(store) = SessionStore::new() {
+                                let _ = store.save(&app.build_transcript());
                             }
                         }
-                        _ => {}
-                    }
-                }
-            }
 
-            // Query events from the spawned query task
-            Some(event) = query_event_rx.recv() => {
-                if let QueryEvent::QueryCancelled { ref partial_messages, ref reason } = event {
-                    use crate::utils::abort_signal::AbortReason;
-                    app.api_messages = partial_messages.clone();
-                    if *reason != AbortReason::Interrupt {
-                        app.push_message(DisplayMessage::Text {
-                            role: TextRole::System,
-                            content: "[Request interrupted by user]".into(),
-                        });
-                        app.api_messages.push(ApiMessage {
-                            role: Role::User,
-                            content: vec![ContentBlock::Text {
-                                text: "[Request interrupted by user]".into(),
-                            }],
-                        });
-                    }
-                    app.is_loading = false;
-                    app.active_abort_signal = None;
-                    app.loading_label = None;
-                } else {
-                    let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
-                    let is_query_completed = matches!(event, QueryEvent::QueryCompleted { .. });
-                    let is_error = matches!(event, QueryEvent::Error(..));
-                    app.handle_query_event(event);
-
-                    // Clear loading label when response is complete
-                    if is_response_complete {
-                        app.loading_label = None;
-                    }
-
-                    // Reset abort signal when query completes or errors out
-                    if is_query_completed || is_error {
-                        app.active_abort_signal = None;
-                    }
-
-                    // Auto-save session after each completed response
-                    if is_response_complete && !app.no_session_persistence {
-                        if let Ok(store) = SessionStore::new() {
-                            let _ = store.save(&app.build_transcript());
-                        }
-                    }
-
-                    // Auto-submit queued input after query completes
-                    if is_query_completed && !app.is_loading {
-                        if let Some(queued) = app.queued_input.take() {
-                            handle_submit(&mut app, &queued, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
+                        // Auto-submit queued input after query completes
+                        if is_query_completed && !app.is_loading {
+                            if let Some(queued) = app.queued_input.take() {
+                                handle_submit(&mut app, &queued, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
+                            }
                         }
                     }
                 }
-            }
 
-            // Permission requests from the query engine
-            Some(ask) = async {
-                match &mut permission_rx {
-                    Some(rx) => rx.recv().await,
-                    None => std::future::pending().await,
+                // Permission requests from the query engine
+                Some(ask) = async {
+                    match &mut permission_rx {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    // Permission prompt shown only in the input area (no chat message)
+                    app.input_mode = InputMode::Permission {
+                        tool_name: ask.tool_name,
+                        description: ask.description,
+                        reply_tx: Some(ask.reply_tx),
+                    };
                 }
-            } => {
-                // Permission prompt shown only in the input area (no chat message)
-                app.input_mode = InputMode::Permission {
-                    tool_name: ask.tool_name,
-                    description: ask.description,
-                    reply_tx: Some(ask.reply_tx),
-                };
-            }
 
-            // Question requests from tools (AskUserQuestionTool)
-            Some(ask) = async {
-                match &mut question_rx {
-                    Some(rx) => rx.recv().await,
-                    None => std::future::pending().await,
+                // Question requests from tools (AskUserQuestionTool)
+                Some(ask) = async {
+                    match &mut question_rx {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    // Question prompt shown only in the input area (no chat message)
+                    app.input_mode = InputMode::Question {
+                        question: ask.question,
+                        options: ask.options.into_iter().map(|o| (o.label, o.description)).collect(),
+                        selected: 0,
+                        text_input: String::new(),
+                        reply_tx: Some(ask.reply_tx),
+                    };
                 }
-            } => {
-                // Question prompt shown only in the input area (no chat message)
-                app.input_mode = InputMode::Question {
-                    question: ask.question,
-                    options: ask.options.into_iter().map(|o| (o.label, o.description)).collect(),
-                    selected: 0,
-                    text_input: String::new(),
-                    reply_tx: Some(ask.reply_tx),
-                };
             }
-        }
 
         if app.should_quit {
             break;
@@ -632,11 +636,44 @@ async fn handle_submit(
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
-        dispatch_slash_command(app, &name, &args, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
+        dispatch_slash_command(
+            app,
+            &name,
+            &args,
+            provider,
+            system_prompt,
+            query_event_tx,
+            permission_mode,
+            permission_rx,
+            question_rx,
+            mcp_manager,
+            allow_rules,
+            deny_rules,
+            tools_filter,
+            app_state,
+            registry,
+        )
+        .await;
         return;
     }
 
-    submit_query(app, input, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
+    submit_query(
+        app,
+        input,
+        provider,
+        system_prompt,
+        query_event_tx,
+        permission_mode,
+        permission_rx,
+        question_rx,
+        mcp_manager,
+        allow_rules,
+        deny_rules,
+        tools_filter,
+        app_state,
+        registry,
+    )
+    .await;
 }
 
 /// What kind of command was found, with any data we need extracted before
@@ -681,7 +718,9 @@ async fn dispatch_slash_command(
     // Second pass: act on the result with full mutable access to app.
     match found {
         FoundCommand::Local { is_exit } => {
-            use crate::commands::context::{CommandContext, CommandOptions, MessageUpdate, UiEvent};
+            use crate::commands::context::{
+                CommandContext, CommandOptions, MessageUpdate, UiEvent,
+            };
             use crate::state::AppState;
             use std::path::PathBuf;
             use std::sync::Arc;
@@ -690,7 +729,15 @@ async fn dispatch_slash_command(
             // Show the user's command first
             app.push_message(DisplayMessage::Text {
                 role: TextRole::User,
-                content: format!("/{}{}", name, if args.is_empty() { String::new() } else { format!(" {}", args) }),
+                content: format!(
+                    "/{}{}",
+                    name,
+                    if args.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {}", args)
+                    }
+                ),
             });
 
             // Build a CommandContext (same pattern as the Tui branch)
@@ -742,7 +789,9 @@ async fn dispatch_slash_command(
             }
         }
         FoundCommand::Tui => {
-            use crate::commands::context::{CommandContext, CommandOptions, MessageUpdate, UiEvent};
+            use crate::commands::context::{
+                CommandContext, CommandOptions, MessageUpdate, UiEvent,
+            };
             use crate::state::AppState;
             use std::path::PathBuf;
             use std::sync::Arc;
@@ -770,7 +819,9 @@ async fn dispatch_slash_command(
             }
         }
         FoundCommand::Prompt => {
-            use crate::commands::context::{CommandContext, CommandOptions, MessageUpdate, UiEvent};
+            use crate::commands::context::{
+                CommandContext, CommandOptions, MessageUpdate, UiEvent,
+            };
             use crate::state::AppState;
             use std::path::PathBuf;
             use std::sync::Arc;
@@ -779,7 +830,15 @@ async fn dispatch_slash_command(
             // Show skill usage (not the full prompt content)
             app.push_message(DisplayMessage::Text {
                 role: TextRole::User,
-                content: format!("/{}{}", name, if args.is_empty() { String::new() } else { format!(" {}", args) }),
+                content: format!(
+                    "/{}{}",
+                    name,
+                    if args.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {}", args)
+                    }
+                ),
             });
 
             // Set loading label to show which skill is being used
@@ -802,10 +861,14 @@ async fn dispatch_slash_command(
 
             // Re-lookup the command and call get_prompt()
             let args_owned = args.to_string();
-            let prompt_result = if let Some(Command::Prompt(cmd)) = app.command_registry.find(name) {
+            let prompt_result = if let Some(Command::Prompt(cmd)) = app.command_registry.find(name)
+            {
                 cmd.get_prompt(&args_owned, &cmd_ctx).await
             } else {
-                Err(anyhow::anyhow!("Command /{} not found as PromptCommand", name))
+                Err(anyhow::anyhow!(
+                    "Command /{} not found as PromptCommand",
+                    name
+                ))
             };
 
             match prompt_result {
@@ -829,7 +892,24 @@ async fn dispatch_slash_command(
                     } else {
                         // Submit the prompt text as a query — but DON'T show the raw skill content
                         // submit_query_hidden sends to LLM without displaying the prompt in chat
-                        submit_query_skill(app, &text, name, provider, system_prompt, query_event_tx, permission_mode, permission_rx, question_rx, mcp_manager, allow_rules, deny_rules, tools_filter, app_state, registry).await;
+                        submit_query_skill(
+                            app,
+                            &text,
+                            name,
+                            provider,
+                            system_prompt,
+                            query_event_tx,
+                            permission_mode,
+                            permission_rx,
+                            question_rx,
+                            mcp_manager,
+                            allow_rules,
+                            deny_rules,
+                            tools_filter,
+                            app_state,
+                            registry,
+                        )
+                        .await;
                     }
                 }
                 Err(e) => {
@@ -844,7 +924,10 @@ async fn dispatch_slash_command(
         FoundCommand::NotFound => {
             app.push_message(DisplayMessage::Text {
                 role: TextRole::System,
-                content: format!("Unknown command: /{}. Type /help for available commands.", name),
+                content: format!(
+                    "Unknown command: /{}. Type /help for available commands.",
+                    name
+                ),
             });
         }
     }
@@ -892,7 +975,11 @@ async fn submit_query(
         let mut state = app_state.write().await;
         let pending = std::mem::take(&mut state.pending_agent_results);
         for result in pending {
-            let status = if result.is_error { "failed" } else { "completed" };
+            let status = if result.is_error {
+                "failed"
+            } else {
+                "completed"
+            };
             app.api_messages.push(ApiMessage {
                 role: Role::User,
                 content: vec![ContentBlock::Text {
@@ -950,8 +1037,8 @@ async fn submit_query(
         question_tx: q_tx,
         hooks,
         cwd,
-        max_turns: None,       // TUI mode: no turn limit
-        max_budget_usd: None,  // TUI mode: no budget limit
+        max_turns: None,      // TUI mode: no turn limit
+        max_budget_usd: None, // TUI mode: no budget limit
         commands: app.command_registry.clone(),
         provider: provider.clone(),
         registry: Some(registry.clone()),
@@ -974,7 +1061,10 @@ async fn submit_query(
                 });
             }
             Err(e) => {
-                let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
+                let _ = event_tx.send(crate::query::QueryEvent::Error(format!(
+                    "Query failed: {}",
+                    e
+                )));
             }
         }
     });
@@ -1083,7 +1173,10 @@ async fn submit_query_skill(
                 });
             }
             Err(e) => {
-                let _ = event_tx.send(crate::query::QueryEvent::Error(format!("Query failed: {}", e)));
+                let _ = event_tx.send(crate::query::QueryEvent::Error(format!(
+                    "Query failed: {}",
+                    e
+                )));
             }
         }
     });

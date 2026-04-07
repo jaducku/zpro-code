@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use crate::types::permissions::PermissionMeta;
 use crate::utils::abort_signal::AbortSignal;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterruptBehavior {
@@ -297,7 +297,10 @@ mod tests {
             defer_loading: false,
         };
         let json = serde_json::to_value(&def).unwrap();
-        assert!(json.get("defer_loading").is_none(), "defer_loading=false should be omitted from JSON");
+        assert!(
+            json.get("defer_loading").is_none(),
+            "defer_loading=false should be omitted from JSON"
+        );
     }
 
     #[test]

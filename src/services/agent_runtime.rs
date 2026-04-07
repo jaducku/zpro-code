@@ -49,14 +49,20 @@ impl AgentSpawnParams {
             .unwrap_or("agent task")
             .to_string();
 
-        let model = input.get("model").and_then(|v| v.as_str()).map(String::from);
+        let model = input
+            .get("model")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         let run_in_background = input
             .get("run_in_background")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let isolation = input.get("isolation").and_then(|v| v.as_str()).map(String::from);
+        let isolation = input
+            .get("isolation")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         Ok(Self {
             prompt,
@@ -101,7 +107,10 @@ pub fn build_child_context(
     use crate::types::content::ContentBlock;
     use crate::types::message::{ApiMessage, Role};
 
-    let model = params.model.clone().unwrap_or_else(|| parent_ctx.model.clone());
+    let model = params
+        .model
+        .clone()
+        .unwrap_or_else(|| parent_ctx.model.clone());
     let max_tokens = parent_ctx.provider.model_info().max_output_tokens;
 
     let messages = vec![ApiMessage {
@@ -178,7 +187,10 @@ pub fn build_fork_context(
     parent_ctx: &ToolUseContext,
     tools: Vec<Box<dyn Tool>>,
 ) -> QueryContext {
-    let model = params.model.clone().unwrap_or_else(|| parent_ctx.model.clone());
+    let model = params
+        .model
+        .clone()
+        .unwrap_or_else(|| parent_ctx.model.clone());
     let max_tokens = parent_ctx.provider.model_info().max_output_tokens;
 
     let mut messages = filter_incomplete_tool_calls(parent_ctx.messages.as_ref());
@@ -233,7 +245,13 @@ fn extract_agent_output(messages: &[crate::types::message::ApiMessage]) -> Strin
 async fn create_agent_worktree(
     cwd: &std::path::Path,
     agent_id: &str,
-) -> Result<(std::path::PathBuf, crate::services::worktree::WorktreeSession), String> {
+) -> Result<
+    (
+        std::path::PathBuf,
+        crate::services::worktree::WorktreeSession,
+    ),
+    String,
+> {
     let slug = format!("agent-{}", &agent_id[..8.min(agent_id.len())]);
     let session = crate::services::worktree::WorktreeService::create(cwd, &slug, agent_id)
         .await
@@ -250,12 +268,9 @@ async fn cleanup_agent_worktree(session: &crate::services::worktree::WorktreeSes
             .unwrap_or(0);
 
     let new_commits = if let Some(ref head) = session.original_head_commit {
-        crate::services::worktree::WorktreeService::count_new_commits(
-            &session.worktree_path,
-            head,
-        )
-        .await
-        .unwrap_or(0)
+        crate::services::worktree::WorktreeService::count_new_commits(&session.worktree_path, head)
+            .await
+            .unwrap_or(0)
     } else {
         0
     };
@@ -288,7 +303,9 @@ pub async fn run_foreground(
                     agent_id,
                     output: format!("Failed to create worktree: {e}"),
                     is_error: true,
-                    tool_count: 0, token_count: 0, duration_secs: 0,
+                    tool_count: 0,
+                    token_count: 0,
+                    duration_secs: 0,
                 });
             }
         }
@@ -306,7 +323,8 @@ pub async fn run_foreground(
         // Inject worktree notice for fork children
         if params.is_fork {
             let notice = crate::services::fork_subagent::build_worktree_notice(
-                &parent_ctx.cwd, worktree_path,
+                &parent_ctx.cwd,
+                worktree_path,
             );
             child_ctx.messages.push(crate::types::message::ApiMessage {
                 role: crate::types::message::Role::User,
@@ -327,7 +345,10 @@ pub async fn run_foreground(
     while let Ok(event) = child_event_rx.try_recv() {
         match event {
             crate::query::types::QueryEvent::ToolCallComplete { .. } => tool_count += 1,
-            crate::query::types::QueryEvent::Usage { input_tokens, output_tokens } => {
+            crate::query::types::QueryEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
                 token_count += input_tokens + output_tokens;
             }
             _ => {}
@@ -343,11 +364,22 @@ pub async fn run_foreground(
     match result {
         Ok(query_result) => {
             let output = extract_agent_output(&query_result.messages);
-            Ok(AgentResult { agent_id, output, is_error: false, tool_count, token_count, duration_secs })
+            Ok(AgentResult {
+                agent_id,
+                output,
+                is_error: false,
+                tool_count,
+                token_count,
+                duration_secs,
+            })
         }
         Err(e) => Ok(AgentResult {
-            agent_id, output: format!("Agent failed: {}", e), is_error: true,
-            tool_count, token_count, duration_secs,
+            agent_id,
+            output: format!("Agent failed: {}", e),
+            is_error: true,
+            tool_count,
+            token_count,
+            duration_secs,
         }),
     }
 }
@@ -416,7 +448,8 @@ pub async fn run_background(
         // Inject worktree notice for fork children
         if params.is_fork {
             let notice = crate::services::fork_subagent::build_worktree_notice(
-                &parent_ctx.cwd, worktree_path,
+                &parent_ctx.cwd,
+                worktree_path,
             );
             child_ctx.messages.push(crate::types::message::ApiMessage {
                 role: crate::types::message::Role::User,
@@ -444,7 +477,10 @@ pub async fn run_background(
         while let Ok(event) = child_event_rx.try_recv() {
             match event {
                 crate::query::types::QueryEvent::ToolCallComplete { .. } => tool_count += 1,
-                crate::query::types::QueryEvent::Usage { input_tokens, output_tokens } => {
+                crate::query::types::QueryEvent::Usage {
+                    input_tokens,
+                    output_tokens,
+                } => {
                     token_count += input_tokens + output_tokens;
                 }
                 _ => {}
@@ -477,12 +513,14 @@ pub async fn run_background(
                 *task.output.lock().unwrap() = result_text.clone();
             }
 
-            state.pending_agent_results.push(crate::state::app_state::PendingAgentResult {
-                agent_id: agent_id_clone.clone(),
-                description: description_clone.clone(),
-                result: result_text.clone(),
-                is_error,
-            });
+            state
+                .pending_agent_results
+                .push(crate::state::app_state::PendingAgentResult {
+                    agent_id: agent_id_clone.clone(),
+                    description: description_clone.clone(),
+                    result: result_text.clone(),
+                    is_error,
+                });
         }
 
         // Notify parent TUI with stats

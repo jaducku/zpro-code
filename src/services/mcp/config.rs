@@ -63,7 +63,10 @@ pub fn read_mcp_json(dir: &Path) -> HashMap<String, McpServerConfig> {
 }
 
 /// Write MCP config to .mcp.json in the given directory.
-pub fn write_mcp_json(dir: &Path, configs: &HashMap<String, McpServerConfig>) -> anyhow::Result<()> {
+pub fn write_mcp_json(
+    dir: &Path,
+    configs: &HashMap<String, McpServerConfig>,
+) -> anyhow::Result<()> {
     let path = dir.join(".mcp.json");
     let config = McpJsonConfig {
         mcp_servers: configs.clone(),

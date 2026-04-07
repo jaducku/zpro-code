@@ -2,7 +2,7 @@
 //! Uses XOR cipher with a machine-specific key derived from hostname + username.
 //! This is obfuscation (not cryptographic security) — prevents casual plaintext exposure.
 
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
 /// Encrypt an API key for storage in config.json
 pub fn encrypt_api_key(key: &str) -> String {
