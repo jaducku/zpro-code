@@ -534,6 +534,9 @@ pub async fn run_app(
                                                     DisplayMessage::Agent { ref mut collapsed, .. } => {
                                                         *collapsed = !*collapsed;
                                                     }
+                                                    DisplayMessage::Thinking { ref mut collapsed, is_complete, .. } if *is_complete => {
+                                                        *collapsed = !*collapsed;
+                                                    }
                                                     _ => {}
                                                 }
                                             }

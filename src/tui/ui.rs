@@ -473,8 +473,75 @@ fn render_conversation(
                     }
                 }
             }
-            DisplayMessage::Thinking { .. } => {
-                // Rendered in Task 2
+            DisplayMessage::Thinking {
+                content,
+                token_count,
+                is_complete,
+                collapsed,
+            } => {
+                let token_str = format_tokens(*token_count);
+
+                if !is_complete {
+                    // In progress: spinner
+                    let spinners = ['◐', '◓', '◑', '◒'];
+                    let elapsed = app
+                        .query_start_time
+                        .map(|t| t.elapsed())
+                        .unwrap_or_default();
+                    let spinner = spinners[(elapsed.as_millis() / 200) as usize % spinners.len()];
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("{} ", spinner), Style::default().fg(Color::Yellow)),
+                        Span::styled("Thinking… ", Style::default().fg(Color::Yellow)),
+                        Span::styled(
+                            format!("({})", token_str),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                } else if *collapsed {
+                    // Completed, collapsed (clickable)
+                    let header_y = lines.len() as u16;
+                    lines.push(Line::from(vec![
+                        Span::styled("● ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("Thinking ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("({})", token_str),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                    hit_areas.push(HitArea {
+                        y: header_y,
+                        message_idx: msg_idx,
+                    });
+                } else {
+                    // Completed, expanded
+                    let header_y = lines.len() as u16;
+                    lines.push(Line::from(vec![
+                        Span::styled("▼ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("Thinking ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("({})", token_str),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                    hit_areas.push(HitArea {
+                        y: header_y,
+                        message_idx: msg_idx,
+                    });
+                    // Content lines (max 20)
+                    for line in content.lines().take(20) {
+                        lines.push(Line::from(vec![
+                            Span::styled("  │ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                        ]));
+                    }
+                    let total_lines = content.lines().count();
+                    if total_lines > 20 {
+                        lines.push(Line::from(Span::styled(
+                            format!("  │ ... {} more lines", total_lines - 20),
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                    }
+                }
             }
             DisplayMessage::Agent {
                 description,
