@@ -933,34 +933,17 @@ impl App {
             QueryEvent::ToolCallStart {
                 id,
                 name,
-                parent_agent_id,
+                parent_agent_id: _,
             } => {
                 self.activity.add(&id, &name);
-                self.messages.push(DisplayMessage::ToolCall {
+                // Store in running_tools, NOT in messages
+                self.running_tools.insert(id.clone(), RunningToolInfo {
                     id: id.clone(),
                     name,
                     input_summary: String::new(),
                     input_full: None,
-                    result: None,
-                    is_error: false,
-                    collapsed: true,
-                    parent_id: parent_agent_id.clone(),
+                    start_time: Instant::now(),
                 });
-                if let Some(ref agent_id) = parent_agent_id {
-                    for msg in &mut self.messages {
-                        if let DisplayMessage::Agent {
-                            agent_id: aid,
-                            child_tool_ids,
-                            ..
-                        } = msg
-                        {
-                            if aid == agent_id {
-                                child_tool_ids.push(id.clone());
-                                break;
-                            }
-                        }
-                    }
-                }
             }
             QueryEvent::ToolCallComplete { id, result } => {
                 self.activity.remove(&id);
