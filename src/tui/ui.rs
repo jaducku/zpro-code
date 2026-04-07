@@ -50,10 +50,16 @@ pub fn render_in_area(
     let input_height = (input_line_count.clamp(1, max_input_height) + 2) as u16; // +2 for border
 
     let activity_height = compute_activity_height(app);
+    let todo_height = if app.todos.is_empty() {
+        0
+    } else {
+        app.todos.len().min(10) as u16 + if app.todos.len() > 10 { 1 } else { 0 }
+    };
 
     let layout = Layout::vertical([
         Constraint::Min(1),                  // Messages area
         Constraint::Length(activity_height), // Activity bar (0 when idle)
+        Constraint::Length(todo_height),     // Todo list (0 when empty)
         Constraint::Length(input_height),    // Input (dynamic)
         Constraint::Length(1),               // Status bar
     ]);
@@ -63,12 +69,15 @@ pub fn render_in_area(
     if activity_height > 0 {
         render_activity(frame, chunks[1], app);
     }
-    render_input(frame, chunks[2], app);
-    render_status_bar(frame, chunks[3], app);
+    if todo_height > 0 {
+        render_todos(&app.todos, chunks[2], frame.buffer_mut());
+    }
+    render_input(frame, chunks[3], app);
+    render_status_bar(frame, chunks[4], app);
 
     // Typeahead overlay (rendered above input area)
     if let Some(ta) = &app.typeahead {
-        render_typeahead(frame, chunks[2], ta);
+        render_typeahead(frame, chunks[3], ta);
     }
 
     (hit_areas, expand_hit_areas)
@@ -784,6 +793,45 @@ fn render_activity(frame: &mut Frame, area: Rect, app: &App) {
     ]);
 
     frame.render_widget(Paragraph::new(vec![line]), area);
+}
+
+fn render_todos(todos: &[crate::state::app_state::TodoItem], area: Rect, buf: &mut Buffer) {
+    use crate::state::app_state::TodoStatus;
+
+    if todos.is_empty() {
+        return;
+    }
+
+    let max_display = todos.len().min(10);
+    for (i, todo) in todos.iter().take(max_display).enumerate() {
+        let is_last = i == max_display - 1 && todos.len() <= 10;
+        let prefix = if is_last { "  └" } else { "  ├" };
+        let (icon, icon_color) = match todo.status {
+            TodoStatus::InProgress => ("■", Color::Yellow),
+            TodoStatus::Pending => ("□", Color::DarkGray),
+            TodoStatus::Completed => ("✓", Color::Green),
+        };
+        let text_color = if todo.status == TodoStatus::Completed {
+            Color::DarkGray
+        } else {
+            Color::White
+        };
+        let line = Line::from(vec![
+            Span::styled(format!("{} ", prefix), Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{} ", icon), Style::default().fg(icon_color)),
+            Span::styled(todo.content.clone(), Style::default().fg(text_color)),
+        ]);
+        buf.set_line(area.x, area.y + i as u16, &line, area.width);
+    }
+
+    if todos.len() > 10 {
+        let remaining = todos.len() - 10;
+        let line = Line::from(Span::styled(
+            format!("  └ +{} more tasks", remaining),
+            Style::default().fg(Color::DarkGray),
+        ));
+        buf.set_line(area.x, area.y + 10, &line, area.width);
+    }
 }
 
 fn render_input(frame: &mut Frame, area: Rect, app: &App) {

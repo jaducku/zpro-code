@@ -97,6 +97,8 @@ pub struct App {
     pub response_token_count: u64,
     /// Cumulative output tokens across all responses in the current query
     pub cumulative_output_tokens: u64,
+    /// Current todo list (synced from AppState before each render)
+    pub todos: Vec<crate::state::app_state::TodoItem>,
 }
 
 /// What kind of typeahead is active
@@ -427,6 +429,7 @@ impl App {
             response_start_time: None,
             response_token_count: 0,
             cumulative_output_tokens: 0,
+            todos: Vec::new(),
         }
     }
 

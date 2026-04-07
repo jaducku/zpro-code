@@ -119,6 +119,11 @@ pub async fn run_app(
                 app.needs_redraw = false;
             }
 
+            // Sync todos from app_state (non-blocking — skip if lock is held)
+            if let Ok(state) = app_state.try_read() {
+                app.todos = state.todos.clone();
+            }
+
             let mut frame_hit_areas = Vec::new();
             let mut frame_expand_hit_areas = Vec::new();
             terminal.draw(|frame| {
