@@ -909,6 +909,8 @@ impl App {
                     content: format!("Error: {}", msg),
                 });
                 self.is_loading = false;
+                self.loading_label = None;
+                self.needs_redraw = true;
                 self.activity = ActivitySummary::default();
                 self.response_start_time = None;
                 self.response_token_count = 0;
