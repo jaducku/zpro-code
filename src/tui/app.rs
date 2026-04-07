@@ -636,6 +636,11 @@ impl App {
                     collapsed: true,
                 });
             }
+            QueryEvent::QueryCancelled { partial_messages, .. } => {
+                // Preserve partial messages in conversation history (Task 5 will expand this)
+                self.api_messages = partial_messages;
+                self.is_loading = false;
+            }
         }
     }
 }

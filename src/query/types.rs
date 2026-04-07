@@ -122,6 +122,11 @@ pub enum QueryEvent {
         attachments: Vec<BriefAttachment>,
         status: BriefStatus,
     },
+    /// Query was cancelled — carries partial messages and the cancel reason
+    QueryCancelled {
+        partial_messages: Vec<crate::types::message::ApiMessage>,
+        reason: crate::utils::abort_signal::AbortReason,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -104,6 +104,22 @@ pub async fn query(
 
         loop {
             if ctx.abort_signal.is_cancelled() {
+                // Preserve partial output as assistant message
+                if !text_content.is_empty() {
+                    let partial_msg = crate::types::message::ApiMessage {
+                        role: crate::types::message::Role::Assistant,
+                        content: vec![crate::types::content::ContentBlock::Text {
+                            text: text_content.clone(),
+                        }],
+                    };
+                    ctx.messages.push(partial_msg);
+                }
+                let reason = ctx.abort_signal.reason().cloned()
+                    .unwrap_or(crate::utils::abort_signal::AbortReason::UserCancel);
+                let _ = event_tx.send(QueryEvent::QueryCancelled {
+                    partial_messages: ctx.messages.clone(),
+                    reason,
+                });
                 return Err(crate::types::AtomError::Cancelled);
             }
 

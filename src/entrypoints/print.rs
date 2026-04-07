@@ -203,6 +203,7 @@ pub async fn run_print_mode(
             QueryEvent::ToolCallInputReady { .. } => {
                 // No-op in print mode — tool input shown when tool executes
             }
+            QueryEvent::QueryCancelled { .. } => {}
         }
     }
 
