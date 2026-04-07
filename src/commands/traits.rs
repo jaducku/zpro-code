@@ -77,6 +77,10 @@ pub trait TuiCommand: Send + Sync {
     fn create_state(&self, ctx: &CommandContext) -> Box<dyn Any + Send>;
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any);
     fn handle_key(&self, key: KeyEvent, state: &mut dyn Any) -> CommandAction;
+
+    fn content_height(&self, _state: &dyn std::any::Any) -> u16 {
+        8
+    }
 }
 
 /// Unified command enum that wraps all three command kinds.

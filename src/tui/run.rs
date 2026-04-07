@@ -97,7 +97,8 @@ pub async fn run_app(
             if let Some(active) = &mut app.active_command {
                 let cmd_name = active.command_name.clone();
                 if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(&cmd_name) {
-                    let overlay_area = ui::compute_command_overlay_area(frame.area());
+                    let height = tui_cmd.content_height(active.state.as_ref());
+                    let overlay_area = ui::compute_command_overlay_area(frame.area(), height);
                     frame.render_widget(Clear, overlay_area);
                     let active = app.active_command.as_mut().unwrap();
                     tui_cmd.render(frame, overlay_area, active.state.as_mut());

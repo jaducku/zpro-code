@@ -13,14 +13,14 @@ pub fn render(frame: &mut Frame, app: &App) -> Vec<HitArea> {
 
 /// Compute the overlay area for TUI commands (e.g. /model picker).
 /// Positioned above the input area, similar to typeahead.
-pub fn compute_command_overlay_area(terminal_area: Rect) -> Rect {
+pub fn compute_command_overlay_area(terminal_area: Rect, content_height: u16) -> Rect {
     // Input is 3 rows + status bar is 1 row = 4 rows from bottom
     let input_top = terminal_area.y + terminal_area.height.saturating_sub(4);
     let max_height = terminal_area.height / 2;
-    let height = max_height.max(8).min(terminal_area.height.saturating_sub(6));
+    let height = content_height.min(max_height).max(1);
+    let y = input_top.saturating_sub(height);
     let width = terminal_area.width.min(80);
     let x = terminal_area.x + (terminal_area.width.saturating_sub(width)) / 2;
-    let y = input_top.saturating_sub(height);
 
     Rect { x, y, width, height }
 }
