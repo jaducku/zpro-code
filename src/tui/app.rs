@@ -16,13 +16,13 @@ pub struct ActiveCommand {
 }
 
 /// Tracks a tool that is currently executing (not yet in messages)
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RunningToolInfo {
     pub id: String,
     pub name: String,
     pub input_summary: String,
     pub input_full: Option<String>,
-    pub start_time: std::time::Instant,
+    pub start_time: Instant,
 }
 
 /// Application state
