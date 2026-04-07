@@ -1,0 +1,17 @@
+node_modules
+.DS_Store
+dist
+coverage
+.env
+*.log
+.idea
+.vscode
+*.suo
+*.lock
+!Cargo.lock
+
+# Rust
+/target
+
+# Original TypeScript reference (pre-port)
+/_reference_ts
