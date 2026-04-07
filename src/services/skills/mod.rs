@@ -310,15 +310,15 @@ mod tests {
     fn make_test_ctx() -> CommandContext {
         use std::sync::Arc;
         use tokio::sync::{mpsc, RwLock};
-        use tokio_util::sync::CancellationToken;
         use crate::commands::context::{CommandOptions, CommandContext};
         use crate::state::AppState;
+        use crate::utils::abort_signal::AbortSignal;
 
         let (msg_tx, _msg_rx) = mpsc::unbounded_channel();
         let (ui_tx, _ui_rx) = mpsc::unbounded_channel();
         CommandContext {
             app_state: Arc::new(RwLock::new(AppState::default())),
-            abort_signal: CancellationToken::new(),
+            abort_signal: AbortSignal::new(),
             cwd: PathBuf::from("/tmp"),
             message_tx: msg_tx,
             ui_event_tx: ui_tx,

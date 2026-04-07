@@ -98,7 +98,7 @@ impl Tool for SkillTool {
         let (ui_tx, _) = mpsc::unbounded_channel();
         let cmd_ctx = CommandContext {
             app_state: Arc::new(RwLock::new(AppState::default())),
-            abort_signal: ctx.abort_signal.child_token(),
+            abort_signal: ctx.abort_signal.child_signal(),
             cwd: ctx.cwd.clone(),
             message_tx: msg_tx,
             ui_event_tx: ui_tx,
@@ -158,7 +158,7 @@ async fn execute_forked_skill(
     prompt_text: &str,
     parent_ctx: &ToolUseContext,
 ) -> crate::types::Result<ToolResult> {
-    let child_abort = parent_ctx.abort_signal.child_token();
+    let child_abort = parent_ctx.abort_signal.child_signal();
     let event_tx = parent_ctx.event_tx.clone();
 
     let query_ctx = QueryContext {
@@ -193,9 +193,10 @@ async fn execute_forked_skill(
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: None,
         query_source: None,
+        abort_signal: child_abort,
     };
 
-    let result = query(query_ctx, event_tx, child_abort).await;
+    let result = query(query_ctx, event_tx).await;
 
     match result {
         Ok(qr) => {

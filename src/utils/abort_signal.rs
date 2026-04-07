@@ -13,7 +13,7 @@ pub enum AbortReason {
     SiblingError,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AbortSignal {
     token: CancellationToken,
     reason: Arc<OnceLock<AbortReason>>,

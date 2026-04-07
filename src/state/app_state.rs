@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
-
 use crate::types::permissions::ToolPermissionContext;
+use crate::utils::abort_signal::AbortSignal;
 use crate::utils::settings::SettingsJson;
 
 /// Background task (shell, agent) — runtime only, not serialized
@@ -13,7 +12,7 @@ pub struct BackgroundTask {
     pub task_type: String,
     pub command: Option<String>,
     pub status: BackgroundTaskStatus,
-    pub cancel_token: CancellationToken,
+    pub cancel_token: AbortSignal,
     pub output: Arc<Mutex<String>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }

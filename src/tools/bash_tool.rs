@@ -135,7 +135,7 @@ impl BashTool {
     ) -> crate::types::Result<ToolResult> {
         let task_id = format!("bg-{}", uuid::Uuid::new_v4());
         let output_buf = Arc::new(Mutex::new(String::new()));
-        let cancel_token = tokio_util::sync::CancellationToken::new();
+        let cancel_token = crate::utils::abort_signal::AbortSignal::new();
 
         let bg_task = BackgroundTask {
             id: task_id.clone(),

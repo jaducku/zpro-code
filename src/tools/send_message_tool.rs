@@ -271,7 +271,7 @@ impl Tool for SendMessageTool {
                         // Cancel the target agent via background_tasks
                         let state = ctx.app_state.read().await;
                         if let Some(task) = state.background_tasks.get(to) {
-                            task.cancel_token.cancel();
+                            task.cancel_token.cancel(crate::utils::abort_signal::AbortReason::UserCancel);
                         }
                     }
 

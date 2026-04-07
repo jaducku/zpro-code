@@ -440,7 +440,7 @@ async fn dispatch_slash_command(
             let (ui_tx, _ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
             let ctx = CommandContext {
                 app_state: Arc::new(RwLock::new(AppState::default())),
-                abort_signal: tokio_util::sync::CancellationToken::new(),
+                abort_signal: crate::utils::abort_signal::AbortSignal::new(),
                 cwd: PathBuf::from("."),
                 message_tx: msg_tx,
                 ui_event_tx: ui_tx,
@@ -494,7 +494,7 @@ async fn dispatch_slash_command(
             let (ui_tx, _ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
             let ctx = CommandContext {
                 app_state: Arc::new(RwLock::new(AppState::default())),
-                abort_signal: tokio_util::sync::CancellationToken::new(),
+                abort_signal: crate::utils::abort_signal::AbortSignal::new(),
                 cwd: PathBuf::from("."),
                 message_tx: msg_tx,
                 ui_event_tx: ui_tx,
@@ -533,7 +533,7 @@ async fn dispatch_slash_command(
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let cmd_ctx = CommandContext {
                 app_state: Arc::new(RwLock::new(AppState::default())),
-                abort_signal: tokio_util::sync::CancellationToken::new(),
+                abort_signal: crate::utils::abort_signal::AbortSignal::new(),
                 cwd,
                 message_tx: msg_tx,
                 ui_event_tx: ui_tx,
@@ -698,14 +698,13 @@ async fn submit_query(
         mcp_manager: None,
         agent_depth: None,
         query_source: None,
+        abort_signal: crate::utils::abort_signal::AbortSignal::new(),
     };
-
-    let cancel = tokio_util::sync::CancellationToken::new();
 
     // Spawn query as background task
     let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
-        match crate::query::engine::query(ctx, event_tx.clone(), cancel).await {
+        match crate::query::engine::query(ctx, event_tx.clone()).await {
             Ok(result) => {
                 // Send full message history back so TUI can sync api_messages
                 // (includes tool_use/tool_result that would otherwise be lost)
@@ -808,12 +807,12 @@ async fn submit_query_skill(
         mcp_manager: None,
         agent_depth: None,
         query_source: None,
+        abort_signal: crate::utils::abort_signal::AbortSignal::new(),
     };
 
-    let cancel = tokio_util::sync::CancellationToken::new();
     let event_tx = query_event_tx.clone();
     tokio::spawn(async move {
-        match crate::query::engine::query(ctx, event_tx.clone(), cancel).await {
+        match crate::query::engine::query(ctx, event_tx.clone()).await {
             Ok(result) => {
                 let _ = event_tx.send(crate::query::QueryEvent::QueryCompleted {
                     messages: result.messages,

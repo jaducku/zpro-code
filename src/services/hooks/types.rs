@@ -94,7 +94,7 @@ pub struct FunctionHook {
     pub callback: Arc<
         dyn Fn(
                 Vec<crate::types::message::ApiMessage>,
-                Option<tokio_util::sync::CancellationToken>,
+                Option<crate::utils::abort_signal::AbortSignal>,
             ) -> Pin<Box<dyn Future<Output = bool> + Send>>
             + Send
             + Sync,

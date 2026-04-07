@@ -36,6 +36,8 @@ pub struct QueryContext {
     pub agent_depth: Option<u32>,
     /// Source identifier for the query (e.g., "agent:builtin:fork" for fork children)
     pub query_source: Option<String>,
+    /// Abort signal for cancellation with reason tracking
+    pub abort_signal: crate::utils::abort_signal::AbortSignal,
 }
 
 /// Sent to TUI when a tool wants to ask the user a question

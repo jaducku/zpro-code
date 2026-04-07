@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
-
 use crate::services::api::types::*;
 use crate::services::hooks::{execute_event_hooks, HookOutcome};
 use crate::services::hooks::types::HookContext;
@@ -23,7 +21,6 @@ const MAX_TOOL_LOOPS: usize = 50;
 pub async fn query(
     mut ctx: QueryContext,
     event_tx: mpsc::UnboundedSender<QueryEvent>,
-    abort_signal: CancellationToken,
 ) -> crate::types::Result<QueryResult> {
     let tools_arc = Arc::new(std::mem::take(&mut ctx.tools));
     let mut loop_count = 0;
@@ -106,7 +103,7 @@ pub async fn query(
         let chunk_timeout = std::time::Duration::from_secs(300);
 
         loop {
-            if abort_signal.is_cancelled() {
+            if ctx.abort_signal.is_cancelled() {
                 return Err(crate::types::AtomError::Cancelled);
             }
 
@@ -342,7 +339,7 @@ pub async fn query(
             }
 
             // Execute tool
-            let result = execute_tool(tc, &tools_arc, &abort_signal, &ctx, &tools_arc, &event_tx).await;
+            let result = execute_tool(tc, &tools_arc, &ctx, &tools_arc, &event_tx).await;
             let block = match result {
                 Ok(tr) => {
                     let mut content = tr.content.clone();
@@ -439,7 +436,6 @@ pub async fn query(
 async fn execute_tool(
     tc: &ToolCall,
     tools: &[Box<dyn crate::tool::Tool>],
-    abort_signal: &CancellationToken,
     ctx: &QueryContext,
     tools_arc: &Arc<Vec<Box<dyn crate::tool::Tool>>>,
     event_tx: &mpsc::UnboundedSender<QueryEvent>,
@@ -453,7 +449,7 @@ async fn execute_tool(
 
     let tool_ctx = ToolUseContext {
         input: tc.input.clone(),
-        abort_signal: abort_signal.clone(),
+        abort_signal: ctx.abort_signal.clone(),
         progress_tx,
         provider: ctx.provider.clone(),
         registry: ctx.registry.clone(),
@@ -514,6 +510,7 @@ mod tests {
             mcp_manager: None,
             agent_depth: None,
             query_source: None,
+            abort_signal: crate::utils::abort_signal::AbortSignal::new(),
         }
     }
 
@@ -623,7 +620,7 @@ mod tests {
         );
         ctx.provider = Arc::new(provider);
 
-        let result = query(ctx, event_tx, CancellationToken::new())
+        let result = query(ctx, event_tx)
             .await
             .unwrap();
 
@@ -738,7 +735,7 @@ mod tests {
         );
         ctx.provider = Arc::new(TwoStepProvider { call_count: cc });
 
-        let result = query(ctx, event_tx, CancellationToken::new())
+        let result = query(ctx, event_tx)
             .await
             .unwrap();
 
