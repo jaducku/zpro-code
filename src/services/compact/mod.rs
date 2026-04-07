@@ -1,12 +1,13 @@
-pub mod types;
-pub mod snip;
-pub mod microcompact;
 pub mod full_compact;
+pub mod microcompact;
+pub mod prompt;
+pub mod snip;
+pub mod types;
 
 pub use types::*;
 
-use crate::types::message::ApiMessage;
 use crate::services::token_estimation::estimate_message_tokens;
+use crate::types::message::ApiMessage;
 
 /// Compute the token ratio (estimated_tokens / context_window).
 pub fn token_ratio(messages: &[ApiMessage], context_window: u64) -> f64 {
@@ -19,13 +20,15 @@ pub fn token_ratio(messages: &[ApiMessage], context_window: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::message::Role;
     use crate::types::content::ContentBlock;
+    use crate::types::message::Role;
 
     fn text_msg(role: Role, text: &str) -> ApiMessage {
         ApiMessage {
             role,
-            content: vec![ContentBlock::Text { text: text.to_string() }],
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
         }
     }
 
