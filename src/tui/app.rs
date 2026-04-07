@@ -947,21 +947,20 @@ impl App {
             }
             QueryEvent::ToolCallComplete { id, result } => {
                 self.activity.remove(&id);
-                // Reverse scan to find the matching ToolCall by id
-                for msg in self.messages.iter_mut().rev() {
-                    if let DisplayMessage::ToolCall {
-                        id: msg_id,
-                        result: ref mut msg_result,
-                        is_error: ref mut msg_is_error,
-                        ..
-                    } = msg
-                    {
-                        if *msg_id == id {
-                            *msg_result = Some(result.content);
-                            *msg_is_error = result.is_error;
-                            break;
-                        }
-                    }
+
+                // Get info from running_tools
+                if let Some(tool_info) = self.running_tools.remove(&id) {
+                    // Add completed tool to messages
+                    self.messages.push(DisplayMessage::ToolCall {
+                        id: id.clone(),
+                        name: tool_info.name,
+                        input_summary: tool_info.input_summary,
+                        input_full: tool_info.input_full,
+                        result: Some(result.content),
+                        is_error: result.is_error,
+                        collapsed: true,
+                        parent_id: None,
+                    });
                 }
             }
             QueryEvent::ResponseComplete { .. } => {
