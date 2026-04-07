@@ -116,6 +116,7 @@ pub enum QueryEvent {
     /// Background agent completed or failed
     AgentCompleted {
         agent_id: String,
+        agent_type: String,
         description: String,
         result: Option<String>,
         is_error: bool,
