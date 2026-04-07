@@ -207,6 +207,7 @@ pub async fn run_print_mode(
             }
             QueryEvent::Compacted { .. } => {}
             QueryEvent::QueryCancelled { .. } => {}
+            QueryEvent::ThinkingDelta { .. } => {}
         }
     }
 

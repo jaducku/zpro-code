@@ -216,6 +216,7 @@ pub async fn query(
                     }
                     ContentDelta::ThinkingDelta { thinking } => {
                         reasoning_content.push_str(&thinking);
+                        let _ = event_tx.send(QueryEvent::ThinkingDelta { text: thinking });
                     }
                 },
                 StreamEvent::ContentBlockStop { .. } => {

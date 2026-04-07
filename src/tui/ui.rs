@@ -473,6 +473,9 @@ fn render_conversation(
                     }
                 }
             }
+            DisplayMessage::Thinking { .. } => {
+                // Rendered in Task 2
+            }
             DisplayMessage::Agent {
                 description,
                 status,

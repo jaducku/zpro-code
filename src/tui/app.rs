@@ -153,6 +153,12 @@ pub enum DisplayMessage {
         child_tool_ids: Vec<String>,
         visible_child_count: usize,
     },
+    Thinking {
+        content: String,
+        token_count: u64,
+        is_complete: bool,
+        collapsed: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -854,9 +860,46 @@ impl App {
         self.scroll_offset = 0;
 
         match event {
+            QueryEvent::ThinkingDelta { text } => {
+                let found = self.messages.iter_mut().rev().find(|m| {
+                    matches!(
+                        m,
+                        DisplayMessage::Thinking {
+                            is_complete: false,
+                            ..
+                        }
+                    )
+                });
+                if let Some(DisplayMessage::Thinking {
+                    content,
+                    token_count,
+                    ..
+                }) = found
+                {
+                    content.push_str(&text);
+                    *token_count = (content.len() as u64) / 4;
+                } else {
+                    let tc = (text.len() as u64) / 4;
+                    self.messages.push(DisplayMessage::Thinking {
+                        content: text,
+                        token_count: tc,
+                        is_complete: false,
+                        collapsed: true,
+                    });
+                }
+            }
             QueryEvent::TextDelta(text) => {
                 if self.response_start_time.is_none() {
                     self.response_start_time = Some(Instant::now());
+                }
+                // Mark any open thinking as complete
+                for msg in self.messages.iter_mut().rev() {
+                    if let DisplayMessage::Thinking { is_complete, .. } = msg {
+                        if !*is_complete {
+                            *is_complete = true;
+                        }
+                        break;
+                    }
                 }
                 if let Some(DisplayMessage::Text {
                     role: TextRole::Assistant,
@@ -947,6 +990,16 @@ impl App {
                 self.response_start_time = None;
                 self.response_token_count = 0;
                 self.cumulative_output_tokens = 0;
+                // Mark remaining open thinking as complete
+                for msg in self.messages.iter_mut() {
+                    if let DisplayMessage::Thinking { is_complete, .. } = msg {
+                        *is_complete = true;
+                    }
+                }
+                // Remove empty thinking messages
+                self.messages.retain(|m| {
+                    !matches!(m, DisplayMessage::Thinking { content, .. } if content.is_empty())
+                });
                 self.query_start_time = None;
                 self.mark_pending_tools_done();
             }

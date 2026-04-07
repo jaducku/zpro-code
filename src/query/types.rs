@@ -88,6 +88,8 @@ pub struct QueryResult {
 /// Events emitted during query execution (for UI updates)
 #[derive(Debug, Clone)]
 pub enum QueryEvent {
+    /// Streaming thinking/reasoning content from LLM
+    ThinkingDelta { text: String },
     /// Streaming text from LLM
     TextDelta(String),
     /// Tool call started
