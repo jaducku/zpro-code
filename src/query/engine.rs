@@ -202,6 +202,7 @@ pub async fn query(
                     let _ = event_tx.send(QueryEvent::ToolCallStart {
                         id: id.clone(),
                         name: name.clone(),
+                        parent_agent_id: None,
                     });
                 }
                 StreamEvent::ContentBlockStart { .. } => {}

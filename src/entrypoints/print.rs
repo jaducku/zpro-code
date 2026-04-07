@@ -136,7 +136,7 @@ pub async fn run_print_mode(
                     OutputFormat::Json => {} // collect, output at end
                 }
             }
-            QueryEvent::ToolCallStart { name, id } => {
+            QueryEvent::ToolCallStart { name, id, .. } => {
                 eprintln!("[tool] {} ({})", name, id);
                 if matches!(output_format, OutputFormat::StreamJson) {
                     writeln!(

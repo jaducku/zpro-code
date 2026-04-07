@@ -130,12 +130,15 @@ pub enum DisplayMessage {
         id: String,
         name: String,
         input_summary: String,
+        input_full: Option<String>,
         result: Option<String>,
         is_error: bool,
         collapsed: bool,
+        parent_id: Option<String>,
     },
     Agent {
         agent_id: String,
+        agent_type: String,
         description: String,
         status: AgentStatus,
         result: Option<String>,
@@ -143,6 +146,8 @@ pub enum DisplayMessage {
         tool_count: u32,
         token_count: u64,
         duration_secs: u64,
+        child_tool_ids: Vec<String>,
+        visible_child_count: usize,
     },
 }
 
@@ -831,16 +836,37 @@ impl App {
                     content: text,
                 });
             }
-            QueryEvent::ToolCallStart { id, name } => {
+            QueryEvent::ToolCallStart {
+                id,
+                name,
+                parent_agent_id,
+            } => {
                 self.activity.add(&id, &name);
                 self.messages.push(DisplayMessage::ToolCall {
-                    id,
+                    id: id.clone(),
                     name,
                     input_summary: String::new(),
+                    input_full: None,
                     result: None,
                     is_error: false,
                     collapsed: true,
+                    parent_id: parent_agent_id.clone(),
                 });
+                if let Some(ref agent_id) = parent_agent_id {
+                    for msg in &mut self.messages {
+                        if let DisplayMessage::Agent {
+                            agent_id: aid,
+                            child_tool_ids,
+                            ..
+                        } = msg
+                        {
+                            if aid == agent_id {
+                                child_tool_ids.push(id.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
             }
             QueryEvent::ToolCallComplete { id, result } => {
                 self.activity.remove(&id);
@@ -945,6 +971,7 @@ impl App {
             } => {
                 self.push_message(DisplayMessage::Agent {
                     agent_id,
+                    agent_type: "Agent".into(),
                     description,
                     status: if is_error {
                         AgentStatus::Failed
@@ -956,6 +983,8 @@ impl App {
                     tool_count,
                     token_count,
                     duration_secs,
+                    child_tool_ids: Vec::new(),
+                    visible_child_count: 3,
                 });
             }
             QueryEvent::Compacted {

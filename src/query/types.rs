@@ -91,7 +91,11 @@ pub enum QueryEvent {
     /// Streaming text from LLM
     TextDelta(String),
     /// Tool call started
-    ToolCallStart { id: String, name: String },
+    ToolCallStart {
+        id: String,
+        name: String,
+        parent_agent_id: Option<String>,
+    },
     /// Tool call completed
     ToolCallComplete { id: String, result: ToolResultBlock },
     /// Tool call input fully received (for display summary)
