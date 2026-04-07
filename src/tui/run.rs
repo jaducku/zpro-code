@@ -721,10 +721,7 @@ async fn dispatch_slash_command(
             use crate::commands::context::{
                 CommandContext, CommandOptions, MessageUpdate, UiEvent,
             };
-            use crate::state::AppState;
-            use std::path::PathBuf;
             use std::sync::Arc;
-            use tokio::sync::RwLock;
 
             // Show the user's command first
             app.push_message(DisplayMessage::Text {
@@ -740,22 +737,31 @@ async fn dispatch_slash_command(
                 ),
             });
 
-            // Build a CommandContext (same pattern as the Tui branch)
+            // Build a CommandContext with real provider and messages
             let (msg_tx, _msg_rx) = tokio::sync::mpsc::unbounded_channel::<MessageUpdate>();
             let (ui_tx, _ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
             let ctx = CommandContext {
-                app_state: Arc::new(RwLock::new(AppState::default())),
-                abort_signal: crate::utils::abort_signal::AbortSignal::new(),
-                cwd: PathBuf::from("."),
+                app_state: app_state.clone(),
+                abort_signal: app
+                    .active_abort_signal
+                    .clone()
+                    .unwrap_or_else(|| crate::utils::abort_signal::AbortSignal::new()),
+                cwd: std::env::current_dir().unwrap_or_default(),
                 message_tx: msg_tx,
                 ui_event_tx: ui_tx,
                 options: CommandOptions {
                     theme: "default".to_string(),
                 },
-                provider: None,
-                messages: Arc::new(Vec::new()),
+                provider: provider.clone(),
+                messages: Arc::new(app.api_messages.clone()),
                 session_memory: None,
             };
+
+            let is_compact = name == "compact";
+            if is_compact {
+                app.is_loading = true;
+                app.loading_label = Some("Compacting...".into());
+            }
 
             // Look up the command again and call it
             if let Some(Command::Local(cmd)) = app.command_registry.find(name) {
@@ -798,6 +804,11 @@ async fn dispatch_slash_command(
                 }
             }
 
+            if is_compact {
+                app.is_loading = false;
+                app.loading_label = None;
+            }
+
             if is_exit {
                 app.should_quit = true;
             }
@@ -806,24 +817,23 @@ async fn dispatch_slash_command(
             use crate::commands::context::{
                 CommandContext, CommandOptions, MessageUpdate, UiEvent,
             };
-            use crate::state::AppState;
-            use std::path::PathBuf;
-            use std::sync::Arc;
-            use tokio::sync::RwLock;
 
             let (msg_tx, _msg_rx) = tokio::sync::mpsc::unbounded_channel::<MessageUpdate>();
             let (ui_tx, _ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
             let ctx = CommandContext {
-                app_state: Arc::new(RwLock::new(AppState::default())),
-                abort_signal: crate::utils::abort_signal::AbortSignal::new(),
-                cwd: PathBuf::from("."),
+                app_state: app_state.clone(),
+                abort_signal: app
+                    .active_abort_signal
+                    .clone()
+                    .unwrap_or_else(|| crate::utils::abort_signal::AbortSignal::new()),
+                cwd: std::env::current_dir().unwrap_or_default(),
                 message_tx: msg_tx,
                 ui_event_tx: ui_tx,
                 options: CommandOptions {
                     theme: "default".to_string(),
                 },
-                provider: None,
-                messages: Arc::new(Vec::new()),
+                provider: provider.clone(),
+                messages: Arc::new(app.api_messages.clone()),
                 session_memory: None,
             };
 
@@ -839,10 +849,6 @@ async fn dispatch_slash_command(
             use crate::commands::context::{
                 CommandContext, CommandOptions, MessageUpdate, UiEvent,
             };
-            use crate::state::AppState;
-            use std::path::PathBuf;
-            use std::sync::Arc;
-            use tokio::sync::RwLock;
 
             // Show skill usage (not the full prompt content)
             app.push_message(DisplayMessage::Text {
@@ -864,18 +870,20 @@ async fn dispatch_slash_command(
             // Build a CommandContext for get_prompt()
             let (msg_tx, _msg_rx) = tokio::sync::mpsc::unbounded_channel::<MessageUpdate>();
             let (ui_tx, _ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let cmd_ctx = CommandContext {
-                app_state: Arc::new(RwLock::new(AppState::default())),
-                abort_signal: crate::utils::abort_signal::AbortSignal::new(),
-                cwd,
+                app_state: app_state.clone(),
+                abort_signal: app
+                    .active_abort_signal
+                    .clone()
+                    .unwrap_or_else(|| crate::utils::abort_signal::AbortSignal::new()),
+                cwd: std::env::current_dir().unwrap_or_default(),
                 message_tx: msg_tx,
                 ui_event_tx: ui_tx,
                 options: CommandOptions {
                     theme: "default".to_string(),
                 },
-                provider: None,
-                messages: Arc::new(Vec::new()),
+                provider: provider.clone(),
+                messages: Arc::new(app.api_messages.clone()),
                 session_memory: None,
             };
 
