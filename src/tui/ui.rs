@@ -343,34 +343,36 @@ fn render_conversation(
                     message_idx: msg_idx,
                 });
 
-                // Result lines — max 3 lines preview
-                if let Some(ref result_text) = result {
-                    if !result_text.is_empty() {
-                        let result_lines: Vec<&str> = result_text.lines().collect();
-                        let max_preview = 3;
-                        let show_count = result_lines.len().min(max_preview);
-                        for line_text in &result_lines[..show_count] {
-                            lines.push(Line::from(vec![
-                                Span::styled(
-                                    "    ⎿ ",
+                // Result lines — show only if not collapsed
+                if !*collapsed {
+                    if let Some(ref result_text) = result {
+                        if !result_text.is_empty() {
+                            let result_lines: Vec<&str> = result_text.lines().collect();
+                            let max_preview = 3;
+                            let show_count = result_lines.len().min(max_preview);
+                            for line_text in &result_lines[..show_count] {
+                                lines.push(Line::from(vec![
+                                    Span::styled(
+                                        "    ⎿ ",
+                                        Style::default().fg(Color::DarkGray),
+                                    ),
+                                    Span::raw(line_text.to_string()),
+                                ]));
+                            }
+                            if result_lines.len() > max_preview {
+                                let expand_y = lines.len() as u16;
+                                lines.push(Line::from(Span::styled(
+                                    format!(
+                                        "    ... +{} lines (ctrl+o to expand)",
+                                        result_lines.len() - max_preview
+                                    ),
                                     Style::default().fg(Color::DarkGray),
-                                ),
-                                Span::raw(line_text.to_string()),
-                            ]));
-                        }
-                        if result_lines.len() > max_preview {
-                            let expand_y = lines.len() as u16;
-                            lines.push(Line::from(Span::styled(
-                                format!(
-                                    "    ... +{} lines (ctrl+o to expand)",
-                                    result_lines.len() - max_preview
-                                ),
-                                Style::default().fg(Color::DarkGray),
-                            )));
-                            expand_hit_areas.push(HitArea {
-                                y: expand_y,
-                                message_idx: msg_idx,
-                            });
+                                )));
+                                expand_hit_areas.push(HitArea {
+                                    y: expand_y,
+                                    message_idx: msg_idx,
+                                });
+                            }
                         }
                     }
                 }
@@ -685,6 +687,7 @@ fn render_activity(frame: &mut Frame, area: Rect, app: &App) {
         Span::styled(status, Style::default().fg(color)),
     ]);
 
+    frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(vec![line]), area);
 }
 
@@ -1061,6 +1064,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     spans.push(pad);
     spans.push(right_span);
 
+    frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 

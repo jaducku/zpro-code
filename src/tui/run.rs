@@ -266,25 +266,40 @@ pub async fn run_app(
                                     continue;
                                 }
 
-                                // === Ctrl+O: toggle expand on most recent Agent with children ===
+                                // === Ctrl+O: expand all collapsed sections on screen ===
                                 if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
                                     && key.code == KeyCode::Char('o')
                                 {
-                                    for msg in app.messages.iter_mut().rev() {
-                                        if let DisplayMessage::Agent {
-                                            ref mut visible_child_count,
-                                            ref child_tool_ids,
-                                            ..
-                                        } = msg
-                                        {
-                                            if !child_tool_ids.is_empty() {
+                                    // Toggle expansion for all message types that support collapsed state
+                                    for msg in app.messages.iter_mut() {
+                                        match msg {
+                                            DisplayMessage::ToolCall {
+                                                ref mut collapsed,
+                                                ..
+                                            } => {
+                                                *collapsed = false;
+                                            }
+                                            DisplayMessage::Agent {
+                                                ref mut visible_child_count,
+                                                ref child_tool_ids,
+                                                ..
+                                            } => {
                                                 if *visible_child_count < child_tool_ids.len() {
                                                     *visible_child_count = child_tool_ids.len();
                                                 } else {
                                                     *visible_child_count = 3;
                                                 }
-                                                break;
                                             }
+                                            DisplayMessage::Thinking {
+                                                ref mut collapsed,
+                                                is_complete,
+                                                ..
+                                            } => {
+                                                if *is_complete {
+                                                    *collapsed = false;
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                     continue;
@@ -549,17 +564,25 @@ pub async fn run_app(
                                         // Expand hit area click for "+N more" toggle
                                         for ha in &app.expand_hit_areas {
                                             if ha.y == row {
-                                                if let Some(DisplayMessage::Agent {
-                                                    ref mut visible_child_count,
-                                                    ref child_tool_ids,
-                                                    ..
-                                                }) = app.messages.get_mut(ha.message_idx)
-                                                {
-                                                    if *visible_child_count < child_tool_ids.len() {
-                                                        *visible_child_count = child_tool_ids.len();
-                                                    } else {
-                                                        *visible_child_count = 3;
+                                                match app.messages.get_mut(ha.message_idx) {
+                                                    Some(DisplayMessage::ToolCall {
+                                                        ref mut collapsed,
+                                                        ..
+                                                    }) => {
+                                                        *collapsed = false;
                                                     }
+                                                    Some(DisplayMessage::Agent {
+                                                        ref mut visible_child_count,
+                                                        ref child_tool_ids,
+                                                        ..
+                                                    }) => {
+                                                        if *visible_child_count < child_tool_ids.len() {
+                                                            *visible_child_count = child_tool_ids.len();
+                                                        } else {
+                                                            *visible_child_count = 3;
+                                                        }
+                                                    }
+                                                    _ => {}
                                                 }
                                                 break;
                                             }
