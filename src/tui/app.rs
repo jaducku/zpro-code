@@ -75,6 +75,8 @@ pub struct App {
     pub needs_redraw: bool,
     /// Hit areas for mouse click detection on collapsible messages
     pub hit_areas: Vec<HitArea>,
+    /// Hit areas for mouse click detection on "+N more" expand lines
+    pub expand_hit_areas: Vec<HitArea>,
     /// Active query's abort signal (Some only while query is running)
     pub active_abort_signal: Option<crate::utils::abort_signal::AbortSignal>,
     /// Ctrl+C double-press detection timer
@@ -403,6 +405,7 @@ impl App {
             loading_label: None,
             needs_redraw: false,
             hit_areas: Vec::new(),
+            expand_hit_areas: Vec::new(),
             active_abort_signal: None,
             last_ctrl_c_press: None,
             last_ctrl_d_press: None,

@@ -11,7 +11,11 @@ pub type MarkdownCache = HashMap<usize, (usize, Vec<Line<'static>>)>;
 
 // Logo is rendered with colors in render_welcome(), not as a static string
 
-pub fn render(frame: &mut Frame, app: &App, md_cache: &mut MarkdownCache) -> Vec<HitArea> {
+pub fn render(
+    frame: &mut Frame,
+    app: &App,
+    md_cache: &mut MarkdownCache,
+) -> (Vec<HitArea>, Vec<HitArea>) {
     render_in_area(frame, app, frame.area(), false, md_cache)
 }
 
@@ -40,7 +44,7 @@ pub fn render_in_area(
     area: Rect,
     _with_command: bool,
     md_cache: &mut MarkdownCache,
-) -> Vec<HitArea> {
+) -> (Vec<HitArea>, Vec<HitArea>) {
     let input_line_count = app.input.matches('\n').count() + 1;
     let max_input_height = (area.height / 3) as usize;
     let input_height = (input_line_count.clamp(1, max_input_height) + 2) as u16; // +2 for border
@@ -55,7 +59,7 @@ pub fn render_in_area(
     ]);
     let chunks = layout.split(area);
 
-    let hit_areas = render_messages(frame, chunks[0], app, md_cache);
+    let (hit_areas, expand_hit_areas) = render_messages(frame, chunks[0], app, md_cache);
     if activity_height > 0 {
         render_activity(frame, chunks[1], app);
     }
@@ -67,7 +71,7 @@ pub fn render_in_area(
         render_typeahead(frame, chunks[2], ta);
     }
 
-    hit_areas
+    (hit_areas, expand_hit_areas)
 }
 
 fn render_messages(
@@ -75,7 +79,7 @@ fn render_messages(
     area: Rect,
     app: &App,
     md_cache: &mut MarkdownCache,
-) -> Vec<HitArea> {
+) -> (Vec<HitArea>, Vec<HitArea>) {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Show logo if no conversation yet (only system messages)
@@ -91,10 +95,11 @@ fn render_messages(
     });
 
     let mut hit_areas = Vec::new();
+    let mut expand_hit_areas = Vec::new();
     if !has_conversation {
         render_welcome(&mut lines, app, area.width);
     } else {
-        hit_areas = render_conversation(&mut lines, app, area.width, md_cache);
+        (hit_areas, expand_hit_areas) = render_conversation(&mut lines, app, area.width, md_cache);
     }
 
     // Scroll logic: scroll_offset 0 = bottom (auto-scroll), higher = further up
@@ -106,6 +111,16 @@ fn render_messages(
 
     // Convert hit_area y values from line-index to screen-y
     for ha in &mut hit_areas {
+        let line_idx = ha.y as usize;
+        if line_idx >= skip && line_idx < skip + visible_height {
+            ha.y = area.y + (line_idx - skip) as u16;
+        } else {
+            ha.y = u16::MAX; // off-screen
+        }
+    }
+
+    // Convert expand_hit_area y values from line-index to screen-y
+    for ha in &mut expand_hit_areas {
         let line_idx = ha.y as usize;
         if line_idx >= skip && line_idx < skip + visible_height {
             ha.y = area.y + (line_idx - skip) as u16;
@@ -131,7 +146,7 @@ fn render_messages(
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
 
-    hit_areas
+    (hit_areas, expand_hit_areas)
 }
 
 fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
@@ -228,8 +243,9 @@ fn render_conversation(
     app: &App,
     _width: u16,
     md_cache: &mut MarkdownCache,
-) -> Vec<HitArea> {
+) -> (Vec<HitArea>, Vec<HitArea>) {
     let mut hit_areas = Vec::new();
+    let mut expand_hit_areas = Vec::new();
     // Pre-scan: identify runs of consecutive completed ToolCalls for grouping
     let mut grouped: std::collections::HashSet<usize> = std::collections::HashSet::new();
     {
@@ -572,10 +588,15 @@ fn render_conversation(
                     }
 
                     if remaining > 0 {
+                        let expand_y = lines.len() as u16;
                         lines.push(Line::from(Span::styled(
                             format!("  +{} more tool uses (ctrl+o to expand)", remaining),
                             Style::default().fg(Color::DarkGray),
                         )));
+                        expand_hit_areas.push(HitArea {
+                            y: expand_y,
+                            message_idx: msg_idx,
+                        });
                     }
                 }
 
@@ -631,7 +652,7 @@ fn render_conversation(
         }
     }
 
-    hit_areas
+    (hit_areas, expand_hit_areas)
 }
 
 /// Compute the height needed for the fixed activity bar above the input.

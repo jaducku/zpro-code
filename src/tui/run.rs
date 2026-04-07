@@ -120,8 +120,9 @@ pub async fn run_app(
             }
 
             let mut frame_hit_areas = Vec::new();
+            let mut frame_expand_hit_areas = Vec::new();
             terminal.draw(|frame| {
-                frame_hit_areas = ui::render(frame, &app, &mut md_cache);
+                (frame_hit_areas, frame_expand_hit_areas) = ui::render(frame, &app, &mut md_cache);
 
                 if let Some(active) = &mut app.active_command {
                     let cmd_name = active.command_name.clone();
@@ -135,6 +136,7 @@ pub async fn run_app(
                 }
             })?;
             app.hit_areas = frame_hit_areas;
+            app.expand_hit_areas = frame_expand_hit_areas;
             last_render = Instant::now();
         }
 
@@ -255,6 +257,30 @@ pub async fn run_app(
                                     } else {
                                         app.last_ctrl_d_press = Some(now);
                                         app.status = "Press Ctrl+D again to exit".into();
+                                    }
+                                    continue;
+                                }
+
+                                // === Ctrl+O: toggle expand on most recent Agent with children ===
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                    && key.code == KeyCode::Char('o')
+                                {
+                                    for msg in app.messages.iter_mut().rev() {
+                                        if let DisplayMessage::Agent {
+                                            ref mut visible_child_count,
+                                            ref child_tool_ids,
+                                            ..
+                                        } = msg
+                                        {
+                                            if !child_tool_ids.is_empty() {
+                                                if *visible_child_count < child_tool_ids.len() {
+                                                    *visible_child_count = child_tool_ids.len();
+                                                } else {
+                                                    *visible_child_count = 3;
+                                                }
+                                                break;
+                                            }
+                                        }
                                     }
                                     continue;
                                 }
@@ -510,6 +536,24 @@ pub async fn run_app(
                                                     }
                                                     _ => {}
                                                 }
+                                            }
+                                        }
+                                        // Expand hit area click for "+N more" toggle
+                                        for ha in &app.expand_hit_areas {
+                                            if ha.y == row {
+                                                if let Some(DisplayMessage::Agent {
+                                                    ref mut visible_child_count,
+                                                    ref child_tool_ids,
+                                                    ..
+                                                }) = app.messages.get_mut(ha.message_idx)
+                                                {
+                                                    if *visible_child_count < child_tool_ids.len() {
+                                                        *visible_child_count = child_tool_ids.len();
+                                                    } else {
+                                                        *visible_child_count = 3;
+                                                    }
+                                                }
+                                                break;
                                             }
                                         }
                                     }
