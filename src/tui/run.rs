@@ -901,6 +901,11 @@ async fn dispatch_slash_command(
                         app.api_messages.clear();
                         app.needs_redraw = true;
 
+                        // Reset token and cost tracking
+                        app.token_count = 0;
+                        app.session_cost = 0.0;
+                        app.response_token_count = 0;
+
                         // Reinitialize app_state for fresh session
                         let mut state = app_state.write().await;
                         // Generate new session ID for fresh context
