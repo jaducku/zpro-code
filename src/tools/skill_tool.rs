@@ -101,6 +101,9 @@ impl Tool for SkillTool {
             options: CommandOptions {
                 theme: "default".to_string(),
             },
+            provider: None,
+            messages: Arc::new(Vec::new()),
+            session_memory: None,
         };
 
         let blocks = match prompt_cmd.get_prompt(args, &cmd_ctx).await {

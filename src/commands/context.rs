@@ -1,5 +1,7 @@
+use crate::services::api::provider::LlmProvider;
+use crate::services::session_memory::SessionMemoryState;
 use crate::state::AppState;
-use crate::types::message::Message;
+use crate::types::message::{ApiMessage, Message};
 use crate::utils::abort_signal::AbortSignal;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,6 +15,9 @@ pub struct CommandContext {
     pub message_tx: mpsc::UnboundedSender<MessageUpdate>,
     pub ui_event_tx: mpsc::UnboundedSender<UiEvent>,
     pub options: CommandOptions,
+    pub provider: Option<Arc<dyn LlmProvider>>,
+    pub messages: Arc<Vec<ApiMessage>>,
+    pub session_memory: Option<Arc<SessionMemoryState>>,
 }
 
 /// Options that affect command behaviour (e.g. theming).

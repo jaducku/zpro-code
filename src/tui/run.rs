@@ -752,6 +752,9 @@ async fn dispatch_slash_command(
                 options: CommandOptions {
                     theme: "default".to_string(),
                 },
+                provider: None,
+                messages: Arc::new(Vec::new()),
+                session_memory: None,
             };
 
             // Look up the command again and call it
@@ -763,16 +766,27 @@ async fn dispatch_slash_command(
                             content: value,
                         });
                     }
-                    Ok(LocalCommandResult::Compact { display_text }) => {
+                    Ok(LocalCommandResult::Compact { result }) => {
+                        app.api_messages = result.messages;
+                        app.messages.clear();
+                        app.needs_redraw = true;
+                        app.push_message(DisplayMessage::Text {
+                            role: TextRole::System,
+                            content: format!(
+                                "[Context compacted ({}): ~{}K tokens freed]",
+                                result.stage,
+                                result.tokens_freed / 1000
+                            ),
+                        });
+                    }
+                    Ok(LocalCommandResult::Clear) => {
                         app.messages.clear();
                         app.api_messages.clear();
                         app.needs_redraw = true;
-                        if let Some(text) = display_text {
-                            app.push_message(DisplayMessage::Text {
-                                role: TextRole::System,
-                                content: text,
-                            });
-                        }
+                        app.push_message(DisplayMessage::Text {
+                            role: TextRole::System,
+                            content: "Conversation cleared.".into(),
+                        });
                     }
                     Ok(LocalCommandResult::Skip) => {}
                     Err(e) => {
@@ -808,6 +822,9 @@ async fn dispatch_slash_command(
                 options: CommandOptions {
                     theme: "default".to_string(),
                 },
+                provider: None,
+                messages: Arc::new(Vec::new()),
+                session_memory: None,
             };
 
             if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(name) {
@@ -857,6 +874,9 @@ async fn dispatch_slash_command(
                 options: CommandOptions {
                     theme: "default".to_string(),
                 },
+                provider: None,
+                messages: Arc::new(Vec::new()),
+                session_memory: None,
             };
 
             // Re-lookup the command and call get_prompt()

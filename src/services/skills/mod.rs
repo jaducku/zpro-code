@@ -354,6 +354,9 @@ mod tests {
             options: CommandOptions {
                 theme: "default".to_string(),
             },
+            provider: None,
+            messages: Arc::new(Vec::new()),
+            session_memory: None,
         }
     }
 

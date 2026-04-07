@@ -43,7 +43,13 @@ impl LocalCommand for CompactCommand {
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
         Ok(LocalCommandResult::Compact {
-            display_text: Some("Conversation compacted.".to_string()),
+            result: crate::services::compact::types::CompactResult {
+                messages: Vec::new(),
+                tokens_freed: 0,
+                stage: crate::services::compact::types::CompactStage::FullCompact,
+                pre_compact_token_count: None,
+                post_compact_token_count: None,
+            },
         })
     }
 }

@@ -1,6 +1,7 @@
 use crate::types::message::ApiMessage;
 
 /// Result of any compaction operation.
+#[derive(Debug)]
 pub struct CompactResult {
     pub messages: Vec<ApiMessage>,
     pub tokens_freed: u64,
