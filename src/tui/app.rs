@@ -71,6 +71,12 @@ pub struct App {
     pub needs_redraw: bool,
     /// Hit areas for mouse click detection on collapsible messages
     pub hit_areas: Vec<HitArea>,
+    /// Active query's abort signal (Some only while query is running)
+    pub active_abort_signal: Option<crate::utils::abort_signal::AbortSignal>,
+    /// Ctrl+C double-press detection timer
+    pub last_ctrl_c_press: Option<Instant>,
+    /// Ctrl+D double-press detection timer
+    pub last_ctrl_d_press: Option<Instant>,
 }
 
 /// What kind of typeahead is active
@@ -158,6 +164,12 @@ pub enum InputMode {
         text_input: String,
         reply_tx: Option<tokio::sync::oneshot::Sender<crate::query::types::UserQuestionReply>>,
     },
+    /// Exit confirmation dialog (worktree active)
+    ExitConfirm {
+        worktree_name: String,
+        uncommitted_count: usize,
+        selected: usize,
+    },
 }
 
 impl App {
@@ -215,6 +227,9 @@ impl App {
             loading_label: None,
             needs_redraw: false,
             hit_areas: Vec::new(),
+            active_abort_signal: None,
+            last_ctrl_c_press: None,
+            last_ctrl_d_press: None,
         }
     }
 
@@ -222,12 +237,7 @@ impl App {
     /// Returns true if typeahead accepted a selection (caller should handle Enter).
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         if key.modifiers.contains(KeyModifiers::CONTROL) {
-            match key.code {
-                KeyCode::Char('c') | KeyCode::Char('d') => {
-                    self.should_quit = true;
-                }
-                _ => {}
-            }
+            // Ctrl+C/D handled in run.rs event loop (cancel/exit flow)
             return false;
         }
 
@@ -636,6 +646,11 @@ impl App {
                     collapsed: true,
                 });
             }
+            QueryEvent::QueryCancelled { partial_messages, .. } => {
+                // Preserve partial messages in conversation history (Task 5 will expand this)
+                self.api_messages = partial_messages;
+                self.is_loading = false;
+            }
         }
     }
 }
@@ -847,10 +862,12 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_c_quits() {
+    fn test_ctrl_c_handled_in_event_loop() {
+        // Ctrl+C is now handled in run.rs event loop, not in handle_key.
+        // handle_key should return false and NOT set should_quit.
         let mut app = test_app("test");
         app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
-        assert!(app.should_quit);
+        assert!(!app.should_quit);
     }
 
     #[test]

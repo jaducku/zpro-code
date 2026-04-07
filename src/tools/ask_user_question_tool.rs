@@ -78,19 +78,18 @@ impl Tool for AskUserQuestionTool {
                 message: "UI channel closed".into(),
             })?;
 
-        match reply_rx.await {
-            Ok(UserQuestionReply::Answer(a)) => Ok(ToolResult {
+        let reply = tokio::select! {
+            reply = reply_rx => reply.unwrap_or(UserQuestionReply::Dismissed),
+            _ = ctx.abort_signal.cancelled() => UserQuestionReply::Dismissed,
+        };
+        match reply {
+            UserQuestionReply::Answer(a) => Ok(ToolResult {
                 content: a,
                 is_error: false,
                 content_blocks: None,
             }),
-            Ok(UserQuestionReply::Dismissed) => Ok(ToolResult {
+            UserQuestionReply::Dismissed => Ok(ToolResult {
                 content: "User dismissed".into(),
-                is_error: true,
-                content_blocks: None,
-            }),
-            Err(_) => Ok(ToolResult {
-                content: "Channel closed".into(),
                 is_error: true,
                 content_blocks: None,
             }),

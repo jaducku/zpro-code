@@ -1,15 +1,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tokio_util::sync::CancellationToken;
-
 use crate::state::AppState;
+use crate::utils::abort_signal::AbortSignal;
 use crate::types::message::Message;
 
 /// Runtime context passed to every command when it executes.
 pub struct CommandContext {
     pub app_state: Arc<RwLock<AppState>>,
-    pub abort_signal: CancellationToken,
+    pub abort_signal: AbortSignal,
     pub cwd: PathBuf,
     pub message_tx: mpsc::UnboundedSender<MessageUpdate>,
     pub ui_event_tx: mpsc::UnboundedSender<UiEvent>,

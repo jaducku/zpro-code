@@ -36,6 +36,8 @@ pub struct QueryContext {
     pub agent_depth: Option<u32>,
     /// Source identifier for the query (e.g., "agent:builtin:fork" for fork children)
     pub query_source: Option<String>,
+    /// Abort signal for cancellation with reason tracking
+    pub abort_signal: crate::utils::abort_signal::AbortSignal,
 }
 
 /// Sent to TUI when a tool wants to ask the user a question
@@ -119,6 +121,11 @@ pub enum QueryEvent {
         message: String,
         attachments: Vec<BriefAttachment>,
         status: BriefStatus,
+    },
+    /// Query was cancelled — carries partial messages and the cancel reason
+    QueryCancelled {
+        partial_messages: Vec<crate::types::message::ApiMessage>,
+        reason: crate::utils::abort_signal::AbortReason,
     },
 }
 

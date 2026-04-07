@@ -91,6 +91,15 @@ impl TuiCommand for OutputStyleCommand {
         frame.render_widget(paragraph, area);
     }
 
+    fn content_height(&self, state: &dyn std::any::Any) -> u16 {
+        if let Some(s) = state.downcast_ref::<OutputStyleState>() {
+            // items + 1 footer + 2 borders
+            (s.styles.len() as u16 + 3).min(20)
+        } else {
+            8
+        }
+    }
+
     fn handle_key(&self, key: KeyEvent, state: &mut dyn Any) -> CommandAction {
         let state = state.downcast_mut::<OutputStyleState>().unwrap();
         match key.code {

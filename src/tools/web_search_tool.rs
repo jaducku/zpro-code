@@ -170,6 +170,10 @@ impl Tool for WebSearchTool {
     fn is_concurrent_safe(&self) -> bool {
         true
     }
+
+    fn interrupt_behavior(&self) -> crate::tool::InterruptBehavior {
+        crate::tool::InterruptBehavior::Cancel
+    }
 }
 
 #[cfg(test)]

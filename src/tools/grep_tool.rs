@@ -143,6 +143,10 @@ impl Tool for GrepTool {
             url: None,
         }
     }
+
+    fn interrupt_behavior(&self) -> crate::tool::InterruptBehavior {
+        crate::tool::InterruptBehavior::Cancel
+    }
 }
 
 #[cfg(test)]

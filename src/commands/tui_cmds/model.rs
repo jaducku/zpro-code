@@ -163,6 +163,15 @@ impl TuiCommand for ModelCommand {
         frame.render_widget(paragraph, area);
     }
 
+    fn content_height(&self, state: &dyn std::any::Any) -> u16 {
+        if let Some(s) = state.downcast_ref::<ModelState>() {
+            // 1 blank + items + 1 blank footer + 2 borders
+            (s.models.len() as u16 + 4).min(20)
+        } else {
+            8
+        }
+    }
+
     fn handle_key(&self, key: KeyEvent, state: &mut dyn Any) -> CommandAction {
         let state = state.downcast_mut::<ModelState>().unwrap();
 

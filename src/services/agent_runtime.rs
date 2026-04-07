@@ -90,7 +90,6 @@ pub fn get_agent_tools(is_background: bool) -> Vec<Box<dyn Tool>> {
 }
 
 /// Build a child QueryContext from the parent's ToolUseContext.
-/// event_tx and abort_signal are passed separately to query().
 pub fn build_child_context(
     params: &AgentSpawnParams,
     parent_ctx: &ToolUseContext,
@@ -129,6 +128,7 @@ pub fn build_child_context(
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: Some(parent_ctx.agent_depth + 1),
         query_source: parent_ctx.query_source.clone(),
+        abort_signal: parent_ctx.abort_signal.child_signal(),
     }
 }
 
@@ -203,6 +203,7 @@ pub fn build_fork_context(
         mcp_manager: parent_ctx.mcp_manager.clone(),
         agent_depth: Some(parent_ctx.agent_depth + 1),
         query_source: params.query_source.clone(),
+        abort_signal: parent_ctx.abort_signal.child_signal(),
     }
 }
 
@@ -275,8 +276,6 @@ pub async fn run_foreground(
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
     }
-    let child_abort = parent_ctx.abort_signal.child_token();
-
     // Create worktree if isolation requested
     let worktree_session = if params.isolation.as_deref() == Some("worktree") {
         match create_agent_worktree(&parent_ctx.cwd, &agent_id).await {
@@ -312,7 +311,7 @@ pub async fn run_foreground(
         }
     }
 
-    let result = crate::query::engine::query(child_ctx, parent_ctx.event_tx.clone(), child_abort).await;
+    let result = crate::query::engine::query(child_ctx, parent_ctx.event_tx.clone()).await;
 
     // Clean up worktree
     if let Some((_, ref session)) = worktree_session {
@@ -353,7 +352,7 @@ pub async fn run_background(
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
     }
-    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let cancel_token = crate::utils::abort_signal::AbortSignal::new();
 
     // Register as BackgroundTask in AppState
     {
@@ -393,6 +392,8 @@ pub async fn run_background(
     } else {
         build_child_context(&params, parent_ctx, tools)
     };
+    // Background agents use their own independent cancel_token (not parent's child)
+    child_ctx.abort_signal = cancel_token.clone();
     if let Some((ref worktree_path, _)) = worktree_session {
         child_ctx.cwd = worktree_path.clone();
         // Inject worktree notice for fork children
@@ -413,7 +414,7 @@ pub async fn run_background(
     let description_clone = description.clone();
 
     tokio::spawn(async move {
-        let result = crate::query::engine::query(child_ctx, event_tx.clone(), cancel_token).await;
+        let result = crate::query::engine::query(child_ctx, event_tx.clone()).await;
 
         let (result_text, is_error) = match result {
             Ok(query_result) => {

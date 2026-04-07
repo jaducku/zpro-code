@@ -3,9 +3,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
-
 use crate::types::permissions::PermissionMeta;
+use crate::utils::abort_signal::AbortSignal;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterruptBehavior {
+    /// Abort on Interrupt reason
+    Cancel,
+    /// Continue to completion on Interrupt reason
+    Block,
+}
 
 /// Core tool trait — all 52 built-in tools + MCP tools implement this
 #[async_trait]
@@ -71,12 +78,16 @@ pub trait Tool: Send + Sync {
     fn search_hint(&self) -> Option<&str> {
         None
     }
+
+    fn interrupt_behavior(&self) -> InterruptBehavior {
+        InterruptBehavior::Block
+    }
 }
 
 /// Context passed to tool execution
 pub struct ToolUseContext {
     pub input: serde_json::Value,
-    pub abort_signal: CancellationToken,
+    pub abort_signal: AbortSignal,
     /// Channel for sending UI updates during execution
     pub progress_tx: tokio::sync::mpsc::UnboundedSender<ToolProgress>,
     // Shared state for sub-agent spawning (SkillTool, AgentTool)
@@ -110,7 +121,7 @@ impl ToolUseContext {
         let (question_tx, _) = tokio::sync::mpsc::unbounded_channel();
         Self {
             input,
-            abort_signal: CancellationToken::new(),
+            abort_signal: AbortSignal::new(),
             progress_tx,
             provider: Arc::new(crate::services::api::provider::NoopProvider),
             registry: None,

@@ -176,6 +176,10 @@ impl Tool for WebFetchTool {
     fn is_concurrent_safe(&self) -> bool {
         true
     }
+
+    fn interrupt_behavior(&self) -> crate::tool::InterruptBehavior {
+        crate::tool::InterruptBehavior::Cancel
+    }
 }
 
 fn html_to_markdown(url_str: &str, html_bytes: &[u8]) -> String {

@@ -125,6 +125,15 @@ impl TuiCommand for SessionCommand {
         }
     }
 
+    fn content_height(&self, state: &dyn std::any::Any) -> u16 {
+        if let Some(s) = state.downcast_ref::<SessionState>() {
+            // 1 blank + items + 1 footer + 2 borders
+            (s.sessions.len() as u16 + 4).min(20)
+        } else {
+            8
+        }
+    }
+
     fn handle_key(&self, key: KeyEvent, state: &mut dyn Any) -> CommandAction {
         let state = state.downcast_mut::<SessionState>().unwrap();
         match key.code {

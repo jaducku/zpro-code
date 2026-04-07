@@ -98,14 +98,14 @@ pub async fn run_print_mode(
         mcp_manager: None,
         agent_depth: None,
         query_source: None,
+        abort_signal: crate::utils::abort_signal::AbortSignal::new(),
     };
 
     // 4. Run query
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<QueryEvent>();
-    let cancel = tokio_util::sync::CancellationToken::new();
 
     let query_handle = tokio::spawn(async move {
-        crate::query::engine::query(ctx, event_tx, cancel).await
+        crate::query::engine::query(ctx, event_tx).await
     });
 
     // 5. Process events based on output format
@@ -203,6 +203,7 @@ pub async fn run_print_mode(
             QueryEvent::ToolCallInputReady { .. } => {
                 // No-op in print mode — tool input shown when tool executes
             }
+            QueryEvent::QueryCancelled { .. } => {}
         }
     }
 

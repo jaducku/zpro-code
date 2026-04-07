@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
-
 use crate::services::api::types::*;
 use crate::services::hooks::{execute_event_hooks, HookOutcome};
 use crate::services::hooks::types::HookContext;
@@ -23,7 +21,6 @@ const MAX_TOOL_LOOPS: usize = 50;
 pub async fn query(
     mut ctx: QueryContext,
     event_tx: mpsc::UnboundedSender<QueryEvent>,
-    abort_signal: CancellationToken,
 ) -> crate::types::Result<QueryResult> {
     let tools_arc = Arc::new(std::mem::take(&mut ctx.tools));
     let mut loop_count = 0;
@@ -106,8 +103,46 @@ pub async fn query(
         let chunk_timeout = std::time::Duration::from_secs(300);
 
         loop {
-            if abort_signal.is_cancelled() {
-                return Err(crate::types::AtomError::Cancelled);
+            if ctx.abort_signal.is_cancelled() {
+                let reason = ctx.abort_signal.reason().cloned()
+                    .unwrap_or(crate::utils::abort_signal::AbortReason::UserCancel);
+                match reason {
+                    crate::utils::abort_signal::AbortReason::Interrupt => {
+                        // For Interrupt, we still cancel the streaming phase.
+                        // Per-tool behavior is checked in execute_tool, not here.
+                        if !text_content.is_empty() {
+                            let partial_msg = crate::types::message::ApiMessage {
+                                role: crate::types::message::Role::Assistant,
+                                content: vec![crate::types::content::ContentBlock::Text {
+                                    text: text_content.clone(),
+                                }],
+                            };
+                            ctx.messages.push(partial_msg);
+                        }
+                        let _ = event_tx.send(QueryEvent::QueryCancelled {
+                            partial_messages: ctx.messages.clone(),
+                            reason,
+                        });
+                        return Err(crate::types::AtomError::Cancelled);
+                    }
+                    _ => {
+                        // UserCancel, Background, SiblingError → always cancel immediately
+                        if !text_content.is_empty() {
+                            let partial_msg = crate::types::message::ApiMessage {
+                                role: crate::types::message::Role::Assistant,
+                                content: vec![crate::types::content::ContentBlock::Text {
+                                    text: text_content.clone(),
+                                }],
+                            };
+                            ctx.messages.push(partial_msg);
+                        }
+                        let _ = event_tx.send(QueryEvent::QueryCancelled {
+                            partial_messages: ctx.messages.clone(),
+                            reason,
+                        });
+                        return Err(crate::types::AtomError::Cancelled);
+                    }
+                }
             }
 
             let next = tokio::time::timeout(chunk_timeout, stream.next()).await;
@@ -279,18 +314,22 @@ pub async fn query(
                         description,
                         reply_tx,
                     });
-                    match reply_rx.await {
-                        Ok(PermissionReply::Allow) => true,
-                        Ok(PermissionReply::AllowAlways {
+                    let reply = tokio::select! {
+                        reply = reply_rx => reply.unwrap_or(PermissionReply::Deny),
+                        _ = ctx.abort_signal.cancelled() => PermissionReply::Deny,
+                    };
+                    match reply {
+                        PermissionReply::Allow => true,
+                        PermissionReply::AllowAlways {
                             tool_name,
                             rule_content,
-                        }) => {
+                        } => {
                             ctx.permission_ctx
                                 .always_allow_rules
                                 .push(PermissionRule { tool_name, rule_content });
                             true
                         }
-                        Ok(PermissionReply::Deny) | Err(_) => {
+                        PermissionReply::Deny => {
                             let block = ToolResultBlock::error(
                                 tc.id.clone(),
                                 "Permission denied by user".into(),
@@ -342,7 +381,7 @@ pub async fn query(
             }
 
             // Execute tool
-            let result = execute_tool(tc, &tools_arc, &abort_signal, &ctx, &tools_arc, &event_tx).await;
+            let result = execute_tool(tc, &tools_arc, &ctx, &tools_arc, &event_tx).await;
             let block = match result {
                 Ok(tr) => {
                     let mut content = tr.content.clone();
@@ -439,7 +478,6 @@ pub async fn query(
 async fn execute_tool(
     tc: &ToolCall,
     tools: &[Box<dyn crate::tool::Tool>],
-    abort_signal: &CancellationToken,
     ctx: &QueryContext,
     tools_arc: &Arc<Vec<Box<dyn crate::tool::Tool>>>,
     event_tx: &mpsc::UnboundedSender<QueryEvent>,
@@ -453,7 +491,7 @@ async fn execute_tool(
 
     let tool_ctx = ToolUseContext {
         input: tc.input.clone(),
-        abort_signal: abort_signal.clone(),
+        abort_signal: ctx.abort_signal.clone(),
         progress_tx,
         provider: ctx.provider.clone(),
         registry: ctx.registry.clone(),
@@ -473,6 +511,22 @@ async fn execute_tool(
         messages: std::sync::Arc::new(ctx.messages.clone()),
         query_source: ctx.query_source.clone(),
     };
+
+    // Check abort signal with per-tool interrupt behavior
+    if ctx.abort_signal.is_cancelled() {
+        if let Some(crate::utils::abort_signal::AbortReason::Interrupt) = ctx.abort_signal.reason() {
+            // Interrupt reason: respect the tool's declared behavior
+            if tool.interrupt_behavior() == crate::tool::InterruptBehavior::Block {
+                // Block behavior: let the tool complete despite the interrupt
+            } else {
+                // Cancel behavior: abort immediately
+                return Err(crate::types::AtomError::Cancelled);
+            }
+        } else {
+            // UserCancel, Background, SiblingError: always cancel
+            return Err(crate::types::AtomError::Cancelled);
+        }
+    }
 
     tool.execute(tool_ctx).await
 }
@@ -514,6 +568,7 @@ mod tests {
             mcp_manager: None,
             agent_depth: None,
             query_source: None,
+            abort_signal: crate::utils::abort_signal::AbortSignal::new(),
         }
     }
 
@@ -623,7 +678,7 @@ mod tests {
         );
         ctx.provider = Arc::new(provider);
 
-        let result = query(ctx, event_tx, CancellationToken::new())
+        let result = query(ctx, event_tx)
             .await
             .unwrap();
 
@@ -738,7 +793,7 @@ mod tests {
         );
         ctx.provider = Arc::new(TwoStepProvider { call_count: cc });
 
-        let result = query(ctx, event_tx, CancellationToken::new())
+        let result = query(ctx, event_tx)
             .await
             .unwrap();
 

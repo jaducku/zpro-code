@@ -207,6 +207,10 @@ impl Tool for TaskUpdateTool {
     fn is_read_only(&self) -> bool {
         false
     }
+
+    fn interrupt_behavior(&self) -> crate::tool::InterruptBehavior {
+        crate::tool::InterruptBehavior::Cancel
+    }
 }
 
 #[cfg(test)]

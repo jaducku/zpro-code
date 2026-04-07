@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
-
 use crate::commands::registry::CommandRegistry;
 use crate::services::api::types::SystemBlock;
 use crate::services::hooks::command_hook::HookEnv;
@@ -148,8 +146,6 @@ pub async fn execute_agent_hook(
     let (event_tx, _event_rx) = mpsc::unbounded_channel::<QueryEvent>();
     let (permission_tx, _perm_rx) = mpsc::unbounded_channel::<PermissionAsk>();
     let (question_tx, _q_rx) = mpsc::unbounded_channel::<UserQuestionAsk>();
-    let abort_signal = CancellationToken::new();
-
     let ctx = QueryContext {
         messages,
         tools,
@@ -175,6 +171,7 @@ pub async fn execute_agent_hook(
         mcp_manager: None,
         agent_depth: None,
         query_source: Some("hook_agent".into()),
+        abort_signal: crate::utils::abort_signal::AbortSignal::new(),
     };
 
     // 6. Execute with timeout
@@ -183,7 +180,7 @@ pub async fn execute_agent_hook(
 
     let query_result = tokio::time::timeout(
         timeout_duration,
-        query(ctx, event_tx, abort_signal),
+        query(ctx, event_tx),
     )
     .await;
 
