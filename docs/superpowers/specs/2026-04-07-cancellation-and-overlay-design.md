@@ -52,7 +52,7 @@ pub struct AbortSignal {
 
 - `CancellationToken`: battle-tested tokio cancellation primitive, supports hierarchical child tokens
 - `OnceLock`: lock-free, set-once semantics — first cancel's reason wins, no race conditions, no mutex poisoning
-- Memory ordering guarantee: `reason.set()` before `token.cancel()` (store-release) ensures any thread observing cancellation via `cancelled()` (load-acquire) will see the reason
+- Ordering: call `reason.set()` before `token.cancel()` on the same thread. The CancellationToken's internal atomic guarantees that any thread observing cancellation will also see the previously-set reason
 
 #### API
 
@@ -84,12 +84,24 @@ impl AbortSignal {
 
 ### 1.2 Existing CancellationToken Migration
 
-Replace `CancellationToken` with `AbortSignal` in:
+Move `abort_signal` into `QueryContext` (currently a separate parameter to `query()`). Replace `CancellationToken` with `AbortSignal` in all locations:
 
-- `QueryContext.abort_signal`: `CancellationToken` → `AbortSignal`
-- All `tokio::select!` patterns in tools remain unchanged (same `.cancelled()` interface)
-- `submit_query()` / `submit_query_skill()` in `run.rs`: store the `AbortSignal` in `app.active_abort_signal`
-- Query engine loop: check `abort_signal.reason()` to determine behavior
+| Location | Current | Change |
+|----------|---------|--------|
+| `src/query/types.rs` QueryContext | No abort_signal field | Add `abort_signal: AbortSignal` |
+| `src/query/engine.rs:26` query() | `abort_signal: CancellationToken` param | Remove param, use `ctx.abort_signal` |
+| `src/query/engine.rs:442` execute_tool() | `abort_signal: CancellationToken` param | Use AbortSignal |
+| `src/tool.rs:79` ToolUseContext | `abort_signal: CancellationToken` | → `AbortSignal` |
+| `src/commands/context.rs:12` CommandContext | `abort_signal: CancellationToken` | → `AbortSignal` |
+| `src/state/app_state.rs:16` BackgroundTask | `cancel_token: CancellationToken` | → `AbortSignal` |
+| `src/tui/run.rs:443,497,536,703,813` | `CancellationToken::new()` | → `AbortSignal::new()` |
+| `src/entrypoints/print.rs:105` | `CancellationToken` | → `AbortSignal` |
+| `src/services/skills/mod.rs:313-321` | `CancellationToken` | → `AbortSignal` |
+| `src/services/hooks/agent_hook.rs:151` | `CancellationToken` | → `AbortSignal` |
+| `src/services/agent_runtime.rs:356` | `CancellationToken` | → `AbortSignal` |
+
+All `tokio::select!` patterns in tools remain unchanged (same `.cancelled()` interface).
+`submit_query()` / `submit_query_skill()` in `run.rs`: clone and store `AbortSignal` in `app.active_abort_signal` before passing to spawned task.
 
 ### 1.3 TUI Key Bindings
 
@@ -114,24 +126,30 @@ Ctrl+C pressed
   → is_loading == true?
     → Yes: abort_signal.cancel(Interrupt)
            Kill ALL background agents (iterate app_state.background_tasks, cancel each)
-  → No:
-    → last_ctrl_c_press within 800ms?
-      → Yes: initiate exit flow (ExitFlow or immediate quit)
-      → No:  record timestamp, show "Press Ctrl+C again to exit"
+           If permission prompt is active: send PermissionReply::Deny through reply_tx
+           If question prompt is active: reject pending prompts
+    → No:
+      → last_ctrl_c_press within 800ms?
+        → Yes: initiate exit flow (ExitFlow or immediate quit)
+        → No:  record timestamp, show "Press Ctrl+C again to exit"
 ```
 
 When `app:interrupt` handles the event (query was running), it returns early — does NOT trigger double-press-to-exit.
 
+**Edge case — permission/question prompt during Ctrl+C**: The query engine awaits `reply_rx` at `engine.rs:282` for permission prompts. When Ctrl+C fires, the permission await must be wrapped in `tokio::select!` with the abort signal so the engine doesn't hang waiting for a reply that will never come.
+
 #### Ctrl+D (`app:exit`)
 
 Same double-press logic as Ctrl+C (800ms window), but no interrupt behavior — purely exit.
+
+**Migration note**: The existing `app.handle_key()` in `app.rs:224-229` (Ctrl+C/D → `should_quit = true`) must be removed. All Ctrl+C/D handling moves to the event loop in `run.rs`.
 
 ### 1.4 Tool interruptBehavior
 
 #### Trait extension
 
 ```rust
-// src/tools/traits.rs
+// src/tool.rs (where the Tool trait lives)
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterruptBehavior {
@@ -176,6 +194,8 @@ UserCancel and Background override behavior — always cancel regardless.
 | TaskCreateTool | Cancel | Safe to abort |
 | TaskUpdateTool | Cancel | Safe to abort |
 | NotebookEditTool | Block | File modification |
+
+All tools not listed above default to `InterruptBehavior::Block` (the trait default).
 
 ### 1.5 Partial Output Preservation & Interruption Message
 
@@ -226,7 +246,6 @@ QueryEvent::QueryCancelled { partial_messages, reason } => {
     // 3. Reset state
     app.is_loading = false;
     app.active_abort_signal = None;
-    app.streaming_text.clear();
 }
 ```
 
@@ -278,9 +297,6 @@ pub struct App {
 
     /// Ctrl+D double-press detection timer
     pub last_ctrl_d_press: Option<Instant>,
-
-    /// Partial streaming text buffer (preserved on cancel)
-    pub streaming_text: String,
 }
 ```
 
@@ -366,15 +382,18 @@ Phase 1 internal order:
 |------|--------|
 | `src/utils/abort_signal.rs` | New — AbortSignal, AbortReason |
 | `src/utils/mod.rs` | Add `pub mod abort_signal` |
-| `src/query/context.rs` | `abort_signal: CancellationToken` → `AbortSignal` |
-| `src/query/engine.rs` | Cancellation check with reason, emit QueryCancelled |
+| `src/query/types.rs` | Add `abort_signal: AbortSignal` to QueryContext |
+| `src/query/engine.rs` | Remove abort_signal param, use ctx.abort_signal, emit QueryCancelled |
 | `src/query/mod.rs` | Add `QueryCancelled` variant to `QueryEvent` |
 | `src/tui/app.rs` | Add fields, Escape/Ctrl+C/D handling, ExitConfirm |
 | `src/tui/run.rs` | Store abort signal, handle QueryCancelled, double-press timer |
-| `src/tools/traits.rs` | Add `InterruptBehavior`, `interrupt_behavior()` |
+| `src/tool.rs` | Add `InterruptBehavior`, `interrupt_behavior()` to Tool trait |
 | `src/tools/*.rs` | Implement `interrupt_behavior()` per tool |
 | `src/services/agent_runtime.rs` | Migrate to AbortSignal |
 | `src/types/error.rs` | Ensure `AtomError::Cancelled` exists |
+| `src/entrypoints/print.rs` | Migrate to AbortSignal |
+| `src/services/skills/mod.rs` | Migrate to AbortSignal |
+| `src/services/hooks/agent_hook.rs` | Migrate to AbortSignal |
 
 ### Phase 2
 | File | Change |
