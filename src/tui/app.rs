@@ -23,6 +23,7 @@ pub struct RunningToolInfo {
     pub input_summary: String,
     pub input_full: Option<String>,
     pub start_time: Instant,
+    pub parent_id: Option<String>,
 }
 
 /// Application state
@@ -933,7 +934,7 @@ impl App {
             QueryEvent::ToolCallStart {
                 id,
                 name,
-                parent_agent_id: _,
+                parent_agent_id,
             } => {
                 self.activity.add(&id, &name);
                 // Store in running_tools, NOT in messages
@@ -943,7 +944,24 @@ impl App {
                     input_summary: String::new(),
                     input_full: None,
                     start_time: Instant::now(),
+                    parent_id: parent_agent_id.clone(),
                 });
+                // Track child tool IDs in parent Agent
+                if let Some(ref agent_id) = parent_agent_id {
+                    for msg in &mut self.messages {
+                        if let DisplayMessage::Agent {
+                            agent_id: aid,
+                            child_tool_ids,
+                            ..
+                        } = msg
+                        {
+                            if aid == agent_id {
+                                child_tool_ids.push(id.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
             }
             QueryEvent::ToolCallComplete { id, result } => {
                 self.activity.remove(&id);
@@ -959,7 +977,7 @@ impl App {
                         result: Some(result.content),
                         is_error: result.is_error,
                         collapsed: true,
-                        parent_id: None,
+                        parent_id: tool_info.parent_id,
                     });
                 }
             }
