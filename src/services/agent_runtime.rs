@@ -292,6 +292,49 @@ async fn cleanup_agent_worktree(session: &crate::services::worktree::WorktreeSes
     // If there are changes, keep the worktree for the user to review
 }
 
+/// Relay child query events to the parent event channel, setting `parent_agent_id` on
+/// `ToolCallStart` events so the TUI can nest child tools under their parent agent.
+/// Returns (tool_count, token_count) collected from the stream.
+async fn relay_child_events(
+    mut child_event_rx: tokio::sync::mpsc::UnboundedReceiver<crate::query::types::QueryEvent>,
+    parent_event_tx: &tokio::sync::mpsc::UnboundedSender<crate::query::types::QueryEvent>,
+    agent_tool_use_id: &str,
+) -> (u32, u64) {
+    let mut tool_count: u32 = 0;
+    let mut token_count: u64 = 0;
+    while let Some(event) = child_event_rx.recv().await {
+        match event {
+            crate::query::types::QueryEvent::ToolCallStart { id, name, .. } => {
+                let _ = parent_event_tx.send(crate::query::types::QueryEvent::ToolCallStart {
+                    id,
+                    name,
+                    parent_agent_id: Some(agent_tool_use_id.to_string()),
+                });
+            }
+            crate::query::types::QueryEvent::ToolCallInputReady { id, name, input } => {
+                let _ = parent_event_tx.send(crate::query::types::QueryEvent::ToolCallInputReady {
+                    id,
+                    name,
+                    input,
+                });
+            }
+            crate::query::types::QueryEvent::ToolCallComplete { id, result } => {
+                tool_count += 1;
+                let _ = parent_event_tx
+                    .send(crate::query::types::QueryEvent::ToolCallComplete { id, result });
+            }
+            crate::query::types::QueryEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
+                token_count += input_tokens + output_tokens;
+            }
+            _ => {}
+        }
+    }
+    (tool_count, token_count)
+}
+
 /// Run an agent in foreground (blocking) mode.
 /// Calls query() and waits for completion, returning the assistant's response.
 pub async fn run_foreground(
@@ -345,25 +388,16 @@ pub async fn run_foreground(
 
     let start_time = std::time::Instant::now();
 
-    // Use a separate event channel so child tool events don't leak to parent TUI.
-    let (child_event_tx, mut child_event_rx) = tokio::sync::mpsc::unbounded_channel();
-    let result = crate::query::engine::query(child_ctx, child_event_tx).await;
-
-    // Collect stats
-    let mut tool_count: u32 = 0;
-    let mut token_count: u64 = 0;
-    while let Ok(event) = child_event_rx.try_recv() {
-        match event {
-            crate::query::types::QueryEvent::ToolCallComplete { .. } => tool_count += 1,
-            crate::query::types::QueryEvent::Usage {
-                input_tokens,
-                output_tokens,
-            } => {
-                token_count += input_tokens + output_tokens;
-            }
-            _ => {}
-        }
-    }
+    // Run query and relay child events to parent concurrently.
+    // relay_child_events drives child_event_rx; it finishes when child_event_tx is dropped
+    // (which happens when query() returns).
+    let (child_event_tx, child_event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let parent_event_tx = parent_ctx.event_tx.clone();
+    let agent_tool_use_id = parent_ctx.tool_use_id.clone();
+    let (result, (tool_count, token_count)) = tokio::join!(
+        crate::query::engine::query(child_ctx, child_event_tx),
+        relay_child_events(child_event_rx, &parent_event_tx, &agent_tool_use_id),
+    );
     let duration_secs = start_time.elapsed().as_secs();
 
     // Clean up worktree
@@ -475,29 +509,17 @@ pub async fn run_background(
     let description_clone = description.clone();
     let agent_type_clone = agent_type.clone();
 
+    let agent_tool_use_id = parent_ctx.tool_use_id.clone();
+
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
 
-        // Use a separate event channel so child tool events don't appear in parent TUI.
-        // We drain it to collect stats (tool count, tokens).
-        let (child_event_tx, mut child_event_rx) = tokio::sync::mpsc::unbounded_channel();
-        let result = crate::query::engine::query(child_ctx, child_event_tx).await;
-
-        // Collect stats from child events
-        let mut tool_count: u32 = 0;
-        let mut token_count: u64 = 0;
-        while let Ok(event) = child_event_rx.try_recv() {
-            match event {
-                crate::query::types::QueryEvent::ToolCallComplete { .. } => tool_count += 1,
-                crate::query::types::QueryEvent::Usage {
-                    input_tokens,
-                    output_tokens,
-                } => {
-                    token_count += input_tokens + output_tokens;
-                }
-                _ => {}
-            }
-        }
+        // Run query and relay child tool events to parent concurrently.
+        let (child_event_tx, child_event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (result, (tool_count, token_count)) = tokio::join!(
+            crate::query::engine::query(child_ctx, child_event_tx),
+            relay_child_events(child_event_rx, &parent_event_tx, &agent_tool_use_id),
+        );
         let duration_secs = start_time.elapsed().as_secs();
 
         let (result_text, is_error) = match result {
