@@ -74,9 +74,7 @@ pub async fn full_compact(
     };
     let summary = ApiMessage {
         role: Role::Assistant,
-        content: vec![ContentBlock::Text {
-            text: summary_text,
-        }],
+        content: vec![ContentBlock::Text { text: summary_text }],
     };
 
     let mut result_messages = vec![boundary, summary];
@@ -88,6 +86,8 @@ pub async fn full_compact(
         messages: result_messages,
         tokens_freed: tokens_before.saturating_sub(tokens_after),
         stage: CompactStage::FullCompact,
+        pre_compact_token_count: None,
+        post_compact_token_count: None,
     })
 }
 
@@ -177,9 +177,7 @@ mod tests {
     fn text_msg(role: Role, text: &str) -> ApiMessage {
         ApiMessage {
             role,
-            content: vec![ContentBlock::Text {
-                text: text.into(),
-            }],
+            content: vec![ContentBlock::Text { text: text.into() }],
         }
     }
 
@@ -196,10 +194,7 @@ mod tests {
 
     #[test]
     fn test_find_keep_boundary_all_kept() {
-        let msgs = vec![
-            text_msg(Role::User, "q"),
-            text_msg(Role::Assistant, "a"),
-        ];
+        let msgs = vec![text_msg(Role::User, "q"), text_msg(Role::Assistant, "a")];
         assert_eq!(find_keep_boundary(&msgs, 3), 0);
     }
 
