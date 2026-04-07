@@ -101,6 +101,11 @@ pub async fn run_app(
     let mut permission_rx: Option<mpsc::UnboundedReceiver<PermissionAsk>> = None;
     let mut question_rx: Option<mpsc::UnboundedReceiver<UserQuestionAsk>> = None;
     let mut provider = provider; // make mutable for /model switching
+
+    let session_memory = std::sync::Arc::new(
+        crate::services::session_memory::SessionMemoryState::new(app.session_id.clone()),
+    );
+    let mut compact_failures: u32 = 0;
     let mut event_stream = EventStream::new();
     let mut md_cache = ui::MarkdownCache::new();
     let mut last_render = Instant::now();
@@ -456,7 +461,7 @@ pub async fn run_app(
                                             content: "[Input queued — will submit after current response]".into(),
                                         });
                                     } else {
-                                        handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
+                                        handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry, &session_memory).await;
                                     }
                                 } else {
                                     let typeahead_accepted = app.handle_key(key);
@@ -473,7 +478,7 @@ pub async fn run_app(
                                                 content: "[Input queued — will submit after current response]".into(),
                                             });
                                         } else {
-                                            handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
+                                            handle_submit(&mut app, &input, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry, &session_memory).await;
                                         }
                                     }
                                 }
@@ -559,10 +564,36 @@ pub async fn run_app(
                             }
                         }
 
+                        // Auto-compact check after query completes
+                        if is_query_completed {
+                            if let Some(ref p) = provider {
+                                if let Some(result) = crate::services::compact::auto_compact_if_needed(
+                                    &mut app.api_messages,
+                                    p,
+                                    Some(&session_memory),
+                                    &mut compact_failures,
+                                    0,
+                                    None,
+                                    &crate::utils::abort_signal::AbortSignal::new(),
+                                ).await {
+                                    app.messages.clear();
+                                    app.needs_redraw = true;
+                                    app.push_message(crate::tui::app::DisplayMessage::Text {
+                                        role: crate::tui::app::TextRole::System,
+                                        content: format!(
+                                            "[Context auto-compacted ({}): ~{}K tokens freed]",
+                                            result.stage,
+                                            result.tokens_freed / 1000
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+
                         // Auto-submit queued input after query completes
                         if is_query_completed && !app.is_loading {
                             if let Some(queued) = app.queued_input.take() {
-                                handle_submit(&mut app, &queued, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry).await;
+                                handle_submit(&mut app, &queued, &provider, &system_prompt, &query_event_tx, &permission_mode, &mut permission_rx, &mut question_rx, &mcp_manager, &allow_rules, &deny_rules, &tools_filter, &app_state, &registry, &session_memory).await;
                             }
                         }
                     }
@@ -633,6 +664,7 @@ async fn handle_submit(
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
     registry: &Arc<crate::services::api::registry::ProviderRegistry>,
+    session_memory: &Arc<crate::services::session_memory::SessionMemoryState>,
 ) {
     // Check for slash commands
     if let Some((name, args)) = App::parse_slash_command(input) {
@@ -652,6 +684,7 @@ async fn handle_submit(
             tools_filter,
             app_state,
             registry,
+            session_memory,
         )
         .await;
         return;
@@ -672,6 +705,7 @@ async fn handle_submit(
         tools_filter,
         app_state,
         registry,
+        session_memory,
     )
     .await;
 }
@@ -702,6 +736,7 @@ async fn dispatch_slash_command(
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
     registry: &Arc<crate::services::api::registry::ProviderRegistry>,
+    session_memory: &Arc<crate::services::session_memory::SessionMemoryState>,
 ) {
     // First pass: identify the command kind and extract needed data without
     // holding a mutable borrow on app.
@@ -754,7 +789,7 @@ async fn dispatch_slash_command(
                 },
                 provider: provider.clone(),
                 messages: Arc::new(app.api_messages.clone()),
-                session_memory: None,
+                session_memory: Some(session_memory.clone()),
             };
 
             let is_compact = name == "compact";
@@ -834,7 +869,7 @@ async fn dispatch_slash_command(
                 },
                 provider: provider.clone(),
                 messages: Arc::new(app.api_messages.clone()),
-                session_memory: None,
+                session_memory: Some(session_memory.clone()),
             };
 
             if let Some(Command::Tui(tui_cmd)) = app.command_registry.find(name) {
@@ -884,7 +919,7 @@ async fn dispatch_slash_command(
                 },
                 provider: provider.clone(),
                 messages: Arc::new(app.api_messages.clone()),
-                session_memory: None,
+                session_memory: Some(session_memory.clone()),
             };
 
             // Re-lookup the command and call get_prompt()
@@ -977,6 +1012,7 @@ async fn submit_query(
     tools_filter: &Option<Vec<String>>,
     app_state: &Arc<tokio::sync::RwLock<crate::state::AppState>>,
     registry: &Arc<crate::services::api::registry::ProviderRegistry>,
+    session_memory: &Arc<crate::services::session_memory::SessionMemoryState>,
 ) {
     let Some(provider) = provider.clone() else {
         app.push_message(DisplayMessage::Text {
@@ -1075,6 +1111,7 @@ async fn submit_query(
         agent_depth: None,
         query_source: None,
         abort_signal,
+        session_memory: Some(session_memory.clone()),
     };
 
     // Spawn query as background task
@@ -1190,6 +1227,7 @@ async fn submit_query_skill(
         agent_depth: None,
         query_source: None,
         abort_signal,
+        session_memory: None,
     };
 
     let event_tx = query_event_tx.clone();

@@ -141,6 +141,7 @@ pub fn build_child_context(
         agent_depth: Some(parent_ctx.agent_depth + 1),
         query_source: parent_ctx.query_source.clone(),
         abort_signal: parent_ctx.abort_signal.child_signal(),
+        session_memory: None,
     }
 }
 
@@ -219,6 +220,7 @@ pub fn build_fork_context(
         agent_depth: Some(parent_ctx.agent_depth + 1),
         query_source: params.query_source.clone(),
         abort_signal: parent_ctx.abort_signal.child_signal(),
+        session_memory: None,
     }
 }
 

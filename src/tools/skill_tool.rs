@@ -193,6 +193,7 @@ async fn execute_forked_skill(
         agent_depth: None,
         query_source: None,
         abort_signal: child_abort,
+        session_memory: None,
     };
 
     let result = query(query_ctx, event_tx).await;

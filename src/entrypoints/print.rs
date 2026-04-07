@@ -99,6 +99,7 @@ pub async fn run_print_mode(
         agent_depth: None,
         query_source: None,
         abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+        session_memory: None,
     };
 
     // 4. Run query

@@ -38,6 +38,8 @@ pub struct QueryContext {
     pub query_source: Option<String>,
     /// Abort signal for cancellation with reason tracking
     pub abort_signal: crate::utils::abort_signal::AbortSignal,
+    /// Session memory state for background extraction and compaction
+    pub session_memory: Option<Arc<crate::services::session_memory::SessionMemoryState>>,
 }
 
 /// Sent to TUI when a tool wants to ask the user a question

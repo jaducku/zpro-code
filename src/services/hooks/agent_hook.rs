@@ -187,6 +187,7 @@ pub async fn execute_agent_hook(
         agent_depth: None,
         query_source: Some("hook_agent".into()),
         abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+        session_memory: None,
     };
 
     // 6. Execute with timeout

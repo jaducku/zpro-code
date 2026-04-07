@@ -26,7 +26,6 @@ pub async fn query(
     let mut loop_count = 0;
     let max_loops = ctx.max_turns.map(|t| t as usize).unwrap_or(MAX_TOOL_LOOPS);
     let mut total_cost: f64 = 0.0;
-    let mut compact_failures: u32 = 0;
     let mut already_retried = false;
 
     loop {
@@ -50,70 +49,6 @@ pub async fn query(
             }
         }
 
-        // 0. Compaction pipeline
-        let cw = ctx.provider.model_info().context_window;
-
-        // Stage 1: Snip
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.60 {
-            let freed = crate::services::compact::snip::snip(&mut ctx.messages, 3);
-            if freed > 0 {
-                let _ = event_tx.send(QueryEvent::Compacted {
-                    stage: "snip".into(),
-                    tokens_freed: freed,
-                });
-            }
-        }
-
-        // Stage 2: Microcompact
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.75 {
-            let freed = crate::services::compact::microcompact::microcompact(&mut ctx.messages, 3);
-            if freed > 0 {
-                let _ = event_tx.send(QueryEvent::Compacted {
-                    stage: "microcompact".into(),
-                    tokens_freed: freed,
-                });
-            }
-        }
-
-        // Stage 3: Full Compact (LLM call)
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.85 && compact_failures < 3 {
-            match crate::services::compact::full_compact::full_compact(
-                &ctx.messages,
-                ctx.provider.as_ref(),
-                cw,
-                3,
-                None,
-                &ctx.abort_signal,
-            )
-            .await
-            {
-                Ok(result) => {
-                    let freed = result.tokens_freed;
-                    ctx.messages = result.messages;
-                    compact_failures = 0;
-                    let _ = event_tx.send(QueryEvent::Compacted {
-                        stage: "full".into(),
-                        tokens_freed: freed,
-                    });
-                }
-                Err(e) => {
-                    compact_failures += 1;
-                    let _ = event_tx.send(QueryEvent::Error(format!(
-                        "Compaction failed ({}/3): {}",
-                        compact_failures, e
-                    )));
-                }
-            }
-        }
-
-        // Hard block — only after all proactive stages exhausted
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.95 {
-            let _ = event_tx.send(QueryEvent::Error(
-                "Context window 95% exceeded after all compaction. Cannot continue.".into(),
-            ));
-            break;
-        }
-
         // 1. Build request
         let request = CreateMessageRequest {
             model: ctx.model.clone(),
@@ -134,7 +69,27 @@ pub async fn query(
         let mut stream = match ctx.provider.create_message(request).await {
             Ok(s) => s,
             Err(e) if is_context_overflow_error(&e) && !already_retried => {
-                // Reactive compact: run full pipeline and retry
+                // Reactive compact: try session memory first, then fall back to full pipeline
+                // 1. Try session memory compaction
+                if let Some(ref sm) = ctx.session_memory {
+                    if let Some(result) =
+                        crate::services::session_memory::compaction::try_session_memory_compaction(
+                            &ctx.messages,
+                            sm,
+                            None,
+                        )
+                        .await
+                    {
+                        ctx.messages = result.messages;
+                        let _ = event_tx.send(QueryEvent::Compacted {
+                            stage: "session_memory".into(),
+                            tokens_freed: result.tokens_freed,
+                        });
+                        already_retried = true;
+                        continue;
+                    }
+                }
+                // 2. Fallback: snip + microcompact + full_compact
                 let cw = ctx.provider.model_info().context_window;
                 let _ = crate::services::compact::snip::snip(&mut ctx.messages, 3);
                 let _ = crate::services::compact::microcompact::microcompact(&mut ctx.messages, 3);
@@ -402,6 +357,16 @@ pub async fn query(
 
         // 4. If no tool calls, we're done
         if tool_calls.is_empty() {
+            // Post-sampling: trigger session memory extraction in background
+            if let Some(ref sm) = ctx.session_memory {
+                let sm = sm.clone();
+                let messages = ctx.messages.clone();
+                let provider = ctx.provider.clone();
+                tokio::spawn(async move {
+                    sm.maybe_extract(&messages, &provider).await;
+                });
+            }
+
             let _ = event_tx.send(QueryEvent::ResponseComplete {
                 stop_reason: stop_reason.clone(),
             });
@@ -731,6 +696,7 @@ mod tests {
             agent_depth: None,
             query_source: None,
             abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+            session_memory: None,
         }
     }
 
