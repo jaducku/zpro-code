@@ -988,6 +988,13 @@ impl App {
                 self.response_start_time = None;
                 self.response_token_count = 0;
                 self.cumulative_output_tokens = 0;
+
+                // Clear any remaining running tools (shouldn't normally happen)
+                self.running_tools.clear();
+
+                // Mark any pending tools as done
+                self.mark_pending_tools_done();
+
                 // Mark remaining open thinking as complete
                 for msg in self.messages.iter_mut() {
                     if let DisplayMessage::Thinking { is_complete, .. } = msg {
@@ -999,7 +1006,6 @@ impl App {
                     !matches!(m, DisplayMessage::Thinking { content, .. } if content.is_empty())
                 });
                 self.query_start_time = None;
-                self.mark_pending_tools_done();
             }
             QueryEvent::Usage {
                 input_tokens,
