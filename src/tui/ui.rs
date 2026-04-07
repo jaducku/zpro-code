@@ -417,66 +417,45 @@ fn render_conversation(
 
                 let header_y = lines.len() as u16;
 
-                if result.is_none() {
-                    // Running standalone tool — show with yellow "Running..."
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(header_text, Style::default().fg(Color::White).bold()),
-                    ]));
-                    hit_areas.push(HitArea {
-                        y: header_y,
-                        message_idx: msg_idx,
-                    });
-                    lines.push(Line::from(vec![
-                        Span::styled("    ⎿ ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(
-                            "Running...",
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::ITALIC),
-                        ),
-                    ]));
+                // Completed state (result is always Some now)
+                let header_style = if *is_error {
+                    Style::default().fg(Color::Red).bold()
                 } else {
-                    // Completed state
-                    let header_style = if *is_error {
-                        Style::default().fg(Color::Red).bold()
-                    } else {
-                        Style::default().fg(Color::White).bold()
-                    };
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(header_text, header_style),
-                    ]));
-                    hit_areas.push(HitArea {
-                        y: header_y,
-                        message_idx: msg_idx,
-                    });
+                    Style::default().fg(Color::White).bold()
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(header_text, header_style),
+                ]));
+                hit_areas.push(HitArea {
+                    y: header_y,
+                    message_idx: msg_idx,
+                });
 
-                    // Result lines — white text with ⎿ prefix
-                    if !collapsed {
-                        if let Some(ref result_text) = result {
-                            if !result_text.is_empty() {
-                                let result_lines: Vec<&str> = result_text.lines().collect();
-                                let max_preview = 20;
-                                let show_count = result_lines.len().min(max_preview);
-                                for line_text in &result_lines[..show_count] {
-                                    lines.push(Line::from(vec![
-                                        Span::styled(
-                                            "    ⎿ ",
-                                            Style::default().fg(Color::DarkGray),
-                                        ),
-                                        Span::raw(line_text.to_string()),
-                                    ]));
-                                }
-                                if result_lines.len() > max_preview {
-                                    lines.push(Line::from(Span::styled(
-                                        format!(
-                                            "      (+{} lines)",
-                                            result_lines.len() - max_preview
-                                        ),
+                // Result lines — white text with ⎿ prefix
+                if !collapsed {
+                    if let Some(ref result_text) = result {
+                        if !result_text.is_empty() {
+                            let result_lines: Vec<&str> = result_text.lines().collect();
+                            let max_preview = 20;
+                            let show_count = result_lines.len().min(max_preview);
+                            for line_text in &result_lines[..show_count] {
+                                lines.push(Line::from(vec![
+                                    Span::styled(
+                                        "    ⎿ ",
                                         Style::default().fg(Color::DarkGray),
-                                    )));
-                                }
+                                    ),
+                                    Span::raw(line_text.to_string()),
+                                ]));
+                            }
+                            if result_lines.len() > max_preview {
+                                lines.push(Line::from(Span::styled(
+                                    format!(
+                                        "      (+{} lines)",
+                                        result_lines.len() - max_preview
+                                    ),
+                                    Style::default().fg(Color::DarkGray),
+                                )));
                             }
                         }
                     }
