@@ -314,18 +314,22 @@ pub async fn query(
                         description,
                         reply_tx,
                     });
-                    match reply_rx.await {
-                        Ok(PermissionReply::Allow) => true,
-                        Ok(PermissionReply::AllowAlways {
+                    let reply = tokio::select! {
+                        reply = reply_rx => reply.unwrap_or(PermissionReply::Deny),
+                        _ = ctx.abort_signal.cancelled() => PermissionReply::Deny,
+                    };
+                    match reply {
+                        PermissionReply::Allow => true,
+                        PermissionReply::AllowAlways {
                             tool_name,
                             rule_content,
-                        }) => {
+                        } => {
                             ctx.permission_ctx
                                 .always_allow_rules
                                 .push(PermissionRule { tool_name, rule_content });
                             true
                         }
-                        Ok(PermissionReply::Deny) | Err(_) => {
+                        PermissionReply::Deny => {
                             let block = ToolResultBlock::error(
                                 tc.id.clone(),
                                 "Permission denied by user".into(),
