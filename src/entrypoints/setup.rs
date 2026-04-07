@@ -137,6 +137,7 @@ fn setup_openrouter() -> AtomConfig {
             api_base: Some("https://openrouter.ai/api/v1".to_string()),
             api_key: Some(api_key),
             models: provider_models,
+            model_options: None,
         },
     );
 
@@ -217,6 +218,7 @@ fn setup_custom() -> AtomConfig {
             api_base,
             api_key,
             models: provider_models,
+            model_options: None,
         },
     );
 

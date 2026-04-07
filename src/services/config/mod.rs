@@ -12,6 +12,21 @@ pub struct ProviderConfigJson {
     /// Available models on this provider (for documentation/discovery).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<String>,
+    /// Per-model options (keyed by model ID).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_options: Option<HashMap<String, ModelOptionsJson>>,
+}
+
+/// Per-model configuration within a provider.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelOptionsJson {
+    /// Enable reasoning/thinking extraction. When true, sends `reasoning: {}`
+    /// to providers like OpenRouter so they parse model-specific thinking tags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    /// Reasoning effort level: "high", "medium", "low"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 fn is_empty_map<K, V>(m: &HashMap<K, V>) -> bool {
@@ -85,6 +100,7 @@ impl AtomConfig {
                     "google/gemini-2.5-flash-preview-04-17".to_string(),
                     "google/gemma-3-27b-it:free".to_string(),
                 ],
+                model_options: None,
             },
         );
 

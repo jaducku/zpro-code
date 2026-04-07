@@ -21,6 +21,9 @@ pub struct ChatCompletionsProvider {
     _model: String,
     client: Client,
     model_info: ModelInfo,
+    /// When set, includes `reasoning` parameter in requests so providers
+    /// parse model-specific thinking tags and return normalized fields.
+    reasoning_config: Option<ReasoningConfig>,
 }
 
 impl ChatCompletionsProvider {
@@ -49,12 +52,19 @@ impl ChatCompletionsProvider {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             model_info,
+            reasoning_config: None,
         }
     }
 
     /// Configure model info (context window, max tokens, capabilities)
     pub fn with_model_info(mut self, info: ModelInfo) -> Self {
         self.model_info = info;
+        self
+    }
+
+    /// Enable reasoning parameter in requests (for OpenRouter thinking models).
+    pub fn with_reasoning(mut self, effort: Option<String>) -> Self {
+        self.reasoning_config = Some(ReasoningConfig { effort });
         self
     }
 
@@ -80,6 +90,7 @@ impl ChatCompletionsProvider {
             } else {
                 None
             },
+            reasoning: self.reasoning_config.clone(),
         }
     }
 }
@@ -242,6 +253,7 @@ impl ChatCompletionsProvider {
             } else {
                 None
             },
+            reasoning: self.reasoning_config.clone(),
         }
     }
 }
@@ -422,13 +434,16 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                     }
 
                     for choice in &chunk.choices {
-                        // Reasoning/thinking delta (Qwen 3, DeepSeek, etc.)
-                        if let Some(reasoning) = &choice.delta.reasoning_content {
+                        // Reasoning/thinking delta (Qwen 3, DeepSeek, Gemma4, etc.)
+                        // Some providers use "reasoning_content", others use "reasoning"
+                        let thinking = choice.delta.reasoning_content.as_deref()
+                            .or(choice.delta.reasoning.as_deref());
+                        if let Some(reasoning) = thinking {
                             if !reasoning.is_empty() {
                                 all_events.push(Ok(StreamEvent::ContentBlockDelta {
                                     index: 0,
                                     delta: ContentDelta::ThinkingDelta {
-                                        thinking: reasoning.clone(),
+                                        thinking: reasoning.to_string(),
                                     },
                                 }));
                             }
@@ -532,6 +547,13 @@ fn parse_sse_response(resp: reqwest::Response) -> BoxStream<'static, Result<Stre
                 }
 
                 if all_events.is_empty() {
+                    // Log when SSE data was received but produced no events
+                    // (helps diagnose models with unexpected response formats)
+                    let buf = &state.buffer;
+                    if !buf.trim().is_empty() {
+                        tracing::debug!("SSE chunk produced no events, buffer: {}...",
+                            &buf[..buf.len().min(200)]);
+                    }
                     None
                 } else {
                     Some(all_events)

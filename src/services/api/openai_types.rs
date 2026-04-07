@@ -15,6 +15,20 @@ pub struct OpenAiRequest {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
+    /// OpenRouter reasoning config. When set, the provider parses model-specific
+    /// thinking tags (Gemma4 <channel>, DeepSeek <think>, etc.) and returns
+    /// normalized reasoning/reasoning_content fields instead of raw tags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ReasoningConfig>,
+}
+
+/// OpenRouter reasoning configuration.
+/// Empty object `{}` enables reasoning with defaults.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReasoningConfig {
+    /// Reasoning effort: "high", "medium", "low", "none"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,8 +156,14 @@ pub struct OpenAiDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     /// Reasoning/thinking content (used by Qwen 3, DeepSeek, etc.)
+    /// Field name varies by provider: "reasoning_content" (DeepSeek/Qwen),
+    /// "reasoning" (some OpenRouter models like Gemma4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
+    /// Alternate reasoning field used by some providers (e.g., OpenRouter for Gemma4).
+    /// Merged with reasoning_content during processing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<OpenAiToolCallDelta>>,
 }
@@ -197,6 +217,7 @@ mod tests {
             stream_options: Some(StreamOptions {
                 include_usage: true,
             }),
+            reasoning: None,
         };
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["model"], "gpt-4");

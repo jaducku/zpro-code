@@ -322,6 +322,11 @@ pub async fn query(
 
         // Empty response: no text, no tools — notify and stop
         if text_content.is_empty() && tool_calls.is_empty() {
+            tracing::warn!(
+                "Empty response from model. reasoning_content_len={}, stream_failed={}",
+                reasoning_content.len(),
+                stream_failed,
+            );
             let _ = event_tx.send(QueryEvent::Error(
                 "Empty response from model (no text, no tool calls)".into(),
             ));
