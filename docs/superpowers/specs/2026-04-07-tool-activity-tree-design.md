@@ -49,6 +49,7 @@ ToolCall {
 ```rust
 Agent {
     agent_id: String,
+    agent_type: String,               // NEW: "Agent", "Explore", "Skill", etc.
     description: String,
     status: AgentStatus,
     result: Option<String>,
@@ -59,6 +60,14 @@ Agent {
     child_tool_ids: Vec<String>,      // NEW: tool IDs executed by this agent
     visible_child_count: usize,       // NEW: how many children to show (default 3)
 }
+```
+
+The `agent_type` determines the header prefix:
+- `"Agent"` → `Agent(Research Gemma4 tags)`
+- `"Explore"` → `Explore(Explore TUI display)`
+- `"Skill"` → `Skill(superpowers:brainstorming)`
+
+Derived from `subagent_type` in AgentTool or `query_source` for skills.
 ```
 
 ### QueryEvent::ToolCallStart — new field
