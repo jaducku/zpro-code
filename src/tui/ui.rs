@@ -434,6 +434,57 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 frame.render_widget(input_text, expanded_area);
             }
         }
+        InputMode::ExitConfirm { worktree_name, uncommitted_count, selected } => {
+            let border_style = Style::default().fg(Color::Red);
+            let title = " Exit Confirmation ";
+            let input_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .title(Span::styled(title, Style::default().fg(Color::Red).bold()));
+
+            let info = format!(
+                " Worktree '{}' has {} uncommitted file(s).",
+                worktree_name, uncommitted_count
+            );
+            let info_line = Line::from(Span::styled(info, Style::default().fg(Color::White)));
+
+            let options = ["Keep & Exit", "Remove & Exit", "Cancel"];
+            let mut option_spans = Vec::new();
+            for (i, opt) in options.iter().enumerate() {
+                if i > 0 {
+                    option_spans.push(Span::raw("  "));
+                }
+                if i == *selected {
+                    option_spans.push(Span::styled(
+                        format!("[{}]", opt),
+                        Style::default().fg(Color::Yellow).bold(),
+                    ));
+                } else {
+                    option_spans.push(Span::styled(
+                        format!(" {} ", opt),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+            }
+            let options_line = Line::from(option_spans);
+            let help_line = Line::from(Span::styled(
+                " ←/→ select  Enter confirm  Esc cancel",
+                Style::default().fg(Color::DarkGray),
+            ));
+
+            let needed_height: u16 = 5; // border + info + options + help + border
+            let expanded_area = Rect {
+                x: area.x,
+                y: area.y.saturating_sub(needed_height.saturating_sub(area.height)),
+                width: area.width,
+                height: needed_height.max(area.height),
+            };
+
+            frame.render_widget(Clear, expanded_area);
+            let content = Paragraph::new(vec![info_line, options_line, help_line]).block(input_block);
+            frame.render_widget(content, expanded_area);
+        }
         InputMode::Normal => {
             let border_style = if app.is_loading {
                 Style::default().fg(Color::DarkGray)

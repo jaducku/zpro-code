@@ -1,5 +1,6 @@
 use std::io;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crossterm::{
     event::{Event, EventStream, KeyCode},
@@ -119,6 +120,120 @@ pub async fn run_app(
                 if let Some(Ok(ev)) = maybe_event {
                     match ev {
                         Event::Key(key) => {
+                            // === Ctrl+C: interrupt or double-press exit ===
+                            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                && key.code == KeyCode::Char('c')
+                            {
+                                if app.is_loading {
+                                    if let Some(ref signal) = app.active_abort_signal {
+                                        signal.cancel(crate::utils::abort_signal::AbortReason::Interrupt);
+                                    }
+                                    // Kill background agents
+                                    {
+                                        let state = app_state.read().await;
+                                        for task in state.background_tasks.values() {
+                                            task.cancel_token.cancel(crate::utils::abort_signal::AbortReason::Interrupt);
+                                        }
+                                    }
+                                    // Dismiss permission/question prompts
+                                    match std::mem::replace(&mut app.input_mode, InputMode::Normal) {
+                                        InputMode::Permission { reply_tx, .. } => {
+                                            if let Some(tx) = reply_tx { let _ = tx.send(PermissionReply::Deny); }
+                                        }
+                                        InputMode::Question { reply_tx, .. } => {
+                                            if let Some(tx) = reply_tx { let _ = tx.send(UserQuestionReply::Dismissed); }
+                                        }
+                                        other => { app.input_mode = other; }
+                                    }
+                                } else {
+                                    let now = Instant::now();
+                                    if let Some(last) = app.last_ctrl_c_press {
+                                        if now.duration_since(last).as_millis() < 800 {
+                                            let has_worktree = {
+                                                let state = app_state.read().await;
+                                                state.current_worktree_session.is_some()
+                                            };
+                                            if has_worktree {
+                                                let state = app_state.read().await;
+                                                if let Some(ref session) = state.current_worktree_session {
+                                                    let name = session.worktree_name.clone();
+                                                    let count = crate::services::worktree::WorktreeService::count_uncommitted(&session.worktree_path).await.unwrap_or(0);
+                                                    drop(state);
+                                                    app.input_mode = InputMode::ExitConfirm {
+                                                        worktree_name: name,
+                                                        uncommitted_count: count as usize,
+                                                        selected: 0,
+                                                    };
+                                                }
+                                            } else {
+                                                app.should_quit = true;
+                                            }
+                                            app.last_ctrl_c_press = None;
+                                        } else {
+                                            app.last_ctrl_c_press = Some(now);
+                                            app.status = "Press Ctrl+C again to exit".into();
+                                        }
+                                    } else {
+                                        app.last_ctrl_c_press = Some(now);
+                                        app.status = "Press Ctrl+C again to exit".into();
+                                    }
+                                }
+                                continue; // skip further key handling
+                            }
+
+                            // === Ctrl+D: double-press exit only ===
+                            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                                && key.code == KeyCode::Char('d')
+                            {
+                                let now = Instant::now();
+                                if let Some(last) = app.last_ctrl_d_press {
+                                    if now.duration_since(last).as_millis() < 800 {
+                                        let has_worktree = {
+                                            let state = app_state.read().await;
+                                            state.current_worktree_session.is_some()
+                                        };
+                                        if has_worktree {
+                                            let state = app_state.read().await;
+                                            if let Some(ref session) = state.current_worktree_session {
+                                                let name = session.worktree_name.clone();
+                                                let count = crate::services::worktree::WorktreeService::count_uncommitted(&session.worktree_path).await.unwrap_or(0);
+                                                drop(state);
+                                                app.input_mode = InputMode::ExitConfirm {
+                                                    worktree_name: name,
+                                                    uncommitted_count: count as usize,
+                                                    selected: 0,
+                                                };
+                                            }
+                                        } else {
+                                            app.should_quit = true;
+                                        }
+                                        app.last_ctrl_d_press = None;
+                                    } else {
+                                        app.last_ctrl_d_press = Some(now);
+                                        app.status = "Press Ctrl+D again to exit".into();
+                                    }
+                                } else {
+                                    app.last_ctrl_d_press = Some(now);
+                                    app.status = "Press Ctrl+D again to exit".into();
+                                }
+                                continue;
+                            }
+
+                            // === Escape: cancel query ===
+                            if key.code == KeyCode::Esc
+                                && !matches!(app.input_mode, InputMode::Permission { .. })
+                                && !matches!(app.input_mode, InputMode::Question { .. })
+                                && !matches!(app.input_mode, InputMode::ExitConfirm { .. })
+                            {
+                                if app.is_loading {
+                                    if let Some(ref signal) = app.active_abort_signal {
+                                        signal.cancel(crate::utils::abort_signal::AbortReason::UserCancel);
+                                    }
+                                    continue;
+                                }
+                                // Fall through to existing typeahead/command close handling
+                            }
+
                             // Question inline prompt
                             if let InputMode::Question { .. } = &app.input_mode {
                                 match key.code {
@@ -193,6 +308,34 @@ pub async fn run_app(
                                         }
                                     }
                                     _ => {} // ignore other keys in permission mode
+                                }
+                            } else if let InputMode::ExitConfirm { selected, .. } = &mut app.input_mode {
+                                match key.code {
+                                    KeyCode::Left => { *selected = selected.saturating_sub(1); }
+                                    KeyCode::Right => { *selected = (*selected + 1).min(2); }
+                                    KeyCode::Enter => {
+                                        if let InputMode::ExitConfirm { selected, .. } =
+                                            std::mem::replace(&mut app.input_mode, InputMode::Normal)
+                                        {
+                                            match selected {
+                                                0 => { app.should_quit = true; } // Keep & exit
+                                                1 => { // Remove & exit
+                                                    let state = app_state.read().await;
+                                                    if let Some(ref session) = state.current_worktree_session {
+                                                        let session_clone = session.clone();
+                                                        drop(state);
+                                                        let _ = crate::services::worktree::WorktreeService::remove(&session_clone).await;
+                                                        let mut state = app_state.write().await;
+                                                        state.current_worktree_session = None;
+                                                    }
+                                                    app.should_quit = true;
+                                                }
+                                                _ => {} // Cancel — already reset to Normal
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Esc => { app.input_mode = InputMode::Normal; }
+                                    _ => {}
                                 }
                             } else if app.active_command.is_some() {
                                 let cmd_name = app.active_command.as_ref().unwrap().command_name.clone();
@@ -292,18 +435,44 @@ pub async fn run_app(
 
             // Query events from the spawned query task
             Some(event) = query_event_rx.recv() => {
-                let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
-                app.handle_query_event(event);
-
-                // Clear loading label when response is complete
-                if is_response_complete {
+                if let QueryEvent::QueryCancelled { ref partial_messages, ref reason } = event {
+                    use crate::utils::abort_signal::AbortReason;
+                    app.api_messages = partial_messages.clone();
+                    if *reason != AbortReason::Interrupt {
+                        app.push_message(DisplayMessage::Text {
+                            role: TextRole::System,
+                            content: "[Request interrupted by user]".into(),
+                        });
+                        app.api_messages.push(ApiMessage {
+                            role: Role::User,
+                            content: vec![ContentBlock::Text {
+                                text: "[Request interrupted by user]".into(),
+                            }],
+                        });
+                    }
+                    app.is_loading = false;
+                    app.active_abort_signal = None;
                     app.loading_label = None;
-                }
+                } else {
+                    let is_response_complete = matches!(event, QueryEvent::ResponseComplete { .. });
+                    let is_query_completed = matches!(event, QueryEvent::QueryCompleted { .. });
+                    app.handle_query_event(event);
 
-                // Auto-save session after each completed response
-                if is_response_complete && !app.no_session_persistence {
-                    if let Ok(store) = SessionStore::new() {
-                        let _ = store.save(&app.build_transcript());
+                    // Clear loading label when response is complete
+                    if is_response_complete {
+                        app.loading_label = None;
+                    }
+
+                    // Reset abort signal when query completes
+                    if is_query_completed {
+                        app.active_abort_signal = None;
+                    }
+
+                    // Auto-save session after each completed response
+                    if is_response_complete && !app.no_session_persistence {
+                        if let Ok(store) = SessionStore::new() {
+                            let _ = store.save(&app.build_transcript());
+                        }
                     }
                 }
             }
@@ -673,6 +842,8 @@ async fn submit_query(
     // Build query context
     let cwd = std::env::current_dir().unwrap_or_default();
     let hooks = crate::services::hooks::load_all_hooks(&cwd);
+    let abort_signal = crate::utils::abort_signal::AbortSignal::new();
+    app.active_abort_signal = Some(abort_signal.clone());
     let ctx = crate::query::QueryContext {
         messages: app.api_messages.clone(),
         tools,
@@ -698,7 +869,7 @@ async fn submit_query(
         mcp_manager: None,
         agent_depth: None,
         query_source: None,
-        abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+        abort_signal,
     };
 
     // Spawn query as background task
@@ -782,6 +953,8 @@ async fn submit_query_skill(
 
     let cwd = std::env::current_dir().unwrap_or_default();
     let hooks = crate::services::hooks::load_all_hooks(&cwd);
+    let abort_signal = crate::utils::abort_signal::AbortSignal::new();
+    app.active_abort_signal = Some(abort_signal.clone());
     let ctx = crate::query::QueryContext {
         messages: app.api_messages.clone(),
         tools,
@@ -807,7 +980,7 @@ async fn submit_query_skill(
         mcp_manager: None,
         agent_depth: None,
         query_source: None,
-        abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+        abort_signal,
     };
 
     let event_tx = query_event_tx.clone();
