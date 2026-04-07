@@ -82,6 +82,8 @@ pub async fn query(
                 ctx.provider.as_ref(),
                 cw,
                 3,
+                None,
+                &ctx.abort_signal,
             )
             .await
             {
@@ -141,6 +143,8 @@ pub async fn query(
                     ctx.provider.as_ref(),
                     cw,
                     3,
+                    None,
+                    &ctx.abort_signal,
                 )
                 .await
                 {
