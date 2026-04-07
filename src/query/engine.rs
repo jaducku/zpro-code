@@ -104,23 +104,45 @@ pub async fn query(
 
         loop {
             if ctx.abort_signal.is_cancelled() {
-                // Preserve partial output as assistant message
-                if !text_content.is_empty() {
-                    let partial_msg = crate::types::message::ApiMessage {
-                        role: crate::types::message::Role::Assistant,
-                        content: vec![crate::types::content::ContentBlock::Text {
-                            text: text_content.clone(),
-                        }],
-                    };
-                    ctx.messages.push(partial_msg);
-                }
                 let reason = ctx.abort_signal.reason().cloned()
                     .unwrap_or(crate::utils::abort_signal::AbortReason::UserCancel);
-                let _ = event_tx.send(QueryEvent::QueryCancelled {
-                    partial_messages: ctx.messages.clone(),
-                    reason,
-                });
-                return Err(crate::types::AtomError::Cancelled);
+                match reason {
+                    crate::utils::abort_signal::AbortReason::Interrupt => {
+                        // For Interrupt, we still cancel the streaming phase.
+                        // Per-tool behavior is checked in execute_tool, not here.
+                        if !text_content.is_empty() {
+                            let partial_msg = crate::types::message::ApiMessage {
+                                role: crate::types::message::Role::Assistant,
+                                content: vec![crate::types::content::ContentBlock::Text {
+                                    text: text_content.clone(),
+                                }],
+                            };
+                            ctx.messages.push(partial_msg);
+                        }
+                        let _ = event_tx.send(QueryEvent::QueryCancelled {
+                            partial_messages: ctx.messages.clone(),
+                            reason,
+                        });
+                        return Err(crate::types::AtomError::Cancelled);
+                    }
+                    _ => {
+                        // UserCancel, Background, SiblingError → always cancel immediately
+                        if !text_content.is_empty() {
+                            let partial_msg = crate::types::message::ApiMessage {
+                                role: crate::types::message::Role::Assistant,
+                                content: vec![crate::types::content::ContentBlock::Text {
+                                    text: text_content.clone(),
+                                }],
+                            };
+                            ctx.messages.push(partial_msg);
+                        }
+                        let _ = event_tx.send(QueryEvent::QueryCancelled {
+                            partial_messages: ctx.messages.clone(),
+                            reason,
+                        });
+                        return Err(crate::types::AtomError::Cancelled);
+                    }
+                }
             }
 
             let next = tokio::time::timeout(chunk_timeout, stream.next()).await;
@@ -485,6 +507,22 @@ async fn execute_tool(
         messages: std::sync::Arc::new(ctx.messages.clone()),
         query_source: ctx.query_source.clone(),
     };
+
+    // Check abort signal with per-tool interrupt behavior
+    if ctx.abort_signal.is_cancelled() {
+        if let Some(crate::utils::abort_signal::AbortReason::Interrupt) = ctx.abort_signal.reason() {
+            // Interrupt reason: respect the tool's declared behavior
+            if tool.interrupt_behavior() == crate::tool::InterruptBehavior::Block {
+                // Block behavior: let the tool complete despite the interrupt
+            } else {
+                // Cancel behavior: abort immediately
+                return Err(crate::types::AtomError::Cancelled);
+            }
+        } else {
+            // UserCancel, Background, SiblingError: always cancel
+            return Err(crate::types::AtomError::Cancelled);
+        }
+    }
 
     tool.execute(tool_ctx).await
 }
