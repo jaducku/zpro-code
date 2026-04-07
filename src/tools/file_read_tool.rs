@@ -108,6 +108,10 @@ impl Tool for FileReadTool {
             url: None,
         }
     }
+
+    fn interrupt_behavior(&self) -> crate::tool::InterruptBehavior {
+        crate::tool::InterruptBehavior::Cancel
+    }
 }
 
 #[cfg(test)]

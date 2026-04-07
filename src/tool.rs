@@ -7,6 +7,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::types::permissions::PermissionMeta;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterruptBehavior {
+    /// Abort on Interrupt reason
+    Cancel,
+    /// Continue to completion on Interrupt reason
+    Block,
+}
+
 /// Core tool trait — all 52 built-in tools + MCP tools implement this
 #[async_trait]
 pub trait Tool: Send + Sync {
@@ -70,6 +78,10 @@ pub trait Tool: Send + Sync {
     /// Hint for ToolSearch to match this tool
     fn search_hint(&self) -> Option<&str> {
         None
+    }
+
+    fn interrupt_behavior(&self) -> InterruptBehavior {
+        InterruptBehavior::Block
     }
 }
 
