@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use chrono::Local;
 use reqwest::Client;
+use self_update::backends::github;
 use semver::Version;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -66,7 +67,31 @@ impl UpdateManager {
 
     /// Install update using self_update
     pub async fn install_update(&self) -> Result<()> {
-        // Will implement in next task
+        self.log_update(
+            "DOWNLOAD",
+            &format!(
+                "Downloading v{} from releases",
+                self.check_latest_version()
+                    .await?
+                    .unwrap_or_default()
+            ),
+        )?;
+
+        // self_update handles:
+        // - OS detection (macOS/Linux/Windows)
+        // - Binary download
+        // - Backup creation
+        // - Atomic replacement
+        // - Automatic rollback on failure
+        let status = github::Update::configure()
+            .repo_owner(self.repo_owner)
+            .repo_name(self.repo_name)
+            .bin_name("zpro-code")
+            .current_version(&self.current_version)
+            .build()?
+            .update()?;
+
+        self.log_update("SUCCESS", &format!("Updated to {}", status.version()))?;
         Ok(())
     }
 
