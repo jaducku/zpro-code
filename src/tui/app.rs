@@ -1292,22 +1292,17 @@ pub fn cursor_row_col(input: &str, cursor_pos: usize) -> (usize, usize) {
 }
 
 /// Emit MainLoopState to frontend via Tauri event
-/// This allows the frontend to track tool execution and agent state in real-time.
-///
-/// The implementation uses reflection to emit events when Tauri is available,
-/// allowing this to work without requiring Tauri as a hard dependency.
+/// This allows the frontend to track tool execution in real-time
+#[cfg(feature = "tauri")]
 fn emit_main_loop_state_updated(state: &crate::types::tool_state::MainLoopState) {
-    // Tauri event emission would happen here when frontend integration is complete.
-    // For now, this is a placeholder that will be populated when Tauri IPC is available.
-    //
-    // Production implementation would:
-    // 1. Access the global Tauri AppHandle
-    // 2. Serialize the MainLoopState
-    // 3. Emit via handle.emit_all("main-loop-state-updated", &state)
-    //
-    // This approach allows the state management to be ready for frontend integration
-    // without blocking on Tauri dependency additions.
-    let _ = state; // Suppress unused warning
+    // Future: Implement actual Tauri event emission
+    // Example: handle.emit_all("main-loop-state-updated", &state).ok();
+    let _ = state; // Suppress unused warning until implemented
+}
+
+#[cfg(not(feature = "tauri"))]
+fn emit_main_loop_state_updated(_state: &crate::types::tool_state::MainLoopState) {
+    // No-op when Tauri feature is disabled
 }
 
 /// Convert a char index to a byte position in a string.
