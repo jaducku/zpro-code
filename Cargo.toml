@@ -65,6 +65,7 @@ htmd = "0.5"
 url = "2"
 fs2 = "0.4"
 cron = "0.16"
+self_update = "0.41"
 
 [dev-dependencies]
 tokio-test = "0.4"
