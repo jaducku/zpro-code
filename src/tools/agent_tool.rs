@@ -120,6 +120,7 @@ impl Tool for AgentTool {
                     params.isolation = def.isolation.clone();
                 }
                 params.query_source = Some(def.query_source.clone());
+                params.agent_type = def.name.clone(); // Update agent_type for TUI display
                 params.agent_def = Some(def);
             }
             // If agent not found, fallback to general agent (no warning)
