@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::time::SystemTime;
 
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
 use super::app::{AgentStatus, App, DisplayMessage, HitArea, TextRole};
+use crate::types::tool_state::{MainLoopStatus, ToolStatus};
 
 /// Cache for parsed markdown: maps message index -> (content length, parsed lines).
 /// Re-parses only when content length changes (i.e. streaming appends).
@@ -45,8 +47,14 @@ pub fn render_in_area(
     _with_command: bool,
     md_cache: &mut MarkdownCache,
 ) -> (Vec<HitArea>, Vec<HitArea>) {
+    // Split into left panel (70%) and right panel (30%)
+    let h_layout = Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)]);
+    let h_chunks = h_layout.split(area);
+    let left_area = h_chunks[0];
+    let right_area = h_chunks[1];
+
     let input_line_count = app.input.matches('\n').count() + 1;
-    let max_input_height = (area.height / 3) as usize;
+    let max_input_height = (left_area.height / 3) as usize;
     let input_height = (input_line_count.clamp(1, max_input_height) + 2) as u16; // +2 for border
 
     let activity_height = compute_activity_height(app);
@@ -63,7 +71,7 @@ pub fn render_in_area(
         Constraint::Length(input_height),    // Input (dynamic)
         Constraint::Length(1),               // Status bar
     ]);
-    let chunks = layout.split(area);
+    let chunks = layout.split(left_area);
 
     let (hit_areas, expand_hit_areas) = render_messages(frame, chunks[0], app, md_cache);
     if activity_height > 0 {
@@ -74,6 +82,9 @@ pub fn render_in_area(
     }
     render_input(frame, chunks[3], app);
     render_status_bar(frame, chunks[4], app);
+
+    // Render right panel (tool execution state)
+    render_main_loop_panel(frame, app, right_area);
 
     // Typeahead overlay (rendered above input area)
     if let Some(ta) = &app.typeahead {
@@ -1189,4 +1200,165 @@ fn truncate_content(content: &str, max_width: usize) -> String {
     } else {
         first_line.to_string()
     }
+}
+
+/// Get status icon and color for a tool's current status
+fn get_status_icon_and_color(status: &ToolStatus) -> (&'static str, Color) {
+    match status {
+        ToolStatus::Running => ("●", Color::Cyan),
+        ToolStatus::Completed(_) => ("✓", Color::Green),
+        ToolStatus::Failed(_) => ("✗", Color::Red),
+    }
+}
+
+/// Format elapsed time in a human-readable way
+fn format_elapsed_time(elapsed_ms: u64) -> String {
+    if elapsed_ms < 1000 {
+        format!("{}ms", elapsed_ms)
+    } else {
+        format!("{:.1}s", elapsed_ms as f64 / 1000.0)
+    }
+}
+
+/// Truncate a string to a maximum length with ellipsis
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() > max_len {
+        format!("{}...", &s[..max_len])
+    } else {
+        s.to_string()
+    }
+}
+
+/// Calculate tool nesting depth from parent IDs
+fn calculate_tool_depth(
+    tool_use_id: &str,
+    all_tools: &[crate::types::tool_state::ToolCallState],
+) -> usize {
+    let mut depth = 0;
+    let mut current_id = tool_use_id.to_string();
+
+    // Walk up the parent chain to count nesting levels
+    while let Some(tool) = all_tools
+        .iter()
+        .find(|t| t.tool_use_id == current_id)
+    {
+        if let Some(ref parent_id) = tool.parent_agent_id {
+            depth += 1;
+            current_id = parent_id.clone();
+        } else if let Some(ref parent_tool_id) = tool.parent_tool_use_id {
+            depth += 1;
+            current_id = parent_tool_id.clone();
+        } else {
+            break;
+        }
+    }
+
+    depth
+}
+
+/// Render the tool execution state panel (right side, 30% width)
+/// Shows real-time tracking of tool calls within the current main loop
+fn render_main_loop_panel(frame: &mut Frame, app: &App, area: Rect) {
+    // If no active main loop, show empty panel
+    if app.current_main_loop.is_none() {
+        let empty = Block::default()
+            .borders(Borders::ALL)
+            .title(" Tool State ")
+            .style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(Clear, area);
+        frame.render_widget(empty, area);
+        return;
+    }
+
+    let loop_state = app.current_main_loop.as_ref().unwrap();
+
+    // Build the display lines
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    // Header line showing loop status
+    let status_str = match loop_state.status {
+        MainLoopStatus::Active => "Active",
+        MainLoopStatus::Idle => "Idle",
+        MainLoopStatus::AwaitingHitl => "Awaiting Input",
+    };
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("Main Loop [{}]", status_str),
+            Style::default().fg(Color::Cyan).bold(),
+        ),
+    ]));
+    lines.push(Line::from("")); // blank line
+
+    // If no tools, show empty state
+    if loop_state.tools.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No tools yet...",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        // Tool lines
+        for tool in &loop_state.tools {
+            let depth = calculate_tool_depth(&tool.tool_use_id, &loop_state.tools);
+            let indent = "  ".repeat(depth);
+
+            let (icon, icon_color) = get_status_icon_and_color(&tool.status);
+
+            let elapsed = match &tool.status {
+                ToolStatus::Completed(ms) => format_elapsed_time(*ms),
+                ToolStatus::Running => {
+                    let elapsed = SystemTime::now()
+                        .duration_since(tool.created_at)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    format_elapsed_time(elapsed)
+                }
+                ToolStatus::Failed(_) => "failed".to_string(),
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw(indent.clone()),
+                Span::styled(icon, Style::default().fg(icon_color)),
+                Span::raw(format!(" {} ({})", tool.tool_name, elapsed)),
+            ]));
+
+            // Optional: Show params if present
+            if let Some(params) = &tool.params {
+                let params_str = format!("{}", params);
+                let truncated = truncate_str(&params_str, 45);
+                lines.push(Line::from(vec![
+                    Span::raw(format!("{}  ", indent)),
+                    Span::styled("params: ", Style::default().fg(Color::DarkGray)),
+                    Span::raw(truncated),
+                ]));
+            }
+
+            // Optional: Show result if present
+            if let Some(result) = &tool.result {
+                let truncated = truncate_str(&result.content, 45);
+                let result_color = match &tool.status {
+                    ToolStatus::Failed(_) => Color::Red,
+                    _ => Color::Gray,
+                };
+                lines.push(Line::from(vec![
+                    Span::raw(format!("{}  ", indent)),
+                    Span::styled("result: ", Style::default().fg(result_color)),
+                    Span::raw(truncated),
+                ]));
+            }
+        }
+    }
+
+    // Render as scrollable paragraph
+    let text = Text::from(lines);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Tool Execution State ")
+        .style(Style::default().fg(Color::DarkGray));
+
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(paragraph, area);
 }
