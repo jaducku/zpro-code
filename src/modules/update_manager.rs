@@ -42,7 +42,10 @@ impl UpdateManager {
             .await?;
 
         if !response.status().is_success() {
-            self.log_update("CHECK_FAILED", &format!("GitHub API error: {}", response.status()))?;
+            self.log_update(
+                "CHECK_FAILED",
+                &format!("GitHub API error: {}", response.status()),
+            )?;
             return Ok(None);
         }
 
@@ -71,9 +74,7 @@ impl UpdateManager {
             "DOWNLOAD",
             &format!(
                 "Downloading v{} from releases",
-                self.check_latest_version()
-                    .await?
-                    .unwrap_or_default()
+                self.check_latest_version().await?.unwrap_or_default()
             ),
         )?;
 
@@ -96,7 +97,7 @@ impl UpdateManager {
     }
 
     /// Log update status
-    fn log_update(&self, status: &str, details: &str) -> Result<()> {
+    pub fn log_update(&self, status: &str, details: &str) -> Result<()> {
         use std::fs::OpenOptions;
         use std::io::Write;
 
