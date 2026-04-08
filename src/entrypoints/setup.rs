@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::io::{self, Write};
 
-use crate::services::config::{AtomConfig, ProviderConfigJson};
+use crate::services::config::{AtomConfig, ModelConfig, ProviderAuth, ProviderConfig};
 
 /// Run first-time setup if no config exists.
 /// Returns true if setup was completed, false if skipped.
@@ -62,9 +61,7 @@ pub fn run_setup_if_needed() -> bool {
 }
 
 fn setup_openrouter() -> AtomConfig {
-    let mut providers = HashMap::new();
-    let mut models = HashMap::new();
-    let mut provider_models = Vec::new();
+    let mut models = Vec::new();
 
     eprintln!();
     eprintln!("  Get your API key at: https://openrouter.ai/keys");
@@ -121,9 +118,16 @@ fn setup_openrouter() -> AtomConfig {
             continue;
         }
 
-        provider_models.push(model_id.clone());
-        models.insert(alias.clone(), format!("openrouter:{}", model_id));
-        eprintln!("  ✓ {} → openrouter:{}", alias, model_id);
+        models.push(ModelConfig {
+            alias: alias.clone(),
+            id: model_id,
+            capabilities: vec![],
+            constraints: None,
+            params: None,
+            pricing: None,
+            fallback: vec![],
+        });
+        eprintln!("  ✓ {} registered", alias);
         eprintln!();
 
         if default_model.is_none() {
@@ -131,17 +135,16 @@ fn setup_openrouter() -> AtomConfig {
         }
     }
 
-    providers.insert(
-        "openrouter".to_string(),
-        ProviderConfigJson {
-            api_base: Some("https://openrouter.ai/api/v1".to_string()),
+    let provider = ProviderConfig {
+        name: "openrouter".to_string(),
+        auth: ProviderAuth {
+            api_base: "https://openrouter.ai/api/v1".to_string(),
             api_key: Some(api_key),
-            models: provider_models,
-            model_options: None,
         },
-    );
+        models,
+    };
 
-    if models.is_empty() {
+    if provider.models.is_empty() {
         eprintln!("  No models registered. Add them later in config.json");
     } else {
         eprintln!();
@@ -153,16 +156,13 @@ fn setup_openrouter() -> AtomConfig {
 
     AtomConfig {
         default_model,
-        providers: Some(providers),
-        models,
+        providers: vec![provider],
+        presets: vec![],
         ..Default::default()
     }
 }
 
 fn setup_custom() -> AtomConfig {
-    let mut providers = HashMap::new();
-    let mut models = HashMap::new();
-
     eprintln!();
     eprint!("  API base URL (e.g. http://localhost:11434/v1): ");
     io::stderr().flush().ok();
@@ -198,34 +198,39 @@ fn setup_custom() -> AtomConfig {
     io::stderr().flush().ok();
 
     let mut model = String::new();
-    let mut provider_models = Vec::new();
-    let default_model = if io::stdin().read_line(&mut model).is_ok() {
+    let (default_model, models) = if io::stdin().read_line(&mut model).is_ok() {
         let m = model.trim().to_string();
         if m.is_empty() {
-            None
+            (None, vec![])
         } else {
-            provider_models.push(m.clone());
-            models.insert("default".to_string(), format!("custom:{}", m));
-            Some("default".to_string())
+            let model_config = ModelConfig {
+                alias: "default".to_string(),
+                id: m,
+                capabilities: vec![],
+                constraints: None,
+                params: None,
+                pricing: None,
+                fallback: vec![],
+            };
+            (Some("default".to_string()), vec![model_config])
         }
     } else {
-        None
+        (None, vec![])
     };
 
-    providers.insert(
-        "custom".to_string(),
-        ProviderConfigJson {
-            api_base,
+    let provider = ProviderConfig {
+        name: "custom".to_string(),
+        auth: ProviderAuth {
+            api_base: api_base.unwrap_or_default(),
             api_key,
-            models: provider_models,
-            model_options: None,
         },
-    );
+        models,
+    };
 
     AtomConfig {
         default_model,
-        providers: Some(providers),
-        models,
+        providers: vec![provider],
+        presets: vec![],
         ..Default::default()
     }
 }

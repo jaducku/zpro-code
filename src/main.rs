@@ -611,11 +611,9 @@ async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
                 "default_model" => config.default_model.unwrap_or_default(),
                 "permission_mode" => config.permission_mode.unwrap_or_default(),
                 other => {
-                    // Check models map
+                    // Try to resolve as model alias
                     config
-                        .models
-                        .get(other)
-                        .cloned()
+                        .resolve_model(other)
                         .unwrap_or_else(|| format!("Unknown key: {}", other))
                 }
             };
@@ -633,9 +631,8 @@ async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
                 "default_model" => config.default_model = Some(value),
                 "permission_mode" => config.permission_mode = Some(value),
                 other => {
-                    // Treat as model alias
-                    config.models.insert(other.to_string(), value.clone());
-                    println!("Model alias '{}' set to '{}'", other, value);
+                    eprintln!("Error: Unknown config key '{}'. Edit config.json to manage providers and models.", other);
+                    std::process::exit(1);
                 }
             }
             config.save()?;
