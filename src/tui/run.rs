@@ -906,6 +906,9 @@ async fn dispatch_slash_command(
                         app.session_cost = 0.0;
                         app.response_token_count = 0;
 
+                        // Clear main loop state
+                        app.clear_main_loops();
+
                         // Reinitialize app_state for fresh session
                         let mut state = app_state.write().await;
                         // Generate new session ID for fresh context

@@ -904,6 +904,47 @@ impl App {
         }
     }
 
+    /// Create a new main loop when user sends a message
+    pub fn start_main_loop(&mut self) {
+        let loop_id = format!("loop_{}", uuid::Uuid::new_v4());
+        self.current_main_loop = Some(MainLoopState {
+            loop_id,
+            started_at: std::time::SystemTime::now(),
+            status: MainLoopStatus::Active,
+            tools: Vec::new(),
+        });
+        self.active_agents.clear();
+    }
+
+    /// Add tool to current main loop
+    pub fn add_tool_to_current_loop(&mut self, tool_state: crate::types::tool_state::ToolCallState) {
+        if let Some(ref mut loop_state) = self.current_main_loop {
+            loop_state.tools.push(tool_state);
+        }
+    }
+
+    /// Find and update tool state in current loop
+    pub fn update_tool_in_current_loop<F>(&mut self, tool_use_id: &str, updater: F)
+    where
+        F: FnOnce(&mut crate::types::tool_state::ToolCallState),
+    {
+        if let Some(ref mut loop_state) = self.current_main_loop {
+            if let Some(tool) = loop_state
+                .tools
+                .iter_mut()
+                .find(|t| t.tool_use_id == tool_use_id)
+            {
+                updater(tool);
+            }
+        }
+    }
+
+    /// Clear main loop state (on /clear command)
+    pub fn clear_main_loops(&mut self) {
+        self.current_main_loop = None;
+        self.active_agents.clear();
+    }
+
     /// Handle a query event (streaming update)
     pub fn handle_query_event(&mut self, event: QueryEvent) {
         // Auto-scroll to bottom on new content
@@ -975,13 +1016,25 @@ impl App {
                     id.clone(),
                     RunningToolInfo {
                         id: id.clone(),
-                        name,
+                        name: name.clone(),
                         input_summary: String::new(),
                         input_full: None,
                         start_time: Instant::now(),
                         parent_id: parent_agent_id.clone(),
                     },
                 );
+                // Add to current main loop
+                let tool_state = crate::types::tool_state::ToolCallState {
+                    tool_use_id: id.clone(),
+                    parent_agent_id: parent_agent_id.clone(),
+                    parent_tool_use_id: None,
+                    tool_name: name,
+                    status: crate::types::tool_state::ToolStatus::Running,
+                    created_at: std::time::SystemTime::now(),
+                    params: None,
+                    result: None,
+                };
+                self.add_tool_to_current_loop(tool_state);
                 // Track child tool IDs in parent Agent
                 if let Some(ref agent_id) = parent_agent_id {
                     for msg in &mut self.messages {
@@ -1027,10 +1080,26 @@ impl App {
                         name: tool_info.name,
                         input_summary: tool_info.input_summary,
                         input_full: tool_info.input_full,
-                        result: Some(result_text),
+                        result: Some(result_text.clone()),
                         is_error: result.is_error,
                         collapsed: true,
                         parent_id: tool_info.parent_id,
+                    });
+
+                    // Update tool in current main loop with result
+                    let result_text_clone = result_text.clone();
+                    let result_text_len = result_text_clone.len();
+                    let is_error = result.is_error;
+                    self.update_tool_in_current_loop(&id, |tool| {
+                        let elapsed = std::time::SystemTime::now()
+                            .duration_since(tool.created_at)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        tool.status = crate::types::tool_state::ToolStatus::Completed(elapsed);
+                        tool.result = Some(crate::types::tool_state::ToolResult {
+                            content: result_text_clone,
+                            full_content_available: is_error || result_text_len < 1000,
+                        });
                     });
                 }
             }
@@ -1118,6 +1187,11 @@ impl App {
                     tool_info.input_summary = summary;
                     tool_info.input_full = Some(full);
                 }
+                // Update tool in current main loop with params
+                let input_clone = input;
+                self.update_tool_in_current_loop(&id, |tool| {
+                    tool.params = Some(input_clone);
+                });
             }
             QueryEvent::AgentStart { agent_id, .. } => {
                 self.active_agents.insert(agent_id);
