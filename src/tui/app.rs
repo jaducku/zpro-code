@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -8,6 +9,7 @@ use crate::query::{PermissionReply, QueryEvent};
 use crate::services::file_index::FileIndex;
 use crate::services::session_transcript::SessionTranscript;
 use crate::types::message::{ApiMessage, Role};
+use crate::types::tool_state::{MainLoopState, MainLoopStatus, ToolStatus};
 
 /// State for a currently active TUI command overlay.
 pub struct ActiveCommand {
@@ -104,6 +106,11 @@ pub struct App {
     pub activity: ActivitySummary,
     /// Tools currently executing (not yet displayed in messages)
     pub running_tools: std::collections::HashMap<String, RunningToolInfo>,
+    /// Track active agents for idle detection
+    /// Populated on AgentStart, cleared on AgentCompleted/AgentFailed
+    pub active_agents: HashSet<String>,
+    /// Current main loop state (user input → all agents idle)
+    pub current_main_loop: Option<MainLoopState>,
     /// When the streaming response started (for elapsed timer)
     pub response_start_time: Option<Instant>,
     /// Output tokens in the current response
@@ -440,6 +447,8 @@ impl App {
             permission_mode_label: "auto".to_string(),
             activity: ActivitySummary::default(),
             running_tools: std::collections::HashMap::new(),
+            active_agents: HashSet::new(),
+            current_main_loop: None,
             response_start_time: None,
             response_token_count: 0,
             cumulative_output_tokens: 0,
@@ -871,6 +880,30 @@ impl App {
         "Thinking".into()
     }
 
+    /// Returns true if all agents are idle (no active agents)
+    pub fn all_agents_idle(&self) -> bool {
+        self.active_agents.is_empty()
+    }
+
+    /// Called when ResponseComplete fires to check if loop should transition to Idle
+    pub fn check_main_loop_idle(&mut self) {
+        let should_mark_idle = if let Some(ref loop_state) = self.current_main_loop {
+            self.all_agents_idle()
+                && loop_state
+                    .tools
+                    .iter()
+                    .all(|t| !matches!(t.status, ToolStatus::Running))
+        } else {
+            false
+        };
+
+        if should_mark_idle {
+            if let Some(ref mut loop_state) = self.current_main_loop {
+                loop_state.status = MainLoopStatus::Idle;
+            }
+        }
+    }
+
     /// Handle a query event (streaming update)
     pub fn handle_query_event(&mut self, event: QueryEvent) {
         // Auto-scroll to bottom on new content
@@ -1007,6 +1040,8 @@ impl App {
                 // is_loading is cleared by QueryCompleted (true end of query).
                 self.response_start_time = None;
                 self.response_token_count = 0;
+                // Check if main loop should transition to idle
+                self.check_main_loop_idle();
                 // Token estimation for display
                 if let Some(DisplayMessage::Text {
                     role: TextRole::Assistant,
@@ -1084,6 +1119,11 @@ impl App {
                     tool_info.input_full = Some(full);
                 }
             }
+            QueryEvent::AgentStart {
+                agent_id, ..
+            } => {
+                self.active_agents.insert(agent_id);
+            }
             QueryEvent::AgentCompleted {
                 agent_id,
                 agent_type,
@@ -1094,6 +1134,8 @@ impl App {
                 token_count,
                 duration_secs,
             } => {
+                self.active_agents.remove(&agent_id);
+                self.check_main_loop_idle();
                 self.push_message(DisplayMessage::Agent {
                     agent_id,
                     agent_type,
@@ -1108,6 +1150,27 @@ impl App {
                     tool_count,
                     token_count,
                     duration_secs,
+                    child_tool_ids: Vec::new(),
+                    visible_child_count: 3,
+                });
+            }
+            QueryEvent::AgentFailed {
+                agent_id,
+                agent_type,
+                error,
+            } => {
+                self.active_agents.remove(&agent_id);
+                self.check_main_loop_idle();
+                self.push_message(DisplayMessage::Agent {
+                    agent_id,
+                    agent_type,
+                    description: error,
+                    status: AgentStatus::Failed,
+                    result: None,
+                    collapsed: true,
+                    tool_count: 0,
+                    token_count: 0,
+                    duration_secs: 0,
                     child_tool_ids: Vec::new(),
                     visible_child_count: 3,
                 });

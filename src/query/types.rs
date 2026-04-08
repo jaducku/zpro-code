@@ -115,6 +115,11 @@ pub enum QueryEvent {
     },
     /// Error occurred
     Error(String),
+    /// Background agent started
+    AgentStart {
+        agent_id: String,
+        agent_type: String,
+    },
     /// Background agent completed or failed
     AgentCompleted {
         agent_id: String,
@@ -125,6 +130,12 @@ pub enum QueryEvent {
         tool_count: u32,
         token_count: u64,
         duration_secs: u64,
+    },
+    /// Background agent failed
+    AgentFailed {
+        agent_id: String,
+        agent_type: String,
+        error: String,
     },
     /// Query completed — carries the full message history (including tool_use/tool_result)
     /// so the TUI can sync api_messages for conversation continuity.

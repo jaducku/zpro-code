@@ -208,6 +208,12 @@ pub async fn run_print_mode(
             QueryEvent::Compacted { .. } => {}
             QueryEvent::QueryCancelled { .. } => {}
             QueryEvent::ThinkingDelta { .. } => {}
+            QueryEvent::AgentStart { agent_type, .. } => {
+                eprintln!("[agent] {} started", agent_type);
+            }
+            QueryEvent::AgentFailed { agent_type, error, .. } => {
+                eprintln!("[agent] {} failed: {}", agent_type, error);
+            }
         }
     }
 
