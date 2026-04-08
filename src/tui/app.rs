@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -918,7 +920,10 @@ impl App {
     }
 
     /// Add tool to current main loop
-    pub fn add_tool_to_current_loop(&mut self, tool_state: crate::types::tool_state::ToolCallState) {
+    pub fn add_tool_to_current_loop(
+        &mut self,
+        tool_state: crate::types::tool_state::ToolCallState,
+    ) {
         if let Some(ref mut loop_state) = self.current_main_loop {
             loop_state.tools.push(tool_state);
             emit_main_loop_state_updated(loop_state);
