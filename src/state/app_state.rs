@@ -131,8 +131,6 @@ pub struct AppState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_enabled: Option<bool>,
     #[serde(default)]
-    pub thinking_disabled: bool,
-    #[serde(default)]
     pub prompt_suggestion_enabled: bool,
 
     // Remote/Bridge
@@ -296,7 +294,6 @@ impl Default for AppState {
             kairos_enabled: false,
             fast_mode: false,
             thinking_enabled: None,
-            thinking_disabled: false,
             prompt_suggestion_enabled: false,
             remote_session_url: None,
             remote_connection_status: ConnectionStatus::Disconnected,
