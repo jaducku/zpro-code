@@ -444,6 +444,7 @@ fn render_conversation(
                 }
             }
             DisplayMessage::Agent {
+                agent_id,
                 description,
                 status,
                 result,
@@ -462,12 +463,17 @@ fn render_conversation(
                     AgentStatus::Failed => ("●", Style::default().fg(Color::Red)),
                 };
 
-                // Header: ● Agent(description)
+                // Header: ● [Subagent: agent_id] Agent(description)
                 let header_y = lines.len() as u16;
+                let subagent_label = format!("[Subagent: {}] ", agent_id);
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     Span::styled(icon, icon_style),
                     Span::raw(" "),
+                    Span::styled(
+                        subagent_label,
+                        Style::default().fg(Color::Blue),
+                    ),
                     Span::styled(
                         format!("Agent({})", description),
                         Style::default().fg(Color::White).bold(),
