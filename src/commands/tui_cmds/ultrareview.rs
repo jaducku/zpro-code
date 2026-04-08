@@ -56,12 +56,24 @@ impl TuiCommand for UltrareviewCommand {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled("  Ultra-detailed code review.", Style::default().fg(Color::White))),
-            Line::from(Span::styled("  Runs an exhaustive security, performance, and correctness analysis.", Style::default().fg(Color::White))),
+            Line::from(Span::styled(
+                "  Ultra-detailed code review.",
+                Style::default().fg(Color::White),
+            )),
+            Line::from(Span::styled(
+                "  Runs an exhaustive security, performance, and correctness analysis.",
+                Style::default().fg(Color::White),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  (Requires LLM connection)", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  (Requires LLM connection)",
+                Style::default().fg(Color::DarkGray),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

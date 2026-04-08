@@ -1,3 +1,4 @@
+use crate::services::compact::types::CompactResult;
 use serde::{Deserialize, Serialize};
 
 /// Auth/provider environments a command is available in.
@@ -87,12 +88,14 @@ impl Default for CommandResultDisplay {
 }
 
 /// Result of a local command execution.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum LocalCommandResult {
     /// Text output to display.
     Text { value: String },
-    /// Compact output (e.g. from compaction).
-    Compact { display_text: Option<String> },
+    /// Compact output with full result data.
+    Compact { result: CompactResult },
+    /// Conversation cleared with no summary.
+    Clear,
     /// No output to display.
     Skip,
 }

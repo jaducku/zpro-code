@@ -65,7 +65,10 @@ impl TuiCommand for PrivacySettingsCommand {
         let mut lines = vec![Line::from("")];
         for (name, value) in &state.settings {
             lines.push(Line::from(vec![
-                Span::styled(format!("  {:<24}", name), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("  {:<24}", name),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(value.clone(), Style::default().fg(Color::White)),
             ]));
         }

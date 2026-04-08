@@ -11,7 +11,11 @@ pub type MarkdownCache = HashMap<usize, (usize, Vec<Line<'static>>)>;
 
 // Logo is rendered with colors in render_welcome(), not as a static string
 
-pub fn render(frame: &mut Frame, app: &App, md_cache: &mut MarkdownCache) -> Vec<HitArea> {
+pub fn render(
+    frame: &mut Frame,
+    app: &App,
+    md_cache: &mut MarkdownCache,
+) -> (Vec<HitArea>, Vec<HitArea>) {
     render_in_area(frame, app, frame.area(), false, md_cache)
 }
 
@@ -26,54 +30,85 @@ pub fn compute_command_overlay_area(terminal_area: Rect, content_height: u16) ->
     let width = terminal_area.width;
     let x = terminal_area.x;
 
-    Rect { x, y, width, height }
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
-pub fn render_in_area(frame: &mut Frame, app: &App, area: Rect, _with_command: bool, md_cache: &mut MarkdownCache) -> Vec<HitArea> {
+pub fn render_in_area(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    _with_command: bool,
+    md_cache: &mut MarkdownCache,
+) -> (Vec<HitArea>, Vec<HitArea>) {
     let input_line_count = app.input.matches('\n').count() + 1;
     let max_input_height = (area.height / 3) as usize;
     let input_height = (input_line_count.clamp(1, max_input_height) + 2) as u16; // +2 for border
 
     let activity_height = compute_activity_height(app);
+    let todo_height = if app.todos.is_empty() {
+        0
+    } else {
+        app.todos.len().min(10) as u16 + if app.todos.len() > 10 { 1 } else { 0 }
+    };
 
     let layout = Layout::vertical([
-        Constraint::Min(1),                     // Messages area
-        Constraint::Length(activity_height),     // Activity bar (0 when idle)
-        Constraint::Length(input_height),        // Input (dynamic)
-        Constraint::Length(1),                   // Status bar
+        Constraint::Min(1),                  // Messages area
+        Constraint::Length(activity_height), // Activity bar (0 when idle)
+        Constraint::Length(todo_height),     // Todo list (0 when empty)
+        Constraint::Length(input_height),    // Input (dynamic)
+        Constraint::Length(1),               // Status bar
     ]);
     let chunks = layout.split(area);
 
-    let hit_areas = render_messages(frame, chunks[0], app, md_cache);
+    let (hit_areas, expand_hit_areas) = render_messages(frame, chunks[0], app, md_cache);
     if activity_height > 0 {
         render_activity(frame, chunks[1], app);
     }
-    render_input(frame, chunks[2], app);
-    render_status_bar(frame, chunks[3], app);
+    if todo_height > 0 {
+        render_todos(&app.todos, chunks[2], frame.buffer_mut());
+    }
+    render_input(frame, chunks[3], app);
+    render_status_bar(frame, chunks[4], app);
 
     // Typeahead overlay (rendered above input area)
     if let Some(ta) = &app.typeahead {
-        render_typeahead(frame, chunks[2], ta);
+        render_typeahead(frame, chunks[3], ta);
     }
 
-    hit_areas
+    (hit_areas, expand_hit_areas)
 }
 
-fn render_messages(frame: &mut Frame, area: Rect, app: &App, md_cache: &mut MarkdownCache) -> Vec<HitArea> {
+fn render_messages(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    md_cache: &mut MarkdownCache,
+) -> (Vec<HitArea>, Vec<HitArea>) {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Show logo if no conversation yet (only system messages)
-    let has_conversation = app.messages.iter().any(|m| matches!(m,
-        DisplayMessage::Text { role: TextRole::User | TextRole::Assistant, .. }
-        | DisplayMessage::ToolCall { .. }
-        | DisplayMessage::Agent { .. }
-    ));
+    let has_conversation = app.messages.iter().any(|m| {
+        matches!(
+            m,
+            DisplayMessage::Text {
+                role: TextRole::User | TextRole::Assistant,
+                ..
+            } | DisplayMessage::ToolCall { .. }
+                | DisplayMessage::Agent { .. }
+        )
+    });
 
     let mut hit_areas = Vec::new();
+    let mut expand_hit_areas = Vec::new();
     if !has_conversation {
         render_welcome(&mut lines, app, area.width);
     } else {
-        hit_areas = render_conversation(&mut lines, app, area.width, md_cache);
+        (hit_areas, expand_hit_areas) = render_conversation(&mut lines, app, area.width, md_cache);
     }
 
     // Scroll logic: scroll_offset 0 = bottom (auto-scroll), higher = further up
@@ -93,6 +128,16 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App, md_cache: &mut Mark
         }
     }
 
+    // Convert expand_hit_area y values from line-index to screen-y
+    for ha in &mut expand_hit_areas {
+        let line_idx = ha.y as usize;
+        if line_idx >= skip && line_idx < skip + visible_height {
+            ha.y = area.y + (line_idx - skip) as u16;
+        } else {
+            ha.y = u16::MAX; // off-screen
+        }
+    }
+
     // Clear the message area first to prevent ghost text from previous frames.
     frame.render_widget(Clear, area);
     let paragraph = Paragraph::new(lines).scroll((skip as u16, 0));
@@ -100,8 +145,8 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App, md_cache: &mut Mark
 
     // Scrollbar — only shown when content overflows
     if max_scroll > 0 {
-        let mut scrollbar_state = ScrollbarState::new(max_scroll)
-            .position(max_scroll.saturating_sub(effective_offset));
+        let mut scrollbar_state =
+            ScrollbarState::new(max_scroll).position(max_scroll.saturating_sub(effective_offset));
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .thumb_symbol("┃")
             .track_symbol(Some("│"))
@@ -110,7 +155,7 @@ fn render_messages(frame: &mut Frame, area: Rect, app: &App, md_cache: &mut Mark
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
 
-    hit_areas
+    (hit_areas, expand_hit_areas)
 }
 
 fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
@@ -125,12 +170,30 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
 
     // ZPRO-CODE block logo — left aligned, color gradient
     let logo: &[(&str, usize)] = &[
-        ("███████╗██████╗ ██████╗  ██████╗        ██████╗ ██████╗ ██████╗ ███████╗", 0),
-        ("╚══███╔╝██╔══██╗██╔══██╗██╔═══██╗      ██╔════╝██╔═══██╗██╔══██╗██╔════╝", 0),
-        ("  ███╔╝ ██████╔╝██████╔╝██║   ██║█████╗██║     ██║   ██║██║  ██║█████╗  ", 1),
-        (" ███╔╝  ██╔═══╝ ██╔══██╗██║   ██║╚════╝██║     ██║   ██║██║  ██║██╔══╝  ", 2),
-        ("███████╗██║     ██║  ██║╚██████╔╝      ╚██████╗╚██████╔╝██████╔╝███████╗", 2),
-        ("╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝       ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝", 3),
+        (
+            "███████╗██████╗ ██████╗  ██████╗        ██████╗ ██████╗ ██████╗ ███████╗",
+            0,
+        ),
+        (
+            "╚══███╔╝██╔══██╗██╔══██╗██╔═══██╗      ██╔════╝██╔═══██╗██╔══██╗██╔════╝",
+            0,
+        ),
+        (
+            "  ███╔╝ ██████╔╝██████╔╝██║   ██║█████╗██║     ██║   ██║██║  ██║█████╗  ",
+            1,
+        ),
+        (
+            " ███╔╝  ██╔═══╝ ██╔══██╗██║   ██║╚════╝██║     ██║   ██║██║  ██║██╔══╝  ",
+            2,
+        ),
+        (
+            "███████╗██║     ██║  ██║╚██████╔╝      ╚██████╗╚██████╔╝██████╔╝███████╗",
+            2,
+        ),
+        (
+            "╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝       ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝",
+            3,
+        ),
     ];
 
     for (text, color_offset) in logo {
@@ -150,7 +213,10 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
             format!("v{}  ", env!("CARGO_PKG_VERSION")),
             Style::default().fg(Color::DarkGray),
         ),
-        Span::styled("open LLM coding agent", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "open LLM coding agent",
+            Style::default().fg(Color::DarkGray),
+        ),
     ]));
 
     lines.push(Line::from(""));
@@ -174,79 +240,33 @@ fn render_welcome(lines: &mut Vec<Line<'static>>, app: &App, _width: u16) {
 
     lines.push(Line::from(vec![
         Span::raw(m),
-        Span::styled("Enter: send  |  Ctrl+C: quit", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "Enter: send  |  Ctrl+C: quit",
+            Style::default().fg(Color::DarkGray),
+        ),
     ]));
 }
 
-fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16, md_cache: &mut MarkdownCache) -> Vec<HitArea> {
+fn render_conversation(
+    lines: &mut Vec<Line<'static>>,
+    app: &App,
+    _width: u16,
+    md_cache: &mut MarkdownCache,
+) -> (Vec<HitArea>, Vec<HitArea>) {
     let mut hit_areas = Vec::new();
-    // Pre-scan: identify runs of consecutive completed ToolCalls for grouping
-    let mut grouped: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    {
-        let mut i = 0;
-        while i < app.messages.len() {
-            let run_start = i;
-            while i < app.messages.len() {
-                if let DisplayMessage::ToolCall { name, result, .. } = &app.messages[i] {
-                    if name != "AskUserQuestion" && result.is_some() {
-                        i += 1;
-                        continue;
-                    }
-                }
-                break;
-            }
-            if i - run_start >= 2 {
-                for j in run_start..i { grouped.insert(j); }
-            }
-            if i == run_start { i += 1; }
-        }
-    }
-
-    let mut skip_until: Option<usize> = None;
+    let mut expand_hit_areas = Vec::new();
 
     for (msg_idx, msg) in app.messages.iter().enumerate() {
-        if let Some(end) = skip_until {
-            if msg_idx < end { continue; }
-            skip_until = None;
-        }
-
-        // Grouped run → single summary line with per-tool-type counts
-        if grouped.contains(&msg_idx) {
-            let mut run_end = msg_idx;
-            while run_end < app.messages.len() && grouped.contains(&run_end) { run_end += 1; }
-
-            // Count per tool type
-            let mut counts: Vec<(&str, usize)> = Vec::new();
-            for m in &app.messages[msg_idx..run_end] {
-                if let DisplayMessage::ToolCall { name, .. } = m {
-                    if let Some(entry) = counts.iter_mut().find(|(n, _)| *n == name.as_str()) {
-                        entry.1 += 1;
-                    } else {
-                        counts.push((name.as_str(), 1));
-                    }
-                }
-            }
-            let summary: String = counts.iter()
-                .map(|(name, count)| if *count > 1 { format!("{} ×{}", name, count) } else { name.to_string() })
-                .collect::<Vec<_>>()
-                .join(" · ");
-            let total = run_end - msg_idx;
-
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled("●", Style::default().fg(Color::Green)),
-                Span::raw(" "),
-                Span::styled(format!("{} tool uses", total), Style::default().fg(Color::DarkGray)),
-                Span::styled(" · ", Style::default().fg(Color::DarkGray)),
-                Span::styled(summary, Style::default().fg(Color::DarkGray)),
-            ]));
-            skip_until = Some(run_end);
-            continue;
-        }
 
         match msg {
-            DisplayMessage::Text { role: TextRole::System, .. } => {}
-            DisplayMessage::Text { role: TextRole::User, content } => {
+            DisplayMessage::Text {
+                role: TextRole::System,
+                ..
+            } => {}
+            DisplayMessage::Text {
+                role: TextRole::User,
+                content,
+            } => {
                 lines.push(Line::from(""));
                 let first = content.lines().next().unwrap_or("").to_string();
                 lines.push(Line::from(vec![
@@ -257,43 +277,58 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16, m
                     lines.push(Line::from(format!("   {}", line)));
                 }
             }
-            DisplayMessage::Text { role: TextRole::Assistant, content } => {
+            DisplayMessage::Text {
+                role: TextRole::Assistant,
+                content,
+            } => {
                 lines.push(Line::from(""));
                 let len = content.len();
-                let cached = md_cache.entry(msg_idx)
+                let cached = md_cache
+                    .entry(msg_idx)
                     .and_modify(|e| {
                         if e.0 != len {
                             e.0 = len;
                             e.1 = crate::tui::markdown::parse_markdown(content);
                         }
                     })
-                    .or_insert_with(|| {
-                        (len, crate::tui::markdown::parse_markdown(content))
-                    });
+                    .or_insert_with(|| (len, crate::tui::markdown::parse_markdown(content)));
                 for line in &cached.1 {
                     let mut prefixed: Vec<Span<'static>> = vec![Span::raw("  ")];
                     prefixed.extend(line.spans.clone());
                     lines.push(Line::from(prefixed));
                 }
             }
-            DisplayMessage::ToolCall { name, input_summary, result, is_error, collapsed, .. } => {
+            DisplayMessage::ToolCall {
+                name,
+                input_summary,
+                input_full,
+                result,
+                is_error,
+                collapsed,
+                parent_id,
+                ..
+            } => {
                 // AskUserQuestion is displayed via Question input UI, not as a ToolCall badge
                 if name == "AskUserQuestion" {
                     continue;
                 }
 
-                // Running tools are shown via activity summary, not individually
-                if result.is_none() {
+                // Child tools are rendered inside their parent Agent block
+                if parent_id.is_some() {
                     continue;
                 }
 
-                // Completed state: ToolName(summary)
-                let header_y = lines.len() as u16;
-                let header_text = if input_summary.is_empty() {
+                // Build header text: prefer input_full when available
+                let args = input_full.as_deref().unwrap_or(input_summary.as_str());
+                let header_text = if args.is_empty() {
                     name.clone()
                 } else {
-                    format!("{}({})", name, input_summary)
+                    format!("{}({})", name, args)
                 };
+
+                let header_y = lines.len() as u16;
+
+                // Completed state (result is always Some now)
                 let header_style = if *is_error {
                     Style::default().fg(Color::Red).bold()
                 } else {
@@ -303,37 +338,130 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16, m
                     Span::raw("  "),
                     Span::styled(header_text, header_style),
                 ]));
-                hit_areas.push(HitArea { y: header_y, message_idx: msg_idx });
+                hit_areas.push(HitArea {
+                    y: header_y,
+                    message_idx: msg_idx,
+                });
 
-                // Result lines — white text with ⎿ prefix
-                if !collapsed {
+                // Result lines — show only if not collapsed
+                if !*collapsed {
                     if let Some(ref result_text) = result {
                         if !result_text.is_empty() {
                             let result_lines: Vec<&str> = result_text.lines().collect();
-                            let max_preview = 20;
+                            let max_preview = 3;
                             let show_count = result_lines.len().min(max_preview);
                             for line_text in &result_lines[..show_count] {
                                 lines.push(Line::from(vec![
-                                    Span::styled("    ⎿ ", Style::default().fg(Color::DarkGray)),
+                                    Span::styled(
+                                        "    ⎿ ",
+                                        Style::default().fg(Color::DarkGray),
+                                    ),
                                     Span::raw(line_text.to_string()),
                                 ]));
                             }
                             if result_lines.len() > max_preview {
+                                let expand_y = lines.len() as u16;
                                 lines.push(Line::from(Span::styled(
-                                    format!("      (+{} lines)", result_lines.len() - max_preview),
+                                    format!(
+                                        "    ... +{} lines (ctrl+o to expand)",
+                                        result_lines.len() - max_preview
+                                    ),
                                     Style::default().fg(Color::DarkGray),
                                 )));
+                                expand_hit_areas.push(HitArea {
+                                    y: expand_y,
+                                    message_idx: msg_idx,
+                                });
                             }
                         }
                     }
                 }
             }
-            DisplayMessage::Agent { description, status, result, collapsed, tool_count, token_count, duration_secs, .. } => {
+            DisplayMessage::Thinking {
+                content,
+                token_count,
+                is_complete,
+                collapsed,
+            } => {
+                let token_str = format_tokens(*token_count);
+
+                if !is_complete {
+                    // In progress: spinner
+                    let spinners = ['◐', '◓', '◑', '◒'];
+                    let elapsed = app
+                        .query_start_time
+                        .map(|t| t.elapsed())
+                        .unwrap_or_default();
+                    let spinner = spinners[(elapsed.as_millis() / 200) as usize % spinners.len()];
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("{} ", spinner), Style::default().fg(Color::Yellow)),
+                        Span::styled("Thinking… ", Style::default().fg(Color::Yellow)),
+                        Span::styled(
+                            format!("({})", token_str),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                } else if *collapsed {
+                    // Completed, collapsed (clickable)
+                    let header_y = lines.len() as u16;
+                    lines.push(Line::from(vec![
+                        Span::styled("● ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("Thinking ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("({})", token_str),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                    hit_areas.push(HitArea {
+                        y: header_y,
+                        message_idx: msg_idx,
+                    });
+                } else {
+                    // Completed, expanded
+                    let header_y = lines.len() as u16;
+                    lines.push(Line::from(vec![
+                        Span::styled("▼ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("Thinking ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("({})", token_str),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                    hit_areas.push(HitArea {
+                        y: header_y,
+                        message_idx: msg_idx,
+                    });
+                    // Content lines (max 20)
+                    for line in content.lines().take(20) {
+                        lines.push(Line::from(vec![
+                            Span::styled("  │ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)),
+                        ]));
+                    }
+                    let total_lines = content.lines().count();
+                    if total_lines > 20 {
+                        lines.push(Line::from(Span::styled(
+                            format!("  │ ... {} more lines", total_lines - 20),
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                    }
+                }
+            }
+            DisplayMessage::Agent {
+                description,
+                status,
+                result,
+                collapsed,
+                tool_count,
+                token_count,
+                duration_secs,
+                child_tool_ids,
+                visible_child_count,
+                ..
+            } => {
                 // Status icon — matches original Claude Code style
                 let (icon, icon_style) = match status {
-                    AgentStatus::Running => {
-                        ("●", Style::default().fg(Color::Green))
-                    }
+                    AgentStatus::Running => ("●", Style::default().fg(Color::Green)),
                     AgentStatus::Completed => ("●", Style::default().fg(Color::Green)),
                     AgentStatus::Failed => ("●", Style::default().fg(Color::Red)),
                 };
@@ -350,11 +478,109 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16, m
                     ),
                 ]));
 
-                hit_areas.push(HitArea { y: header_y, message_idx: msg_idx });
+                hit_areas.push(HitArea {
+                    y: header_y,
+                    message_idx: msg_idx,
+                });
+
+                // Render child tools inline (when not collapsed)
+                if !collapsed && !child_tool_ids.is_empty() {
+                    let show_count = (*visible_child_count).min(child_tool_ids.len());
+                    let remaining = child_tool_ids.len().saturating_sub(show_count);
+
+                    for (ci, child_id) in child_tool_ids.iter().take(show_count).enumerate() {
+                        let is_last_visible = ci + 1 == show_count && remaining == 0;
+                        let branch = if is_last_visible { "└─" } else { "├─" };
+
+                        // Find the child ToolCall in app.messages
+                        let child_msg = app.messages.iter().find(
+                            |m| matches!(m, DisplayMessage::ToolCall { id, .. } if id == child_id),
+                        );
+
+                        if let Some(DisplayMessage::ToolCall {
+                            name,
+                            input_summary,
+                            input_full,
+                            result,
+                            ..
+                        }) = child_msg
+                        {
+                            let args = input_full.as_deref().unwrap_or(input_summary.as_str());
+                            let child_header = if args.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{}({})", name, args)
+                            };
+
+                            lines.push(Line::from(vec![
+                                Span::raw("  "),
+                                Span::styled(
+                                    format!("{} ", branch),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                                Span::styled(name.clone(), Style::default().bold()),
+                                Span::styled(
+                                    if args.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!("({})", args)
+                                    },
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                            ]));
+                            let _ = child_header; // used above via name/args directly
+
+                            if result.is_none() {
+                                // Running child tool
+                                lines.push(Line::from(vec![
+                                    Span::raw("  │    "),
+                                    Span::styled(
+                                        "Running...",
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::ITALIC),
+                                    ),
+                                ]));
+                            } else if let Some(ref result_text) = result {
+                                // Completed child — show first result line only
+                                if let Some(first_line) = result_text.lines().next() {
+                                    if !first_line.is_empty() {
+                                        lines.push(Line::from(vec![
+                                            Span::styled(
+                                                "  │  ⎿ ",
+                                                Style::default().fg(Color::DarkGray),
+                                            ),
+                                            Span::styled(
+                                                first_line.to_string(),
+                                                Style::default().fg(Color::DarkGray),
+                                            ),
+                                        ]));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if remaining > 0 {
+                        let expand_y = lines.len() as u16;
+                        lines.push(Line::from(Span::styled(
+                            format!("  +{} more tool uses (ctrl+o to expand)", remaining),
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                        expand_hit_areas.push(HitArea {
+                            y: expand_y,
+                            message_idx: msg_idx,
+                        });
+                    }
+                }
 
                 // Stats line: └ Done (N tool uses · Xk tokens · Ys)
                 if *status != AgentStatus::Running {
-                    let status_text = if *status == AgentStatus::Completed { "Done" } else { "Failed" };
+                    let status_text = if *status == AgentStatus::Completed {
+                        "Done"
+                    } else {
+                        "Failed"
+                    };
                     let token_display = if *token_count >= 1000 {
                         format!("{:.1}k", *token_count as f64 / 1000.0)
                     } else {
@@ -364,8 +590,10 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16, m
                         Span::raw("    "),
                         Span::styled("└ ", Style::default().fg(Color::DarkGray)),
                         Span::styled(
-                            format!("{} ({} tool uses · {} tokens · {}s)",
-                                status_text, tool_count, token_display, duration_secs),
+                            format!(
+                                "{} ({} tool uses · {} tokens · {}s)",
+                                status_text, tool_count, token_display, duration_secs
+                            ),
                             Style::default().fg(Color::DarkGray),
                         ),
                     ]));
@@ -380,7 +608,10 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16, m
                         for line_text in &result_lines[..show_count] {
                             lines.push(Line::from(vec![
                                 Span::styled("    │ ", Style::default().fg(Color::DarkGray)),
-                                Span::styled(line_text.to_string(), Style::default().fg(Color::DarkGray)),
+                                Span::styled(
+                                    line_text.to_string(),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
                             ]));
                         }
                         if result_lines.len() > max_preview {
@@ -395,37 +626,56 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, app: &App, _width: u16, m
         }
     }
 
-    hit_areas
+    (hit_areas, expand_hit_areas)
 }
 
 /// Compute the height needed for the fixed activity bar above the input.
 fn compute_activity_height(app: &App) -> u16 {
-    if app.is_loading { 1 } else { 0 }
+    if app.is_loading {
+        1
+    } else {
+        0
+    }
+}
+
+fn format_tokens(tokens: u64) -> String {
+    if tokens >= 1_000 {
+        format!("{:.1}k tokens", tokens as f64 / 1000.0)
+    } else {
+        format!("{} tokens", tokens)
+    }
 }
 
 /// Render the fixed activity bar: Thinking (reasoning) or Working (tools running).
 fn render_activity(frame: &mut Frame, area: Rect, app: &App) {
     let elapsed_ms = app.start_time.elapsed().as_millis() as usize;
     let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spinner = spinner_frames[(elapsed_ms / 80) % spinner_frames.len()];
+    let frame_idx = (elapsed_ms / 80) % spinner_frames.len();
+    let spinner = spinner_frames[frame_idx];
 
-    let elapsed = app.query_start_time
+    let elapsed = app
+        .query_start_time
         .map(|s| crate::tui::app::format_elapsed(s))
         .unwrap_or_default();
-    let tokens = crate::tui::app::format_token_count_short(app.response_token_count);
 
-    let (label, color) = if app.activity.total_active() > 0 {
-        ("Working", Color::Cyan)
+    let label = app.activity_label();
+
+    let color = if app.activity.total_active() > 0 {
+        Color::Cyan
     } else if app.response_start_time.is_some() {
-        ("Working", Color::Green)
+        Color::Green
     } else {
-        ("Thinking", Color::Yellow)
+        Color::Yellow
     };
 
-    let status = if app.response_token_count > 0 {
-        format!("{}… ({} · ↑ {} tokens)", label, elapsed, tokens)
-    } else if !elapsed.is_empty() {
-        format!("{}… ({})", label, elapsed)
+    let token_str = if app.cumulative_output_tokens > 0 {
+        format!(" · ↓ {}", format_tokens(app.cumulative_output_tokens))
+    } else {
+        String::new()
+    };
+
+    let status = if !elapsed.is_empty() {
+        format!("{}… ({}{})", label, elapsed, token_str)
     } else {
         format!("{}…", label)
     };
@@ -437,24 +687,74 @@ fn render_activity(frame: &mut Frame, area: Rect, app: &App) {
         Span::styled(status, Style::default().fg(color)),
     ]);
 
+    frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(vec![line]), area);
+}
+
+fn render_todos(todos: &[crate::state::app_state::TodoItem], area: Rect, buf: &mut Buffer) {
+    use crate::state::app_state::TodoStatus;
+
+    if todos.is_empty() {
+        return;
+    }
+
+    let max_display = todos.len().min(10);
+    for (i, todo) in todos.iter().take(max_display).enumerate() {
+        let is_last = i == max_display - 1 && todos.len() <= 10;
+        let prefix = if is_last { "  └" } else { "  ├" };
+        let (icon, icon_color) = match todo.status {
+            TodoStatus::InProgress => ("■", Color::Yellow),
+            TodoStatus::Pending => ("□", Color::DarkGray),
+            TodoStatus::Completed => ("✓", Color::Green),
+        };
+        let text_color = if todo.status == TodoStatus::Completed {
+            Color::DarkGray
+        } else {
+            Color::White
+        };
+        let line = Line::from(vec![
+            Span::styled(format!("{} ", prefix), Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{} ", icon), Style::default().fg(icon_color)),
+            Span::styled(todo.content.clone(), Style::default().fg(text_color)),
+        ]);
+        buf.set_line(area.x, area.y + i as u16, &line, area.width);
+    }
+
+    if todos.len() > 10 {
+        let remaining = todos.len() - 10;
+        let line = Line::from(Span::styled(
+            format!("  └ +{} more tasks", remaining),
+            Style::default().fg(Color::DarkGray),
+        ));
+        buf.set_line(area.x, area.y + 10, &line, area.width);
+    }
 }
 
 fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     use super::app::InputMode;
 
     match &app.input_mode {
-        InputMode::Permission { tool_name, description, .. } => {
+        InputMode::Permission {
+            tool_name,
+            description,
+            ..
+        } => {
             let border_style = Style::default().fg(Color::Yellow);
             let title = format!(" {} ", tool_name);
             let input_block = Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
-                .title(Span::styled(title, Style::default().fg(Color::Yellow).bold()));
+                .title(Span::styled(
+                    title,
+                    Style::default().fg(Color::Yellow).bold(),
+                ));
 
             let desc_line = Line::from(Span::styled(
-                format!(" {}", truncate_content(description, area.width.saturating_sub(4) as usize)),
+                format!(
+                    " {}",
+                    truncate_content(description, area.width.saturating_sub(4) as usize)
+                ),
                 Style::default().fg(Color::White),
             ));
             let keys_line = Line::from(vec![
@@ -470,7 +770,9 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             let needed_height: u16 = 4; // border + desc + keys + border
             let expanded_area = Rect {
                 x: area.x,
-                y: area.y.saturating_sub(needed_height.saturating_sub(area.height)),
+                y: area
+                    .y
+                    .saturating_sub(needed_height.saturating_sub(area.height)),
                 width: area.width,
                 height: needed_height.max(area.height),
             };
@@ -479,14 +781,21 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             let input_text = Paragraph::new(vec![desc_line, keys_line]).block(input_block);
             frame.render_widget(input_text, expanded_area);
         }
-        InputMode::Question { question, options, selected, text_input, .. } => {
+        InputMode::Question {
+            question,
+            options,
+            selected,
+            text_input,
+            ..
+        } => {
             let border_style = Style::default().fg(Color::Blue);
             let title = if question.is_empty() {
                 " Question ".to_string()
             } else {
                 let max_title = (area.width as usize).saturating_sub(4);
                 let q = if question.chars().count() > max_title {
-                    let truncated: String = question.chars().take(max_title.saturating_sub(1)).collect();
+                    let truncated: String =
+                        question.chars().take(max_title.saturating_sub(1)).collect();
                     format!("{}…", truncated)
                 } else {
                     question.clone()
@@ -543,7 +852,9 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 let needed_height = (content_lines.len() as u16) + 2; // +2 for borders
                 let expanded_area = Rect {
                     x: area.x,
-                    y: area.y.saturating_sub(needed_height.saturating_sub(area.height)),
+                    y: area
+                        .y
+                        .saturating_sub(needed_height.saturating_sub(area.height)),
                     width: area.width,
                     height: needed_height.max(area.height),
                 };
@@ -553,7 +864,11 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 frame.render_widget(input_text, expanded_area);
             }
         }
-        InputMode::ExitConfirm { worktree_name, uncommitted_count, selected } => {
+        InputMode::ExitConfirm {
+            worktree_name,
+            uncommitted_count,
+            selected,
+        } => {
             let border_style = Style::default().fg(Color::Red);
             let title = " Exit Confirmation ";
             let input_block = Block::default()
@@ -595,18 +910,25 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             let needed_height: u16 = 5; // border + info + options + help + border
             let expanded_area = Rect {
                 x: area.x,
-                y: area.y.saturating_sub(needed_height.saturating_sub(area.height)),
+                y: area
+                    .y
+                    .saturating_sub(needed_height.saturating_sub(area.height)),
                 width: area.width,
                 height: needed_height.max(area.height),
             };
 
             frame.render_widget(Clear, expanded_area);
-            let content = Paragraph::new(vec![info_line, options_line, help_line]).block(input_block);
+            let content =
+                Paragraph::new(vec![info_line, options_line, help_line]).block(input_block);
             frame.render_widget(content, expanded_area);
         }
         InputMode::Normal => {
             // Border color and title reflect current state
-            let border_color = if app.is_loading { Color::Yellow } else { Color::Cyan };
+            let border_color = if app.is_loading {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            };
             let border_style = Style::default().fg(border_color);
             let title_span = Span::styled(" > ", Style::default().fg(border_color).bold());
 
@@ -625,7 +947,9 @@ fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             // Always show cursor — user can type while loading (input queued)
             {
                 let (row, col) = crate::tui::app::cursor_row_col(&app.input, app.cursor_pos);
-                let display_col: u16 = app.input.chars()
+                let display_col: u16 = app
+                    .input
+                    .chars()
                     .skip(app.cursor_pos - col)
                     .take(col)
                     .map(|c| if c.is_ascii() { 1u16 } else { 2u16 })
@@ -740,9 +1064,9 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     spans.push(pad);
     spans.push(right_span);
 
+    frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
-
 
 fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::TypeaheadState) {
     use super::app::TypeaheadKind;
@@ -795,7 +1119,11 @@ fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::Typeah
             let name_fg = match &ta.kind {
                 TypeaheadKind::Command => Color::Green,
                 TypeaheadKind::FileMention { .. } => {
-                    if name.ends_with('/') { Color::Blue } else { Color::Yellow }
+                    if name.ends_with('/') {
+                        Color::Blue
+                    } else {
+                        Color::Yellow
+                    }
                 }
             };
 
@@ -818,7 +1146,11 @@ fn render_typeahead(frame: &mut Frame, input_area: Rect, ta: &super::app::Typeah
             let icon = match &ta.kind {
                 TypeaheadKind::Command => "",
                 TypeaheadKind::FileMention { .. } => {
-                    if name.ends_with('/') { "[d] " } else { "[f] " }
+                    if name.ends_with('/') {
+                        "[d] "
+                    } else {
+                        "[f] "
+                    }
                 }
             };
 
@@ -856,4 +1188,3 @@ fn truncate_content(content: &str, max_width: usize) -> String {
         first_line.to_string()
     }
 }
-

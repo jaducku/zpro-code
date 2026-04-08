@@ -15,6 +15,17 @@ pub struct ActiveCommand {
     pub state: Box<dyn std::any::Any + Send>,
 }
 
+/// Tracks a tool that is currently executing (not yet in messages)
+#[derive(Debug, Clone)]
+pub struct RunningToolInfo {
+    pub id: String,
+    pub name: String,
+    pub input_summary: String,
+    pub input_full: Option<String>,
+    pub start_time: Instant,
+    pub parent_id: Option<String>,
+}
+
 /// Application state
 pub struct App {
     /// Unique session identifier
@@ -75,6 +86,8 @@ pub struct App {
     pub needs_redraw: bool,
     /// Hit areas for mouse click detection on collapsible messages
     pub hit_areas: Vec<HitArea>,
+    /// Hit areas for mouse click detection on "+N more" expand lines
+    pub expand_hit_areas: Vec<HitArea>,
     /// Active query's abort signal (Some only while query is running)
     pub active_abort_signal: Option<crate::utils::abort_signal::AbortSignal>,
     /// Ctrl+C double-press detection timer
@@ -89,10 +102,16 @@ pub struct App {
     pub permission_mode_label: String,
     /// Aggregated activity summary for running tools
     pub activity: ActivitySummary,
+    /// Tools currently executing (not yet displayed in messages)
+    pub running_tools: std::collections::HashMap<String, RunningToolInfo>,
     /// When the streaming response started (for elapsed timer)
     pub response_start_time: Option<Instant>,
     /// Output tokens in the current response
     pub response_token_count: u64,
+    /// Cumulative output tokens across all responses in the current query
+    pub cumulative_output_tokens: u64,
+    /// Current todo list (synced from AppState before each render)
+    pub todos: Vec<crate::state::app_state::TodoItem>,
 }
 
 /// What kind of typeahead is active
@@ -130,12 +149,15 @@ pub enum DisplayMessage {
         id: String,
         name: String,
         input_summary: String,
+        input_full: Option<String>,
         result: Option<String>,
         is_error: bool,
         collapsed: bool,
+        parent_id: Option<String>,
     },
     Agent {
         agent_id: String,
+        agent_type: String,
         description: String,
         status: AgentStatus,
         result: Option<String>,
@@ -143,6 +165,14 @@ pub enum DisplayMessage {
         tool_count: u32,
         token_count: u64,
         duration_secs: u64,
+        child_tool_ids: Vec<String>,
+        visible_child_count: usize,
+    },
+    Thinking {
+        content: String,
+        token_count: u64,
+        is_complete: bool,
+        collapsed: bool,
     },
 }
 
@@ -203,20 +233,37 @@ impl ActivitySummary {
     }
 
     pub fn total_active(&self) -> u32 {
-        self.read_count + self.search_count + self.edit_count +
-        self.command_count + self.agent_count + self.skill_count + self.other_count
+        self.read_count
+            + self.search_count
+            + self.edit_count
+            + self.command_count
+            + self.agent_count
+            + self.skill_count
+            + self.other_count
     }
 
     pub fn format_summary(&self) -> String {
         let mut parts = Vec::new();
         if self.search_count > 0 {
-            parts.push(format!("searching for {} pattern{}", self.search_count, if self.search_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "searching for {} pattern{}",
+                self.search_count,
+                if self.search_count > 1 { "s" } else { "" }
+            ));
         }
         if self.read_count > 0 {
-            parts.push(format!("reading {} file{}", self.read_count, if self.read_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "reading {} file{}",
+                self.read_count,
+                if self.read_count > 1 { "s" } else { "" }
+            ));
         }
         if self.edit_count > 0 {
-            parts.push(format!("editing {} file{}", self.edit_count, if self.edit_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "editing {} file{}",
+                self.edit_count,
+                if self.edit_count > 1 { "s" } else { "" }
+            ));
         }
         if self.command_count > 0 {
             parts.push("running command".to_string());
@@ -228,7 +275,11 @@ impl ActivitySummary {
             parts.push("loading skill".to_string());
         }
         if self.other_count > 0 {
-            parts.push(format!("{} tool{}", self.other_count, if self.other_count > 1 { "s" } else { "" }));
+            parts.push(format!(
+                "{} tool{}",
+                self.other_count,
+                if self.other_count > 1 { "s" } else { "" }
+            ));
         }
         if parts.is_empty() {
             "Working".to_string()
@@ -308,7 +359,7 @@ pub enum InputMode {
     },
     /// User question prompt inline
     Question {
-        question: String, // the question text from the tool
+        question: String,                       // the question text from the tool
         options: Vec<(String, Option<String>)>, // (label, description)
         selected: usize,
         text_input: String,
@@ -325,12 +376,10 @@ pub enum InputMode {
 impl App {
     pub fn new(model: String, command_registry: Arc<CommandRegistry>) -> Self {
         let has_provider = model != "(no provider)";
-        let mut messages = vec![
-            DisplayMessage::Text {
-                role: TextRole::System,
-                content: format!("zpro-code v{}", env!("CARGO_PKG_VERSION")),
-            },
-        ];
+        let mut messages = vec![DisplayMessage::Text {
+            role: TextRole::System,
+            content: format!("zpro-code v{}", env!("CARGO_PKG_VERSION")),
+        }];
 
         if has_provider {
             messages.push(DisplayMessage::Text {
@@ -379,6 +428,7 @@ impl App {
             loading_label: None,
             needs_redraw: false,
             hit_areas: Vec::new(),
+            expand_hit_areas: Vec::new(),
             active_abort_signal: None,
             last_ctrl_c_press: None,
             last_ctrl_d_press: None,
@@ -389,8 +439,11 @@ impl App {
             context_window: 0,
             permission_mode_label: "auto".to_string(),
             activity: ActivitySummary::default(),
+            running_tools: std::collections::HashMap::new(),
             response_start_time: None,
             response_token_count: 0,
+            cumulative_output_tokens: 0,
+            todos: Vec::new(),
         }
     }
 
@@ -489,10 +542,8 @@ impl App {
                     let lines: Vec<&str> = self.input.split('\n').collect();
                     let prev_line_len = lines[row - 1].chars().count();
                     let target_col = col.min(prev_line_len);
-                    let chars_before_prev_line: usize = lines[..row - 1]
-                        .iter()
-                        .map(|l| l.chars().count() + 1)
-                        .sum();
+                    let chars_before_prev_line: usize =
+                        lines[..row - 1].iter().map(|l| l.chars().count() + 1).sum();
                     self.cursor_pos = chars_before_prev_line + target_col;
                 }
             }
@@ -508,10 +559,8 @@ impl App {
                 } else {
                     let next_line_len = lines[row + 1].chars().count();
                     let target_col = col.min(next_line_len);
-                    let chars_before_next_line: usize = lines[..row + 1]
-                        .iter()
-                        .map(|l| l.chars().count() + 1)
-                        .sum();
+                    let chars_before_next_line: usize =
+                        lines[..row + 1].iter().map(|l| l.chars().count() + 1).sum();
                     self.cursor_pos = chars_before_next_line + target_col;
                 }
             }
@@ -522,7 +571,9 @@ impl App {
                 self.scroll_offset = self.scroll_offset.saturating_sub(20);
             }
             KeyCode::Enter => {
-                if key.modifiers.contains(KeyModifiers::ALT) || key.modifiers.contains(KeyModifiers::SHIFT) {
+                if key.modifiers.contains(KeyModifiers::ALT)
+                    || key.modifiers.contains(KeyModifiers::SHIFT)
+                {
                     let byte_pos = char_to_byte_pos(&self.input, self.cursor_pos);
                     self.input.insert(byte_pos, '\n');
                     self.cursor_pos += 1;
@@ -592,9 +643,7 @@ impl App {
                     false
                 }
             })
-            .map(|cmd| {
-                (cmd.name().to_string(), cmd.meta().description.to_string())
-            })
+            .map(|cmd| (cmd.name().to_string(), cmd.meta().description.to_string()))
             .collect();
 
         items.sort_by(|a, b| a.0.cmp(&b.0));
@@ -720,7 +769,9 @@ impl App {
     fn mark_pending_tools_cancelled(&mut self) {
         for msg in &mut self.messages {
             match msg {
-                DisplayMessage::ToolCall { result, is_error, .. } if result.is_none() => {
+                DisplayMessage::ToolCall {
+                    result, is_error, ..
+                } if result.is_none() => {
                     *result = Some("[cancelled]".into());
                     *is_error = true;
                 }
@@ -791,17 +842,87 @@ impl App {
             .collect()
     }
 
+    /// Determine the current activity label for the status bar.
+    pub fn activity_label(&self) -> String {
+        // 1. Custom loading label
+        if let Some(ref label) = self.loading_label {
+            return label.clone();
+        }
+        // 2. Active agent description
+        for msg in self.messages.iter().rev() {
+            if let DisplayMessage::Agent {
+                description,
+                status: AgentStatus::Running,
+                ..
+            } = msg
+            {
+                return description.clone();
+            }
+        }
+        // 3. Active tools summary
+        if self.activity.total_active() > 0 {
+            return self.activity.format_summary();
+        }
+        // 4. LLM streaming
+        if self.response_start_time.is_some() {
+            return "Responding".into();
+        }
+        // 5. Default
+        "Thinking".into()
+    }
+
     /// Handle a query event (streaming update)
     pub fn handle_query_event(&mut self, event: QueryEvent) {
         // Auto-scroll to bottom on new content
         self.scroll_offset = 0;
 
         match event {
+            QueryEvent::ThinkingDelta { text } => {
+                let found = self.messages.iter_mut().rev().find(|m| {
+                    matches!(
+                        m,
+                        DisplayMessage::Thinking {
+                            is_complete: false,
+                            ..
+                        }
+                    )
+                });
+                if let Some(DisplayMessage::Thinking {
+                    content,
+                    token_count,
+                    ..
+                }) = found
+                {
+                    content.push_str(&text);
+                    *token_count = (content.len() as u64) / 4;
+                } else {
+                    let tc = (text.len() as u64) / 4;
+                    self.messages.push(DisplayMessage::Thinking {
+                        content: text,
+                        token_count: tc,
+                        is_complete: false,
+                        collapsed: true,
+                    });
+                }
+            }
             QueryEvent::TextDelta(text) => {
                 if self.response_start_time.is_none() {
                     self.response_start_time = Some(Instant::now());
                 }
-                if let Some(DisplayMessage::Text { role: TextRole::Assistant, content }) = self.messages.last_mut() {
+                // Mark any open thinking as complete
+                for msg in self.messages.iter_mut().rev() {
+                    if let DisplayMessage::Thinking { is_complete, .. } = msg {
+                        if !*is_complete {
+                            *is_complete = true;
+                        }
+                        break;
+                    }
+                }
+                if let Some(DisplayMessage::Text {
+                    role: TextRole::Assistant,
+                    content,
+                }) = self.messages.last_mut()
+                {
                     content.push_str(&text);
                     return;
                 }
@@ -810,28 +931,68 @@ impl App {
                     content: text,
                 });
             }
-            QueryEvent::ToolCallStart { id, name } => {
+            QueryEvent::ToolCallStart {
+                id,
+                name,
+                parent_agent_id,
+            } => {
                 self.activity.add(&id, &name);
-                self.messages.push(DisplayMessage::ToolCall {
-                    id,
+                // Store in running_tools, NOT in messages
+                self.running_tools.insert(id.clone(), RunningToolInfo {
+                    id: id.clone(),
                     name,
                     input_summary: String::new(),
-                    result: None,
-                    is_error: false,
-                    collapsed: true,
+                    input_full: None,
+                    start_time: Instant::now(),
+                    parent_id: parent_agent_id.clone(),
                 });
+                // Track child tool IDs in parent Agent
+                if let Some(ref agent_id) = parent_agent_id {
+                    for msg in &mut self.messages {
+                        if let DisplayMessage::Agent {
+                            agent_id: aid,
+                            child_tool_ids,
+                            ..
+                        } = msg
+                        {
+                            if aid == agent_id {
+                                child_tool_ids.push(id.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
             }
             QueryEvent::ToolCallComplete { id, result } => {
                 self.activity.remove(&id);
-                // Reverse scan to find the matching ToolCall by id
-                for msg in self.messages.iter_mut().rev() {
-                    if let DisplayMessage::ToolCall { id: msg_id, result: ref mut msg_result, is_error: ref mut msg_is_error, .. } = msg {
-                        if *msg_id == id {
-                            *msg_result = Some(result.content);
-                            *msg_is_error = result.is_error;
-                            break;
-                        }
-                    }
+
+                // Get info from running_tools
+                if let Some(tool_info) = self.running_tools.remove(&id) {
+                    // Use content_blocks if available (parsed), else use raw content
+                    let result_text = if let Some(ref blocks) = result.content_blocks {
+                        // Convert ContentBlocks to readable text
+                        blocks.iter()
+                            .filter_map(|block| match block {
+                                crate::types::content::ContentBlock::Text { text } => Some(text.clone()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    } else {
+                        result.content.clone()
+                    };
+
+                    // Add completed tool to messages
+                    self.messages.push(DisplayMessage::ToolCall {
+                        id: id.clone(),
+                        name: tool_info.name,
+                        input_summary: tool_info.input_summary,
+                        input_full: tool_info.input_full,
+                        result: Some(result_text),
+                        is_error: result.is_error,
+                        collapsed: true,
+                        parent_id: tool_info.parent_id,
+                    });
                 }
             }
             QueryEvent::ResponseComplete { .. } => {
@@ -841,9 +1002,14 @@ impl App {
                 self.response_start_time = None;
                 self.response_token_count = 0;
                 // Token estimation for display
-                if let Some(DisplayMessage::Text { role: TextRole::Assistant, content }) = self.messages.last() {
+                if let Some(DisplayMessage::Text {
+                    role: TextRole::Assistant,
+                    content,
+                }) = self.messages.last()
+                {
                     if self.token_count == 0 {
-                        self.token_count = crate::services::token_estimation::estimate_tokens(content);
+                        self.token_count =
+                            crate::services::token_estimation::estimate_tokens(content);
                     }
                 }
             }
@@ -853,12 +1019,33 @@ impl App {
                 self.activity = ActivitySummary::default();
                 self.response_start_time = None;
                 self.response_token_count = 0;
-                self.query_start_time = None;
+                self.cumulative_output_tokens = 0;
+
+                // Clear any remaining running tools (shouldn't normally happen)
+                self.running_tools.clear();
+
+                // Mark any pending tools as done
                 self.mark_pending_tools_done();
+
+                // Mark remaining open thinking as complete
+                for msg in self.messages.iter_mut() {
+                    if let DisplayMessage::Thinking { is_complete, .. } = msg {
+                        *is_complete = true;
+                    }
+                }
+                // Remove empty thinking messages
+                self.messages.retain(|m| {
+                    !matches!(m, DisplayMessage::Thinking { content, .. } if content.is_empty())
+                });
+                self.query_start_time = None;
             }
-            QueryEvent::Usage { input_tokens, output_tokens } => {
+            QueryEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
                 self.token_count += input_tokens + output_tokens;
                 self.response_token_count += output_tokens;
+                self.cumulative_output_tokens += output_tokens;
                 // Simple cost estimate: ~$0.01 per 1K tokens (rough average)
                 self.session_cost += (input_tokens + output_tokens) as f64 * 0.00001;
             }
@@ -874,6 +1061,8 @@ impl App {
                     content: format!("Error: {}", msg),
                 });
                 self.is_loading = false;
+                self.loading_label = None;
+                self.needs_redraw = true;
                 self.activity = ActivitySummary::default();
                 self.response_start_time = None;
                 self.response_token_count = 0;
@@ -881,37 +1070,58 @@ impl App {
             }
             QueryEvent::ToolCallInputReady { id, input, name } => {
                 let summary = crate::tui::tool_summary::tool_input_summary(&name, &input);
+                let full = crate::tui::tool_summary::tool_input_full(&name, &input);
                 self.activity.last_detail = summary.clone();
-                // Find the ToolCall by id (reverse scan — it's near the end)
-                for msg in self.messages.iter_mut().rev() {
-                    if let DisplayMessage::ToolCall { id: ref msg_id, ref mut input_summary, .. } = msg {
-                        if *msg_id == id {
-                            *input_summary = summary;
-                            break;
-                        }
-                    }
+                // Update running_tools with input details
+                if let Some(tool_info) = self.running_tools.get_mut(&id) {
+                    tool_info.input_summary = summary;
+                    tool_info.input_full = Some(full);
                 }
             }
-            QueryEvent::AgentCompleted { agent_id, description, result, is_error, tool_count, token_count, duration_secs } => {
+            QueryEvent::AgentCompleted {
+                agent_id,
+                agent_type,
+                description,
+                result,
+                is_error,
+                tool_count,
+                token_count,
+                duration_secs,
+            } => {
                 self.push_message(DisplayMessage::Agent {
                     agent_id,
+                    agent_type,
                     description,
-                    status: if is_error { AgentStatus::Failed } else { AgentStatus::Completed },
+                    status: if is_error {
+                        AgentStatus::Failed
+                    } else {
+                        AgentStatus::Completed
+                    },
                     result,
                     collapsed: true,
                     tool_count,
                     token_count,
                     duration_secs,
+                    child_tool_ids: Vec::new(),
+                    visible_child_count: 3,
                 });
             }
-            QueryEvent::Compacted { stage, tokens_freed } => {
+            QueryEvent::Compacted {
+                stage,
+                tokens_freed,
+            } => {
                 self.messages.push(DisplayMessage::Text {
                     role: TextRole::System,
-                    content: format!("[Context compacted ({}): ~{}K tokens freed]",
-                        stage, tokens_freed / 1000),
+                    content: format!(
+                        "[Context compacted ({}): ~{}K tokens freed]",
+                        stage,
+                        tokens_freed / 1000
+                    ),
                 });
             }
-            QueryEvent::QueryCancelled { partial_messages, .. } => {
+            QueryEvent::QueryCancelled {
+                partial_messages, ..
+            } => {
                 self.api_messages = partial_messages;
                 self.is_loading = false;
                 self.activity = ActivitySummary::default();
@@ -929,7 +1139,11 @@ impl App {
 pub fn cursor_row_col(input: &str, cursor_pos: usize) -> (usize, usize) {
     let before_cursor: String = input.chars().take(cursor_pos).collect();
     let row = before_cursor.matches('\n').count();
-    let col = before_cursor.chars().rev().take_while(|c| *c != '\n').count();
+    let col = before_cursor
+        .chars()
+        .rev()
+        .take_while(|c| *c != '\n')
+        .count();
     (row, col)
 }
 
@@ -972,9 +1186,7 @@ fn find_at_token(input: &str, cursor_pos: usize) -> Option<(usize, String)> {
         stripped[..end].to_string()
     } else {
         // Unquoted: take until whitespace
-        let end = after_at
-            .find(char::is_whitespace)
-            .unwrap_or(after_at.len());
+        let end = after_at.find(char::is_whitespace).unwrap_or(after_at.len());
         after_at[..end].to_string()
     };
 
@@ -1000,9 +1212,7 @@ fn at_token_len(s: &str) -> usize {
             })
             .unwrap_or(after_at.len() + 1)
     } else {
-        1 + after_at
-            .find(char::is_whitespace)
-            .unwrap_or(after_at.len())
+        1 + after_at.find(char::is_whitespace).unwrap_or(after_at.len())
     }
 }
 

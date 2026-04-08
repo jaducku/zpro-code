@@ -114,9 +114,10 @@ impl Tool for ReadMcpResourceTool {
         // Read the resource
         let contents = {
             let mut client = client_arc.lock().await;
-            client.read_resource(uri).await.map_err(|e| {
-                tool_err(format!("Failed to read resource \"{}\": {}", uri, e))
-            })?
+            client
+                .read_resource(uri)
+                .await
+                .map_err(|e| tool_err(format!("Failed to read resource \"{}\": {}", uri, e)))?
         };
 
         let session_id = ctx.app_state.read().await.session_id.clone();
@@ -140,12 +141,8 @@ impl Tool for ReadMcpResourceTool {
                 use base64::Engine;
                 match base64::engine::general_purpose::STANDARD.decode(blob_b64) {
                     Ok(data) => {
-                        match persist_binary_content(
-                            &session_id,
-                            c.mime_type.as_deref(),
-                            &data,
-                            i,
-                        ) {
+                        match persist_binary_content(&session_id, c.mime_type.as_deref(), &data, i)
+                        {
                             Ok(path) => {
                                 entry["blobSavedTo"] =
                                     serde_json::Value::String(path.display().to_string());
@@ -230,7 +227,10 @@ mod tests {
         assert_eq!(mime_type_to_extension(Some("application/pdf")), "pdf");
         assert_eq!(mime_type_to_extension(Some("text/plain")), "txt");
         assert_eq!(mime_type_to_extension(None), "bin");
-        assert_eq!(mime_type_to_extension(Some("application/octet-stream")), "bin");
+        assert_eq!(
+            mime_type_to_extension(Some("application/octet-stream")),
+            "bin"
+        );
     }
 
     #[tokio::test]
@@ -256,10 +256,12 @@ mod tests {
             "uri": "file:///test"
         }));
         let result = ReadMcpResourceTool.execute(ctx).await;
-        assert!(result.is_err() || {
-            // With no mcp_manager, the "No MCP servers" error fires first
-            true
-        });
+        assert!(
+            result.is_err() || {
+                // With no mcp_manager, the "No MCP servers" error fires first
+                true
+            }
+        );
     }
 
     #[tokio::test]
@@ -268,9 +270,11 @@ mod tests {
             "server": "test"
         }));
         let result = ReadMcpResourceTool.execute(ctx).await;
-        assert!(result.is_err() || {
-            // With no mcp_manager, the "No MCP servers" error fires first
-            true
-        });
+        assert!(
+            result.is_err() || {
+                // With no mcp_manager, the "No MCP servers" error fires first
+                true
+            }
+        );
     }
 }

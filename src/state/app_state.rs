@@ -1,9 +1,16 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use crate::types::permissions::ToolPermissionContext;
 use crate::utils::abort_signal::AbortSignal;
 use crate::utils::settings::SettingsJson;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+/// Agent configuration (user-settable).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentConfig {
+    #[serde(default)]
+    pub builtin_models: crate::services::agents::BuiltinModels,
+}
 
 /// Background task (shell, agent) — runtime only, not serialized
 #[derive(Debug)]
@@ -40,11 +47,19 @@ pub enum BackgroundTaskStatus {
     Stopped,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TodoItem {
     pub id: String,
     pub content: String,
-    pub completed: bool,
+    pub status: TodoStatus,
 }
 
 /// A completed background agent result pending injection into next query
@@ -100,8 +115,6 @@ pub struct AppState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_enabled: Option<bool>,
     #[serde(default)]
-    pub thinking_disabled: bool,
-    #[serde(default)]
     pub prompt_suggestion_enabled: bool,
 
     // Remote/Bridge
@@ -146,6 +159,12 @@ pub struct AppState {
     /// V1 legacy todo list
     #[serde(default)]
     pub todos: Vec<TodoItem>,
+    /// Agent configuration (builtin model overrides, etc.)
+    #[serde(default)]
+    pub agent_config: AgentConfig,
+    /// Agent registry — runtime only, not serialized
+    #[serde(skip)]
+    pub agent_registry: crate::services::agents::AgentRegistry,
 
     // Speculation
     #[serde(default)]
@@ -259,7 +278,6 @@ impl Default for AppState {
             kairos_enabled: false,
             fast_mode: false,
             thinking_enabled: None,
-            thinking_disabled: false,
             prompt_suggestion_enabled: false,
             remote_session_url: None,
             remote_connection_status: ConnectionStatus::Disconnected,
@@ -292,6 +310,13 @@ impl Default for AppState {
             advisor_model: None,
             initial_message: None,
             active_overlays: Vec::new(),
+            agent_config: AgentConfig::default(),
+            agent_registry: {
+                let builtin_models = &AgentConfig::default().builtin_models;
+                crate::services::agents::AgentRegistry::with_builtins(
+                    crate::services::agents::builtin_agents(builtin_models),
+                )
+            },
         }
     }
 }

@@ -85,10 +85,12 @@ impl Tool for BriefTool {
         let status = match status_str {
             "normal" => BriefStatus::Normal,
             "proactive" => BriefStatus::Proactive,
-            other => return Err(tool_err(format!(
-                "Invalid status '{}': must be 'normal' or 'proactive'",
-                other
-            ))),
+            other => {
+                return Err(tool_err(format!(
+                    "Invalid status '{}': must be 'normal' or 'proactive'",
+                    other
+                )))
+            }
         };
 
         // Resolve attachments
@@ -242,7 +244,11 @@ mod tests {
         let result = BriefTool.execute(ctx).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("message"), "Error should mention 'message': {}", err);
+        assert!(
+            err.contains("message"),
+            "Error should mention 'message': {}",
+            err
+        );
     }
 
     #[tokio::test]
@@ -253,7 +259,11 @@ mod tests {
         let result = BriefTool.execute(ctx).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("status"), "Error should mention 'status': {}", err);
+        assert!(
+            err.contains("status"),
+            "Error should mention 'status': {}",
+            err
+        );
     }
 
     #[tokio::test]
@@ -265,7 +275,11 @@ mod tests {
         let result = BriefTool.execute(ctx).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("invalid"), "Error should mention invalid status: {}", err);
+        assert!(
+            err.contains("invalid"),
+            "Error should mention invalid status: {}",
+            err
+        );
     }
 
     #[tokio::test]
@@ -277,11 +291,17 @@ mod tests {
         }));
 
         let result = BriefTool.execute(ctx).await.unwrap();
-        assert!(!result.is_error, "Tool should succeed even with missing attachment");
+        assert!(
+            !result.is_error,
+            "Tool should succeed even with missing attachment"
+        );
 
         let parsed: serde_json::Value = serde_json::from_str(&result.content).unwrap();
         let attachments = parsed["attachments"].as_array().unwrap();
         assert_eq!(attachments.len(), 1);
-        assert!(attachments[0].get("error").is_some(), "Missing file should have error info");
+        assert!(
+            attachments[0].get("error").is_some(),
+            "Missing file should have error info"
+        );
     }
 }

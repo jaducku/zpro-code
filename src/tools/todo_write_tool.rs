@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 use crate::state::TodoItem;
 use crate::tool::{Tool, ToolResult, ToolUseContext};
+use crate::types::permissions::PermissionMeta;
 use crate::types::AtomError;
 
 pub struct TodoWriteTool;
@@ -20,7 +21,7 @@ impl Tool for TodoWriteTool {
     }
 
     fn description(&self) -> &str {
-        "Update the session todo list."
+        "Update the task list shown to the user. Use this to track progress on multi-step tasks. Send the complete list each time — this replaces the existing list."
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -32,11 +33,15 @@ impl Tool for TodoWriteTool {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id": { "type": "string" },
-                            "content": { "type": "string" },
-                            "completed": { "type": "boolean" }
+                            "id": { "type": "string", "description": "Unique identifier for the task" },
+                            "content": { "type": "string", "description": "Task description" },
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "completed"],
+                                "description": "Task status"
+                            }
                         },
-                        "required": ["id", "content", "completed"]
+                        "required": ["id", "content", "status"]
                     }
                 }
             },
@@ -45,58 +50,30 @@ impl Tool for TodoWriteTool {
     }
 
     async fn execute(&self, ctx: ToolUseContext) -> crate::types::Result<ToolResult> {
-        let old_todos = ctx.app_state.read().await.todos.clone();
-
-        let todos_json = ctx
+        let todos_value = ctx
             .input
             .get("todos")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| tool_err("Missing 'todos' parameter"))?;
+            .ok_or_else(|| tool_err("Missing 'todos' field"))?;
 
-        let mut new_todos: Vec<TodoItem> = Vec::with_capacity(todos_json.len());
-        for (i, item) in todos_json.iter().enumerate() {
-            let id = item
-                .get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| tool_err(format!("todos[{}]: missing 'id'", i)))?
-                .to_string();
-            let content = item
-                .get("content")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| tool_err(format!("todos[{}]: missing 'content'", i)))?
-                .to_string();
-            let completed = item
-                .get("completed")
-                .and_then(|v| v.as_bool())
-                .ok_or_else(|| tool_err(format!("todos[{}]: missing 'completed'", i)))?;
-            new_todos.push(TodoItem { id, content, completed });
-        }
+        let todos: Vec<TodoItem> = serde_json::from_value(todos_value.clone())
+            .map_err(|e| tool_err(format!("Invalid todos format: {}", e)))?;
 
-        // If all todos are completed, clear the list
-        if !new_todos.is_empty() && new_todos.iter().all(|t| t.completed) {
-            new_todos = Vec::new();
-        }
-
-        ctx.app_state.write().await.todos = new_todos.clone();
-
-        let result = serde_json::json!({
-            "oldTodos": old_todos.iter().map(|t| serde_json::json!({
-                "id": t.id,
-                "content": t.content,
-                "completed": t.completed,
-            })).collect::<Vec<_>>(),
-            "newTodos": new_todos.iter().map(|t| serde_json::json!({
-                "id": t.id,
-                "content": t.content,
-                "completed": t.completed,
-            })).collect::<Vec<_>>(),
-        });
+        let count = todos.len();
+        ctx.app_state.write().await.todos = todos;
 
         Ok(ToolResult {
-            content: result.to_string(),
+            content: format!("{} tasks updated", count),
             is_error: false,
             content_blocks: None,
         })
+    }
+
+    fn permission_metadata(&self, _input: &serde_json::Value) -> PermissionMeta {
+        PermissionMeta {
+            file_path: None,
+            command: None,
+            url: None,
+        }
     }
 
     fn is_read_only(&self) -> bool {
@@ -107,6 +84,36 @@ impl Tool for TodoWriteTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::TodoStatus;
+    use serde_json::json;
+
+    #[test]
+    fn test_todo_status_deserialize() {
+        let item: TodoItem = serde_json::from_value(json!({
+            "id": "1",
+            "content": "Test task",
+            "status": "in_progress"
+        }))
+        .unwrap();
+        assert_eq!(item.status, TodoStatus::InProgress);
+    }
+
+    #[test]
+    fn test_todo_status_all_variants() {
+        for (s, expected) in [
+            ("pending", TodoStatus::Pending),
+            ("in_progress", TodoStatus::InProgress),
+            ("completed", TodoStatus::Completed),
+        ] {
+            let item: TodoItem = serde_json::from_value(json!({
+                "id": "1",
+                "content": "t",
+                "status": s
+            }))
+            .unwrap();
+            assert_eq!(item.status, expected);
+        }
+    }
 
     #[test]
     fn test_name() {
@@ -114,11 +121,21 @@ mod tests {
     }
 
     #[test]
-    fn test_schema() {
+    fn test_schema_structure() {
         let schema = TodoWriteTool.input_schema();
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["todos"].is_object());
         assert_eq!(schema["required"][0], "todos");
+        let status_enum = &schema["properties"]["todos"]["items"]["properties"]["status"]["enum"];
+        assert!(status_enum.as_array().unwrap().contains(&json!("pending")));
+        assert!(status_enum
+            .as_array()
+            .unwrap()
+            .contains(&json!("in_progress")));
+        assert!(status_enum
+            .as_array()
+            .unwrap()
+            .contains(&json!("completed")));
     }
 
     #[tokio::test]
@@ -127,5 +144,24 @@ mod tests {
         let ctx = ToolUseContext::test(serde_json::json!({}));
         let result = tool.execute(ctx).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_execute_updates_state() {
+        let tool = TodoWriteTool;
+        let ctx = ToolUseContext::test(json!({
+            "todos": [
+                { "id": "1", "content": "First task", "status": "pending" },
+                { "id": "2", "content": "Active task", "status": "in_progress" }
+            ]
+        }));
+        let state = ctx.app_state.clone();
+        let result = tool.execute(ctx).await.unwrap();
+        assert!(!result.is_error);
+        assert_eq!(result.content, "2 tasks updated");
+        let todos = &state.read().await.todos;
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0].status, TodoStatus::Pending);
+        assert_eq!(todos[1].status, TodoStatus::InProgress);
     }
 }

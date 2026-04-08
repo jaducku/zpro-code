@@ -42,14 +42,15 @@ impl LocalCommand for CostCommand {
         let usage = &state.token_usage;
         let cost = state.session_cost;
         let total_tokens = usage.input_tokens + usage.output_tokens;
-        let cache_info = if usage.cache_read_input_tokens > 0 || usage.cache_creation_input_tokens > 0 {
-            format!(
-                " | Cache: {} read, {} created",
-                usage.cache_read_input_tokens, usage.cache_creation_input_tokens
-            )
-        } else {
-            String::new()
-        };
+        let cache_info =
+            if usage.cache_read_input_tokens > 0 || usage.cache_creation_input_tokens > 0 {
+                format!(
+                    " | Cache: {} read, {} created",
+                    usage.cache_read_input_tokens, usage.cache_creation_input_tokens
+                )
+            } else {
+                String::new()
+            };
         Ok(LocalCommandResult::Text {
             value: format!(
                 "Session cost: ${:.4} | Tokens: {} in / {} out ({} total){}",

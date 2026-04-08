@@ -12,6 +12,21 @@ pub struct ProviderConfigJson {
     /// Available models on this provider (for documentation/discovery).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<String>,
+    /// Per-model options (keyed by model ID).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_options: Option<HashMap<String, ModelOptionsJson>>,
+}
+
+/// Per-model configuration within a provider.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelOptionsJson {
+    /// Enable reasoning/thinking extraction. When true, sends `reasoning: {}`
+    /// to providers like OpenRouter so they parse model-specific thinking tags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    /// Reasoning effort level: "high", "medium", "low"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 fn is_empty_map<K, V>(m: &HashMap<K, V>) -> bool {
@@ -33,7 +48,6 @@ pub struct AtomConfig {
     pub models: HashMap<String, String>,
 
     // --- Legacy fields (backward compat, hidden when empty) ---
-
     /// Legacy v1: flat provider name
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
@@ -86,13 +100,23 @@ impl AtomConfig {
                     "google/gemini-2.5-flash-preview-04-17".to_string(),
                     "google/gemma-3-27b-it:free".to_string(),
                 ],
+                model_options: None,
             },
         );
 
         let mut models = HashMap::new();
-        models.insert("sonnet".into(), "openrouter:anthropic/claude-sonnet-4-20250514".into());
-        models.insert("flash".into(), "openrouter:google/gemini-2.5-flash-preview-04-17".into());
-        models.insert("free".into(), "openrouter:google/gemma-3-27b-it:free".into());
+        models.insert(
+            "sonnet".into(),
+            "openrouter:anthropic/claude-sonnet-4-20250514".into(),
+        );
+        models.insert(
+            "flash".into(),
+            "openrouter:google/gemini-2.5-flash-preview-04-17".into(),
+        );
+        models.insert(
+            "free".into(),
+            "openrouter:google/gemma-3-27b-it:free".into(),
+        );
 
         let config = AtomConfig {
             default_model: Some("free".to_string()),
@@ -153,8 +177,14 @@ mod tests {
     #[test]
     fn test_resolve_model_alias() {
         let mut config = AtomConfig::default();
-        config.models.insert("fast".into(), "openrouter:google/gemma-3-27b-it:free".into());
-        assert_eq!(config.resolve_model("fast"), "openrouter:google/gemma-3-27b-it:free");
+        config.models.insert(
+            "fast".into(),
+            "openrouter:google/gemma-3-27b-it:free".into(),
+        );
+        assert_eq!(
+            config.resolve_model("fast"),
+            "openrouter:google/gemma-3-27b-it:free"
+        );
         assert_eq!(config.resolve_model("unknown"), "unknown");
     }
 
@@ -194,8 +224,14 @@ mod tests {
         assert_eq!(providers["local-mlx"].models.len(), 1);
 
         assert_eq!(config.models.len(), 3);
-        assert_eq!(config.models["sonnet"], "openrouter:anthropic/claude-sonnet-4-20250514");
-        assert_eq!(config.models["qwen"], "local-mlx:mlx-community/Qwen2.5-Coder-7B-Instruct-4bit");
+        assert_eq!(
+            config.models["sonnet"],
+            "openrouter:anthropic/claude-sonnet-4-20250514"
+        );
+        assert_eq!(
+            config.models["qwen"],
+            "local-mlx:mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+        );
 
         assert_eq!(
             config.resolve_model("sonnet"),

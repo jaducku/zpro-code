@@ -57,7 +57,9 @@ impl Tool for AgentTool {
         // Enforce max nesting depth
         if ctx.agent_depth >= 3 {
             return Ok(ToolResult {
-                content: "Maximum agent nesting depth (3) reached. Cannot spawn further sub-agents.".into(),
+                content:
+                    "Maximum agent nesting depth (3) reached. Cannot spawn further sub-agents."
+                        .into(),
                 is_error: true,
                 content_blocks: None,
             });
@@ -76,29 +78,64 @@ impl Tool for AgentTool {
 
         if is_fork_path {
             // Extract last assistant message for fork message construction
-            if let Some(assistant_msg) = ctx.messages.iter().rev()
+            if let Some(assistant_msg) = ctx
+                .messages
+                .iter()
+                .rev()
                 .find(|m| m.role == crate::types::message::Role::Assistant)
             {
                 let fork_msgs = crate::services::fork_subagent::build_forked_messages(
-                    &params.prompt, assistant_msg,
+                    &params.prompt,
+                    assistant_msg,
                 );
                 params.is_fork = true;
                 params.fork_messages = Some(fork_msgs);
-                params.query_source = Some(
-                    crate::services::fork_subagent::FORK_QUERY_SOURCE.to_string(),
-                );
+                params.query_source =
+                    Some(crate::services::fork_subagent::FORK_QUERY_SOURCE.to_string());
             }
             // If no assistant message found, fall through to normal path
+        }
+
+        // Lookup builtin/custom agent from registry if subagent_type specified
+        if let Some(agent_name) = subagent_type {
+            let (agent_def, override_model) = {
+                let state = ctx.app_state.read().await;
+                let def = state.agent_registry.get(agent_name).cloned();
+                let override_model = def.as_ref().and_then(|d| {
+                    resolve_builtin_model(&state.agent_config, agent_name, &d.model)
+                });
+                (def, override_model)
+            };
+
+            if let Some(mut def) = agent_def {
+                // Model: config override → code default → None (inherit)
+                if let Some(override_m) = override_model {
+                    def.model = Some(override_m);
+                }
+
+                if params.model.is_none() {
+                    params.model = def.model.clone();
+                }
+                if params.isolation.is_none() {
+                    params.isolation = def.isolation.clone();
+                }
+                params.query_source = Some(def.query_source.clone());
+                params.agent_type = def.name.clone(); // Update agent_type for TUI display
+                params.agent_def = Some(def);
+            }
+            // If agent not found, fallback to general agent (no warning)
         }
 
         if params.run_in_background {
             crate::services::agent_runtime::run_background(params, &ctx).await
         } else {
             let description = params.description.clone();
+            let agent_type = params.agent_type.clone();
             let result = crate::services::agent_runtime::run_foreground(params, &ctx).await?;
             // Send AgentCompleted event so TUI shows agent with stats
             let _ = ctx.event_tx.send(crate::query::QueryEvent::AgentCompleted {
                 agent_id: format!("fg-{}", uuid::Uuid::new_v4()),
+                agent_type,
                 description,
                 result: Some(result.output.clone()),
                 is_error: result.is_error,
@@ -143,6 +180,43 @@ impl Tool for AgentTool {
 
     fn is_mcp(&self) -> bool {
         false
+    }
+}
+
+/// Resolve builtin agent model with config override + code default.
+/// Priority: config.builtin_models.{name} → code_default → None
+fn resolve_builtin_model(
+    agent_config: &crate::state::app_state::AgentConfig,
+    agent_name: &str,
+    code_default: &Option<String>,
+) -> Option<String> {
+    match agent_name {
+        "general-purpose" => agent_config
+            .builtin_models
+            .general_purpose
+            .clone()
+            .or_else(|| code_default.clone()),
+        "Explore" => agent_config
+            .builtin_models
+            .explore
+            .clone()
+            .or_else(|| code_default.clone()),
+        "Plan" => agent_config
+            .builtin_models
+            .plan
+            .clone()
+            .or_else(|| code_default.clone()),
+        "Verification" => agent_config
+            .builtin_models
+            .verification
+            .clone()
+            .or_else(|| code_default.clone()),
+        "claude-code-guide" => agent_config
+            .builtin_models
+            .claude_code_guide
+            .clone()
+            .or_else(|| code_default.clone()),
+        _ => code_default.clone(),
     }
 }
 

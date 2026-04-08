@@ -64,14 +64,20 @@ impl TuiCommand for StatusCommand {
             Line::from(""),
             Line::from(vec![
                 Span::styled("  Version:    ", Style::default().fg(Color::DarkGray)),
-                Span::styled(state.version.clone(), Style::default().fg(Color::White).bold()),
+                Span::styled(
+                    state.version.clone(),
+                    Style::default().fg(Color::White).bold(),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("  Directory:  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(state.cwd.clone(), Style::default().fg(Color::White)),
             ]),
             Line::from(""),
-            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

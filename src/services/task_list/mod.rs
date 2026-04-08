@@ -317,7 +317,10 @@ mod tests {
         assert_eq!(updated.owner.as_deref(), Some("alice"));
         assert_eq!(updated.blocks, vec!["2"]);
         assert_eq!(updated.blocked_by, vec!["3"]);
-        assert_eq!(updated.metadata.get("key").unwrap(), &serde_json::json!("value"));
+        assert_eq!(
+            updated.metadata.get("key").unwrap(),
+            &serde_json::json!("value")
+        );
     }
 
     #[test]
@@ -337,15 +340,9 @@ mod tests {
     #[test]
     fn test_id_monotonic() {
         let (store, _dir) = test_store();
-        let t1 = store
-            .create_task("mylist", "A", "a", None, None)
-            .unwrap();
-        let t2 = store
-            .create_task("mylist", "B", "b", None, None)
-            .unwrap();
-        let t3 = store
-            .create_task("mylist", "C", "c", None, None)
-            .unwrap();
+        let t1 = store.create_task("mylist", "A", "a", None, None).unwrap();
+        let t2 = store.create_task("mylist", "B", "b", None, None).unwrap();
+        let t3 = store.create_task("mylist", "C", "c", None, None).unwrap();
 
         assert_eq!(t1.id, "1");
         assert_eq!(t2.id, "2");

@@ -90,7 +90,10 @@ mod tests {
     #[test]
     fn test_parse_if_condition_with_pattern() {
         let result = parse_if_condition("Bash(git *)");
-        assert_eq!(result, Some(("Bash".to_string(), Some("git *".to_string()))));
+        assert_eq!(
+            result,
+            Some(("Bash".to_string(), Some("git *".to_string())))
+        );
     }
 
     #[test]

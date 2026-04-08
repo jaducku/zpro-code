@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::types::content::{ContentBlock, ToolResultContent};
+use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
 
 pub const FORK_PLACEHOLDER: &str = "Fork started \u{2014} processing in background";
@@ -23,7 +23,7 @@ RULES (non-negotiable):
 6. Do NOT emit text between tool calls. Use tools silently, then report once at the end.
 7. Stay strictly within your directive's scope. If you discover related systems outside your scope, mention them in one sentence at most — other workers cover those areas.
 8. Keep your report under 500 words unless the directive specifies otherwise. Be factual and concise.
-9. Your response MUST begin with "Scope:". No preamble, no thinking-out-loud.
+9. Your response MUST begin with "Scope:". Reasoning is acceptable; be direct.
 10. REPORT structured facts, then stop
 
 Output format (plain text labels, not markdown headers):
@@ -67,47 +67,16 @@ pub fn is_inside_fork(query_source: Option<&str>, messages: &[ApiMessage]) -> bo
 }
 
 /// Build the fork child's initial messages from the parent's assistant message.
-pub fn build_forked_messages(directive: &str, assistant_message: &ApiMessage) -> Vec<ApiMessage> {
-    let tool_use_ids: Vec<&str> = assistant_message
-        .content
-        .iter()
-        .filter_map(|block| match block {
-            ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    // Edge case: no tool_use blocks
-    if tool_use_ids.is_empty() {
-        return vec![ApiMessage {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
-                text: build_child_message(directive),
-            }],
-        }];
-    }
-
-    let cloned_assistant = assistant_message.clone();
-
-    let mut user_content: Vec<ContentBlock> = tool_use_ids
-        .iter()
-        .map(|id| ContentBlock::ToolResult {
-            tool_use_id: id.to_string(),
-            content: ToolResultContent::Text(FORK_PLACEHOLDER.to_string()),
-            is_error: false,
-        })
-        .collect();
-    user_content.push(ContentBlock::Text {
-        text: build_child_message(directive),
-    });
-
-    vec![
-        cloned_assistant,
-        ApiMessage {
-            role: Role::User,
-            content: user_content,
-        },
-    ]
+pub fn build_forked_messages(directive: &str, _assistant_message: &ApiMessage) -> Vec<ApiMessage> {
+    // Fresh start: don't clone parent's assistant message to avoid confusing the model.
+    // Just provide the directive as a clean user message.
+    // This prevents tool call XML parsing issues and ensures fork child starts fresh.
+    vec![ApiMessage {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: build_child_message(directive),
+        }],
+    }]
 }
 
 pub fn build_worktree_notice(parent_cwd: &Path, worktree_cwd: &Path) -> String {
@@ -238,25 +207,11 @@ mod tests {
         };
 
         let result = build_forked_messages("Fix the bug", &assistant_msg);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].role, Role::Assistant);
-        assert_eq!(result[0].content.len(), 3);
-        assert_eq!(result[1].role, Role::User);
-        assert_eq!(result[1].content.len(), 3); // 2 results + 1 text
+        // Fresh start: single user message with directive only (no parent context)
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].role, Role::User);
 
-        match &result[1].content[0] {
-            ContentBlock::ToolResult {
-                tool_use_id,
-                content,
-                ..
-            } => {
-                assert_eq!(tool_use_id, "tu_1");
-                assert_eq!(*content, ToolResultContent::Text(FORK_PLACEHOLDER.into()));
-            }
-            _ => panic!("Expected ToolResult"),
-        }
-
-        match &result[1].content[2] {
+        match &result[0].content[0] {
             ContentBlock::Text { text } => {
                 assert!(text.contains("<fork-boilerplate>"));
                 assert!(text.contains("Your directive: Fix the bug"));
@@ -369,13 +324,14 @@ mod tests {
 
         // Build fork messages
         let fork_msgs = build_forked_messages("Fix the bug in main.rs", last_assistant);
-        assert_eq!(fork_msgs.len(), 2);
+        // Fresh start: single user message with directive
+        assert_eq!(fork_msgs.len(), 1);
 
         // Verify fork child can't re-fork (recursion guard)
         assert!(is_in_fork_child(&fork_msgs));
 
         // Verify the directive is in the output
-        let user_msg = &fork_msgs[1];
+        let user_msg = &fork_msgs[0];
         let has_directive = user_msg.content.iter().any(|block| {
             matches!(
                 block,

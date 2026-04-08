@@ -209,11 +209,7 @@ impl BashTool {
 }
 
 async fn run_command(command: &str) -> std::io::Result<(String, String, i32)> {
-    let output = Command::new("bash")
-        .arg("-c")
-        .arg(command)
-        .output()
-        .await?;
+    let output = Command::new("bash").arg("-c").arg(command).output().await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();

@@ -33,7 +33,10 @@ pub fn load_skills(cwd: &Path) -> Vec<Command> {
     // User-level: ~/.zpro-code/skills/
     {
         let user_skills = crate::utils::paths::user_skills_dir();
-        skills.extend(load_skills_from_dir(&user_skills, CommandSource::UserSettings));
+        skills.extend(load_skills_from_dir(
+            &user_skills,
+            CommandSource::UserSettings,
+        ));
     }
 
     skills
@@ -211,7 +214,12 @@ mod tests {
     #[test]
     fn test_parse_skill_basic() {
         let content = "---\ndescription: Test skill\n---\nDo something";
-        let cmd = parse_skill("my-skill", content, Path::new("/tmp"), CommandSource::ProjectSettings);
+        let cmd = parse_skill(
+            "my-skill",
+            content,
+            Path::new("/tmp"),
+            CommandSource::ProjectSettings,
+        );
         assert!(cmd.is_some());
         let cmd = cmd.unwrap();
         assert_eq!(cmd.name(), "my-skill");
@@ -224,7 +232,12 @@ mod tests {
     #[test]
     fn test_parse_skill_no_frontmatter() {
         let content = "Just do the thing";
-        let cmd = parse_skill("bare-skill", content, Path::new("/tmp"), CommandSource::UserSettings);
+        let cmd = parse_skill(
+            "bare-skill",
+            content,
+            Path::new("/tmp"),
+            CommandSource::UserSettings,
+        );
         assert!(cmd.is_some());
         let cmd = cmd.unwrap();
         assert_eq!(cmd.name(), "bare-skill");
@@ -235,7 +248,12 @@ mod tests {
     #[test]
     fn test_parse_skill_hidden() {
         let content = "---\ndescription: Hidden\nuser_invocable: false\n---\nSecret";
-        let cmd = parse_skill("hidden", content, Path::new("/tmp"), CommandSource::ProjectSettings);
+        let cmd = parse_skill(
+            "hidden",
+            content,
+            Path::new("/tmp"),
+            CommandSource::ProjectSettings,
+        );
         let cmd = cmd.unwrap();
         assert!(cmd.meta().is_hidden);
         assert_eq!(cmd.meta().user_invocable, Some(false));
@@ -244,15 +262,26 @@ mod tests {
     #[test]
     fn test_parse_skill_when_to_use() {
         let content = "---\ndescription: WTU\nwhen_to_use: Use when testing\n---\nBody";
-        let cmd = parse_skill("wtu", content, Path::new("/tmp"), CommandSource::ProjectSettings);
+        let cmd = parse_skill(
+            "wtu",
+            content,
+            Path::new("/tmp"),
+            CommandSource::ProjectSettings,
+        );
         let cmd = cmd.unwrap();
         assert_eq!(cmd.meta().when_to_use, Some("Use when testing"));
     }
 
     #[test]
     fn test_parse_skill_camel_case_keys() {
-        let content = "---\ndescription: Camel\nwhenToUse: Use when camel\nuserInvocable: false\n---\nBody";
-        let cmd = parse_skill("camel", content, Path::new("/tmp"), CommandSource::ProjectSettings);
+        let content =
+            "---\ndescription: Camel\nwhenToUse: Use when camel\nuserInvocable: false\n---\nBody";
+        let cmd = parse_skill(
+            "camel",
+            content,
+            Path::new("/tmp"),
+            CommandSource::ProjectSettings,
+        );
         let cmd = cmd.unwrap();
         assert_eq!(cmd.meta().when_to_use, Some("Use when camel"));
         assert!(cmd.meta().is_hidden);
@@ -308,11 +337,11 @@ mod tests {
     }
 
     fn make_test_ctx() -> CommandContext {
-        use std::sync::Arc;
-        use tokio::sync::{mpsc, RwLock};
-        use crate::commands::context::{CommandOptions, CommandContext};
+        use crate::commands::context::{CommandContext, CommandOptions};
         use crate::state::AppState;
         use crate::utils::abort_signal::AbortSignal;
+        use std::sync::Arc;
+        use tokio::sync::{mpsc, RwLock};
 
         let (msg_tx, _msg_rx) = mpsc::unbounded_channel();
         let (ui_tx, _ui_rx) = mpsc::unbounded_channel();
@@ -325,6 +354,9 @@ mod tests {
             options: CommandOptions {
                 theme: "default".to_string(),
             },
+            provider: None,
+            messages: Arc::new(Vec::new()),
+            session_memory: None,
         }
     }
 

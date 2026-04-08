@@ -122,8 +122,8 @@ mod tests {
     async fn test_already_in_worktree() {
         let ctx = make_ctx(serde_json::json!({}));
 
-        ctx.app_state.write().await.current_worktree_session = Some(
-            crate::services::worktree::WorktreeSession {
+        ctx.app_state.write().await.current_worktree_session =
+            Some(crate::services::worktree::WorktreeSession {
                 original_cwd: PathBuf::from("/tmp"),
                 worktree_path: PathBuf::from("/tmp/wt"),
                 worktree_name: "existing".into(),
@@ -131,16 +131,11 @@ mod tests {
                 original_branch: None,
                 original_head_commit: None,
                 session_id: "test".into(),
-            },
-        );
+            });
 
         let result = EnterWorktreeTool.execute(ctx).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Already in a worktree"),
-            "Error: {}",
-            err
-        );
+        assert!(err.contains("Already in a worktree"), "Error: {}", err);
     }
 }

@@ -42,7 +42,10 @@ pub fn get_output_style_config(cwd: &Path, selected: &str) -> Option<OutputStyle
     let all = get_all_output_styles(cwd);
 
     // Check for forced plugin styles
-    if let Some(forced) = all.values().find(|s| s.force_for_plugin && s.source == "plugin") {
+    if let Some(forced) = all
+        .values()
+        .find(|s| s.force_for_plugin && s.source == "plugin")
+    {
         return Some(forced.clone());
     }
 

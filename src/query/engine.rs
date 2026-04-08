@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use futures::StreamExt;
-use tokio::sync::mpsc;
 use crate::services::api::types::*;
-use crate::services::hooks::{execute_event_hooks, HookOutcome};
 use crate::services::hooks::types::HookContext;
+use crate::services::hooks::{execute_event_hooks, HookOutcome};
 use crate::tool::{ToolCall, ToolProgress, ToolResultBlock, ToolUseContext};
 use crate::tools::find_tool_by_name;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role, StopReason};
 use crate::types::permissions::{PermissionMeta, PermissionRule};
 use crate::utils::permissions::{check_permission, PermissionDecision};
+use futures::StreamExt;
+use tokio::sync::mpsc;
 
 use super::types::{PermissionAsk, PermissionReply, QueryContext, QueryEvent, QueryResult};
 
@@ -26,14 +26,14 @@ pub async fn query(
     let mut loop_count = 0;
     let max_loops = ctx.max_turns.map(|t| t as usize).unwrap_or(MAX_TOOL_LOOPS);
     let mut total_cost: f64 = 0.0;
-    let mut compact_failures: u32 = 0;
     let mut already_retried = false;
 
     loop {
         if loop_count >= max_loops {
-            let _ = event_tx.send(QueryEvent::Error(
-                format!("Maximum turns reached ({})", max_loops),
-            ));
+            let _ = event_tx.send(QueryEvent::Error(format!(
+                "Maximum turns reached ({})",
+                max_loops
+            )));
             break;
         }
         loop_count += 1;
@@ -41,67 +41,12 @@ pub async fn query(
         // Check budget limit
         if let Some(budget) = ctx.max_budget_usd {
             if total_cost >= budget {
-                let _ = event_tx.send(QueryEvent::Error(
-                    format!("Budget limit reached (${:.4} >= ${:.4})", total_cost, budget),
-                ));
+                let _ = event_tx.send(QueryEvent::Error(format!(
+                    "Budget limit reached (${:.4} >= ${:.4})",
+                    total_cost, budget
+                )));
                 break;
             }
-        }
-
-        // 0. Compaction pipeline
-        let cw = ctx.provider.model_info().context_window;
-
-        // Stage 1: Snip
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.60 {
-            let freed = crate::services::compact::snip::snip(&mut ctx.messages, 3);
-            if freed > 0 {
-                let _ = event_tx.send(QueryEvent::Compacted {
-                    stage: "snip".into(),
-                    tokens_freed: freed,
-                });
-            }
-        }
-
-        // Stage 2: Microcompact
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.75 {
-            let freed = crate::services::compact::microcompact::microcompact(&mut ctx.messages, 3);
-            if freed > 0 {
-                let _ = event_tx.send(QueryEvent::Compacted {
-                    stage: "microcompact".into(),
-                    tokens_freed: freed,
-                });
-            }
-        }
-
-        // Stage 3: Full Compact (LLM call)
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.85 && compact_failures < 3 {
-            match crate::services::compact::full_compact::full_compact(
-                &ctx.messages, ctx.provider.as_ref(), cw, 3,
-            ).await {
-                Ok(result) => {
-                    let freed = result.tokens_freed;
-                    ctx.messages = result.messages;
-                    compact_failures = 0;
-                    let _ = event_tx.send(QueryEvent::Compacted {
-                        stage: "full".into(),
-                        tokens_freed: freed,
-                    });
-                }
-                Err(e) => {
-                    compact_failures += 1;
-                    let _ = event_tx.send(QueryEvent::Error(
-                        format!("Compaction failed ({}/3): {}", compact_failures, e),
-                    ));
-                }
-            }
-        }
-
-        // Hard block — only after all proactive stages exhausted
-        if crate::services::compact::token_ratio(&ctx.messages, cw) > 0.95 {
-            let _ = event_tx.send(QueryEvent::Error(
-                "Context window 95% exceeded after all compaction. Cannot continue.".into(),
-            ));
-            break;
         }
 
         // 1. Build request
@@ -124,13 +69,40 @@ pub async fn query(
         let mut stream = match ctx.provider.create_message(request).await {
             Ok(s) => s,
             Err(e) if is_context_overflow_error(&e) && !already_retried => {
-                // Reactive compact: run full pipeline and retry
+                // Reactive compact: try session memory first, then fall back to full pipeline
+                // 1. Try session memory compaction
+                if let Some(ref sm) = ctx.session_memory {
+                    if let Some(result) =
+                        crate::services::session_memory::compaction::try_session_memory_compaction(
+                            &ctx.messages,
+                            sm,
+                            None,
+                        )
+                        .await
+                    {
+                        ctx.messages = result.messages;
+                        let _ = event_tx.send(QueryEvent::Compacted {
+                            stage: "session_memory".into(),
+                            tokens_freed: result.tokens_freed,
+                        });
+                        already_retried = true;
+                        continue;
+                    }
+                }
+                // 2. Fallback: snip + microcompact + full_compact
                 let cw = ctx.provider.model_info().context_window;
                 let _ = crate::services::compact::snip::snip(&mut ctx.messages, 3);
                 let _ = crate::services::compact::microcompact::microcompact(&mut ctx.messages, 3);
                 if let Ok(result) = crate::services::compact::full_compact::full_compact(
-                    &ctx.messages, ctx.provider.as_ref(), cw, 3,
-                ).await {
+                    &ctx.messages,
+                    ctx.provider.as_ref(),
+                    cw,
+                    3,
+                    None,
+                    &ctx.abort_signal,
+                )
+                .await
+                {
                     ctx.messages = result.messages;
                     let _ = event_tx.send(QueryEvent::Compacted {
                         stage: "reactive".into(),
@@ -157,7 +129,10 @@ pub async fn query(
 
         loop {
             if ctx.abort_signal.is_cancelled() {
-                let reason = ctx.abort_signal.reason().cloned()
+                let reason = ctx
+                    .abort_signal
+                    .reason()
+                    .cloned()
                     .unwrap_or(crate::utils::abort_signal::AbortReason::UserCancel);
                 match reason {
                     crate::utils::abort_signal::AbortReason::Interrupt => {
@@ -227,6 +202,7 @@ pub async fn query(
                     let _ = event_tx.send(QueryEvent::ToolCallStart {
                         id: id.clone(),
                         name: name.clone(),
+                        parent_agent_id: None,
                     });
                 }
                 StreamEvent::ContentBlockStart { .. } => {}
@@ -240,19 +216,22 @@ pub async fn query(
                     }
                     ContentDelta::ThinkingDelta { thinking } => {
                         reasoning_content.push_str(&thinking);
+                        let _ = event_tx.send(QueryEvent::ThinkingDelta { text: thinking });
                     }
                 },
                 StreamEvent::ContentBlockStop { .. } => {
                     if !current_tool_id.is_empty() {
-                        let input: serde_json::Value = match serde_json::from_str(&current_tool_input) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                let _ = event_tx.send(QueryEvent::Error(
-                                    format!("Malformed tool input for '{}': {}", current_tool_name, e),
-                                ));
-                                serde_json::Value::Object(serde_json::Map::new())
-                            }
-                        };
+                        let input: serde_json::Value =
+                            match serde_json::from_str(&current_tool_input) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    let _ = event_tx.send(QueryEvent::Error(format!(
+                                        "Malformed tool input for '{}': {}",
+                                        current_tool_name, e
+                                    )));
+                                    serde_json::Value::Object(serde_json::Map::new())
+                                }
+                            };
                         tool_calls.push(ToolCall {
                             id: current_tool_id.clone(),
                             name: current_tool_name.clone(),
@@ -292,7 +271,9 @@ pub async fn query(
                     content: vec![ContentBlock::Text { text: text_content }],
                 });
             }
-            let _ = event_tx.send(QueryEvent::ResponseComplete { stop_reason: StopReason::EndTurn });
+            let _ = event_tx.send(QueryEvent::ResponseComplete {
+                stop_reason: StopReason::EndTurn,
+            });
             let _ = event_tx.send(QueryEvent::QueryCompleted {
                 messages: ctx.messages.clone(),
             });
@@ -301,9 +282,10 @@ pub async fn query(
 
         // Flush any in-progress tool call (stream ended without ContentBlockStop)
         if !current_tool_id.is_empty() {
-            let _ = event_tx.send(QueryEvent::Error(
-                format!("Incomplete tool call for '{}' (stream ended early)", current_tool_name),
-            ));
+            let _ = event_tx.send(QueryEvent::Error(format!(
+                "Incomplete tool call for '{}' (stream ended early)",
+                current_tool_name
+            )));
             let input: serde_json::Value = match serde_json::from_str(&current_tool_input) {
                 Ok(v) => v,
                 Err(_) => serde_json::Value::Object(serde_json::Map::new()),
@@ -332,18 +314,27 @@ pub async fn query(
                 let _ = event_tx.send(QueryEvent::TextDelta(reasoning_content.clone()));
                 text_content = std::mem::take(&mut reasoning_content);
             } else {
-                tracing::warn!("Discarded suspicious reasoning content: {}...",
-                    &trimmed[..trimmed.len().min(80)]);
+                tracing::warn!(
+                    "Discarded suspicious reasoning content: {}...",
+                    &trimmed[..trimmed.len().min(80)]
+                );
                 reasoning_content.clear();
             }
         }
 
         // Empty response: no text, no tools — notify and stop
         if text_content.is_empty() && tool_calls.is_empty() {
+            tracing::warn!(
+                "Empty response from model. reasoning_content_len={}, stream_failed={}",
+                reasoning_content.len(),
+                stream_failed,
+            );
             let _ = event_tx.send(QueryEvent::Error(
                 "Empty response from model (no text, no tool calls)".into(),
             ));
-            let _ = event_tx.send(QueryEvent::ResponseComplete { stop_reason: StopReason::EndTurn });
+            let _ = event_tx.send(QueryEvent::ResponseComplete {
+                stop_reason: StopReason::EndTurn,
+            });
             let _ = event_tx.send(QueryEvent::QueryCompleted {
                 messages: ctx.messages.clone(),
             });
@@ -373,6 +364,16 @@ pub async fn query(
 
         // 4. If no tool calls, we're done
         if tool_calls.is_empty() {
+            // Post-sampling: trigger session memory extraction in background
+            if let Some(ref sm) = ctx.session_memory {
+                let sm = sm.clone();
+                let messages = ctx.messages.clone();
+                let provider = ctx.provider.clone();
+                tokio::spawn(async move {
+                    sm.maybe_extract(&messages, &provider).await;
+                });
+            }
+
             let _ = event_tx.send(QueryEvent::ResponseComplete {
                 stop_reason: stop_reason.clone(),
             });
@@ -433,9 +434,10 @@ pub async fn query(
                             tool_name,
                             rule_content,
                         } => {
-                            ctx.permission_ctx
-                                .always_allow_rules
-                                .push(PermissionRule { tool_name, rule_content });
+                            ctx.permission_ctx.always_allow_rules.push(PermissionRule {
+                                tool_name,
+                                rule_content,
+                            });
                             true
                         }
                         PermissionReply::Deny => {
@@ -459,7 +461,10 @@ pub async fn query(
             }
 
             // PreToolUse hooks
-            let hook_ctx = HookContext { provider: Some(ctx.provider.clone()), registry: ctx.registry.clone() };
+            let hook_ctx = HookContext {
+                provider: Some(ctx.provider.clone()),
+                registry: ctx.registry.clone(),
+            };
             if !ctx.hooks.is_empty() {
                 let hook_result = execute_event_hooks(
                     "PreToolUse",
@@ -468,7 +473,8 @@ pub async fn query(
                     &ctx.hooks,
                     &ctx.cwd,
                     &hook_ctx,
-                ).await;
+                )
+                .await;
                 match hook_result.outcome {
                     HookOutcome::Success => {}
                     HookOutcome::Blocking { reason } => {
@@ -504,7 +510,8 @@ pub async fn query(
                             &ctx.hooks,
                             &ctx.cwd,
                             &hook_ctx,
-                        ).await;
+                        )
+                        .await;
                         match hook_result.outcome {
                             HookOutcome::Blocking { reason } => {
                                 tracing::warn!("PostToolUse hook blocked: {}", reason);
@@ -516,7 +523,10 @@ pub async fn query(
                         }
                         // Check for updated tool output from hook_specific
                         if let Some(ref specific) = hook_result.hook_specific {
-                            if let Some(updated) = specific.get("updatedMCPToolOutput").and_then(|v| v.as_str()) {
+                            if let Some(updated) = specific
+                                .get("updatedMCPToolOutput")
+                                .and_then(|v| v.as_str())
+                            {
                                 content = updated.to_string();
                             }
                         }
@@ -623,7 +633,8 @@ async fn execute_tool(
 
     // Check abort signal with per-tool interrupt behavior
     if ctx.abort_signal.is_cancelled() {
-        if let Some(crate::utils::abort_signal::AbortReason::Interrupt) = ctx.abort_signal.reason() {
+        if let Some(crate::utils::abort_signal::AbortReason::Interrupt) = ctx.abort_signal.reason()
+        {
             // Interrupt reason: respect the tool's declared behavior
             if tool.interrupt_behavior() == crate::tool::InterruptBehavior::Block {
                 // Block behavior: let the tool complete despite the interrupt
@@ -657,9 +668,9 @@ fn is_context_overflow_error(error: &crate::types::error::AtomError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use crate::services::api::provider::LlmProvider;
     use crate::types::permissions::{PermissionMeta, PermissionMode, ToolPermissionContext};
+    use async_trait::async_trait;
 
     /// Create a test QueryContext that bypasses all permissions
     fn test_query_context(
@@ -692,6 +703,7 @@ mod tests {
             agent_depth: None,
             query_source: None,
             abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+            session_memory: None,
         }
     }
 
@@ -767,9 +779,7 @@ mod tests {
     async fn test_simple_text_response() {
         let provider = MockProvider {
             response_events: vec![
-                StreamEvent::MessageStart {
-                    id: "msg_1".into(),
-                },
+                StreamEvent::MessageStart { id: "msg_1".into() },
                 StreamEvent::ContentBlockStart {
                     index: 0,
                     content_block: ContentBlock::Text {
@@ -793,17 +803,13 @@ mod tests {
         let mut ctx = test_query_context(
             vec![ApiMessage {
                 role: Role::User,
-                content: vec![ContentBlock::Text {
-                    text: "Hi".into(),
-                }],
+                content: vec![ContentBlock::Text { text: "Hi".into() }],
             }],
             vec![],
         );
         ctx.provider = Arc::new(provider);
 
-        let result = query(ctx, event_tx)
-            .await
-            .unwrap();
+        let result = query(ctx, event_tx).await.unwrap();
 
         assert_eq!(result.stop_reason, StopReason::EndTurn);
         assert_eq!(result.messages.len(), 2); // user + assistant
@@ -842,9 +848,7 @@ mod tests {
                 let events = if n == 0 {
                     // First call: tool use
                     vec![
-                        StreamEvent::MessageStart {
-                            id: "msg_1".into(),
-                        },
+                        StreamEvent::MessageStart { id: "msg_1".into() },
                         StreamEvent::ContentBlockStart {
                             index: 0,
                             content_block: ContentBlock::ToolUse {
@@ -867,9 +871,7 @@ mod tests {
                 } else {
                     // Second call: text response
                     vec![
-                        StreamEvent::MessageStart {
-                            id: "msg_2".into(),
-                        },
+                        StreamEvent::MessageStart { id: "msg_2".into() },
                         StreamEvent::ContentBlockStart {
                             index: 0,
                             content_block: ContentBlock::Text {
@@ -916,16 +918,11 @@ mod tests {
         );
         ctx.provider = Arc::new(TwoStepProvider { call_count: cc });
 
-        let result = query(ctx, event_tx)
-            .await
-            .unwrap();
+        let result = query(ctx, event_tx).await.unwrap();
 
         assert_eq!(result.stop_reason, StopReason::EndTurn);
         // user + assistant(tool_use) + tool_result + assistant(text) = 4
         assert_eq!(result.messages.len(), 4);
-        assert_eq!(
-            call_count.load(std::sync::atomic::Ordering::SeqCst),
-            2
-        );
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 }

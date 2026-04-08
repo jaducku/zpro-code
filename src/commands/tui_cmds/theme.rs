@@ -53,7 +53,10 @@ impl TuiCommand for ThemeCommand {
             "nord".to_string(),
             "dracula".to_string(),
         ];
-        Box::new(ThemeState { themes, selected: 0 })
+        Box::new(ThemeState {
+            themes,
+            selected: 0,
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {

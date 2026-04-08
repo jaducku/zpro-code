@@ -57,7 +57,10 @@ impl TuiCommand for OutputStyleCommand {
         if styles.is_empty() {
             styles.push("default".to_string());
         }
-        Box::new(OutputStyleState { styles, selected: 0 })
+        Box::new(OutputStyleState {
+            styles,
+            selected: 0,
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
@@ -77,7 +80,10 @@ impl TuiCommand for OutputStyleCommand {
             } else {
                 Style::default().fg(Color::White)
             };
-            lines.push(Line::from(Span::styled(format!("{marker}{style}"), text_style)));
+            lines.push(Line::from(Span::styled(
+                format!("{marker}{style}"),
+                text_style,
+            )));
         }
 
         lines.push(Line::from(""));

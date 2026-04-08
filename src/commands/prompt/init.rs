@@ -73,6 +73,9 @@ mod tests {
         let cmd = InitCommand;
         let meta = cmd.meta();
         assert_eq!(meta.name, "init");
-        assert_eq!(meta.description, "Initialize CLAUDE.md with codebase context");
+        assert_eq!(
+            meta.description,
+            "Initialize CLAUDE.md with codebase context"
+        );
     }
 }

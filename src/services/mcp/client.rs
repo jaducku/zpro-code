@@ -48,10 +48,7 @@ impl McpClient {
                                 .as_ref()
                                 .map(|s| s.name.clone())
                                 .unwrap_or_default(),
-                            message: format!(
-                                "JSON-RPC error {}: {}",
-                                error.code, error.message
-                            ),
+                            message: format!("JSON-RPC error {}: {}", error.code, error.message),
                         });
                     }
                     return Ok(resp.result.unwrap_or(serde_json::Value::Null));

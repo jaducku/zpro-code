@@ -51,7 +51,12 @@ impl TuiCommand for TerminalSetupCommand {
         let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".into());
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "unknown".into());
         let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-        Box::new(TerminalSetupState { term, shell, cols, rows })
+        Box::new(TerminalSetupState {
+            term,
+            shell,
+            cols,
+            rows,
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
@@ -64,7 +69,10 @@ impl TuiCommand for TerminalSetupCommand {
 
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled("  Terminal Info", Style::default().fg(Color::White).bold())),
+            Line::from(Span::styled(
+                "  Terminal Info",
+                Style::default().fg(Color::White).bold(),
+            )),
             Line::from(""),
             Line::from(vec![
                 Span::styled("  TERM:       ", Style::default().fg(Color::DarkGray)),
@@ -76,10 +84,16 @@ impl TuiCommand for TerminalSetupCommand {
             ]),
             Line::from(vec![
                 Span::styled("  Size:       ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{}x{}", state.cols, state.rows), Style::default().fg(Color::White)),
+                Span::styled(
+                    format!("{}x{}", state.cols, state.rows),
+                    Style::default().fg(Color::White),
+                ),
             ]),
             Line::from(""),
-            Line::from(Span::styled("  Press q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Press q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

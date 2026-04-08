@@ -1,30 +1,46 @@
 /// Extract a human-readable one-line summary from tool input JSON.
 pub fn tool_input_summary(name: &str, input: &serde_json::Value) -> String {
     match name {
-        "Bash" => input["command"].as_str()
+        "Bash" => input["command"]
+            .as_str()
             .map(|c| truncate_line(c, 80))
             .unwrap_or_default(),
-        "Read" | "Write" => input["file_path"].as_str()
-            .unwrap_or("").to_string(),
-        "Edit" => input["file_path"].as_str()
-            .unwrap_or("").to_string(),
-        "Grep" => input["pattern"].as_str()
-            .unwrap_or("").to_string(),
-        "Glob" => input["pattern"].as_str()
-            .unwrap_or("").to_string(),
-        "Agent" => input["description"].as_str()
-            .unwrap_or("").to_string(),
-        "TaskCreate" | "TaskUpdate" => input["subject"].as_str()
-            .unwrap_or("").to_string(),
-        "WebFetch" => input["url"].as_str()
-            .unwrap_or("").to_string(),
-        "WebSearch" => input["query"].as_str()
-            .unwrap_or("").to_string(),
+        "Read" | "Write" => input["file_path"].as_str().unwrap_or("").to_string(),
+        "Edit" => input["file_path"].as_str().unwrap_or("").to_string(),
+        "Grep" => input["pattern"].as_str().unwrap_or("").to_string(),
+        "Glob" => input["pattern"].as_str().unwrap_or("").to_string(),
+        "Agent" => input["description"].as_str().unwrap_or("").to_string(),
+        "TaskCreate" | "TaskUpdate" => input["subject"].as_str().unwrap_or("").to_string(),
+        "WebFetch" => input["url"].as_str().unwrap_or("").to_string(),
+        "WebSearch" => input["query"].as_str().unwrap_or("").to_string(),
+        _ => input
+            .as_object()
+            .and_then(|o| o.values().find_map(|v| v.as_str()))
+            .map(|s| truncate_line(s, 60))
+            .unwrap_or_default(),
+    }
+}
+
+/// Generate full argument string for tool header display.
+/// Unlike tool_input_summary (short), this shows complete arguments.
+pub fn tool_input_full(name: &str, input: &serde_json::Value) -> String {
+    match name {
+        "Bash" => input["command"].as_str().unwrap_or("").to_string(),
+        "Read" | "Write" => input["file_path"].as_str().unwrap_or("").to_string(),
+        "Edit" => input["file_path"].as_str().unwrap_or("").to_string(),
+        "Grep" => {
+            let pattern = input["pattern"].as_str().unwrap_or("");
+            let path = input["path"].as_str();
+            match path {
+                Some(p) => format!("\"{}\" in {}", pattern, p),
+                None => format!("\"{}\"", pattern),
+            }
+        }
+        "Glob" => input["pattern"].as_str().unwrap_or("").to_string(),
+        "Agent" => input["description"].as_str().unwrap_or("").to_string(),
         _ => {
-            input.as_object()
-                .and_then(|o| o.values().find_map(|v| v.as_str()))
-                .map(|s| truncate_line(s, 60))
-                .unwrap_or_default()
+            let json_str = serde_json::to_string(input).unwrap_or_default();
+            truncate_line(&json_str, 100)
         }
     }
 }
@@ -110,5 +126,42 @@ mod tests {
     fn test_empty_input() {
         let input = json!({});
         assert_eq!(tool_input_summary("Bash", &input), "");
+    }
+
+    #[test]
+    fn test_bash_full() {
+        let input = json!({"command": "find /Users/zpro -name '*.rs' | head -10"});
+        assert_eq!(
+            tool_input_full("Bash", &input),
+            "find /Users/zpro -name '*.rs' | head -10"
+        );
+    }
+
+    #[test]
+    fn test_grep_full() {
+        let input = json!({"pattern": "ThinkingDelta", "path": "src/"});
+        assert_eq!(
+            tool_input_full("Grep", &input),
+            r#""ThinkingDelta" in src/"#
+        );
+    }
+
+    #[test]
+    fn test_grep_full_no_path() {
+        let input = json!({"pattern": "TODO"});
+        assert_eq!(tool_input_full("Grep", &input), r#""TODO""#);
+    }
+
+    #[test]
+    fn test_agent_full() {
+        let input = json!({"description": "Research Gemma4 tags"});
+        assert_eq!(tool_input_full("Agent", &input), "Research Gemma4 tags");
+    }
+
+    #[test]
+    fn test_unknown_tool_full() {
+        let input = json!({"query": "rust async patterns", "max_results": 5});
+        let result = tool_input_full("WebSearch", &input);
+        assert!(result.contains("query"));
     }
 }

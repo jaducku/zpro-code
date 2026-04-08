@@ -57,7 +57,11 @@ impl TuiCommand for FastCommand {
             .border_style(Style::default().fg(Color::Cyan));
 
         let status_text = if state.enabled { "ON" } else { "OFF" };
-        let status_color = if state.enabled { Color::Green } else { Color::Red };
+        let status_color = if state.enabled {
+            Color::Green
+        } else {
+            Color::Red
+        };
 
         let lines = vec![
             Line::from(""),

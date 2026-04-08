@@ -45,9 +45,7 @@ pub fn get_internal_prompt_commands() -> Vec<Command> {
     ];
 
     #[cfg(feature = "kairos_github_webhooks")]
-    cmds.push(Command::Prompt(Box::new(
-        subscribe_pr::SubscribePrCommand,
-    )));
+    cmds.push(Command::Prompt(Box::new(subscribe_pr::SubscribePrCommand)));
 
     #[cfg(feature = "torch")]
     cmds.push(Command::Prompt(Box::new(torch::TorchCommand)));

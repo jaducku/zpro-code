@@ -38,7 +38,10 @@ pub fn parse_output_style(content: &str, filename: &str, source: &str) -> Output
             if let Some(d) = yaml.get("description").and_then(|v| v.as_str()) {
                 description = d.to_string();
             }
-            if let Some(b) = yaml.get("keep-coding-instructions").and_then(|v| v.as_bool()) {
+            if let Some(b) = yaml
+                .get("keep-coding-instructions")
+                .and_then(|v| v.as_bool())
+            {
                 keep_coding_instructions = b;
             }
             if let Some(b) = yaml.get("force-for-plugin").and_then(|v| v.as_bool()) {

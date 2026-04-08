@@ -38,6 +38,8 @@ pub struct QueryContext {
     pub query_source: Option<String>,
     /// Abort signal for cancellation with reason tracking
     pub abort_signal: crate::utils::abort_signal::AbortSignal,
+    /// Session memory state for background extraction and compaction
+    pub session_memory: Option<Arc<crate::services::session_memory::SessionMemoryState>>,
 }
 
 /// Sent to TUI when a tool wants to ask the user a question
@@ -86,10 +88,16 @@ pub struct QueryResult {
 /// Events emitted during query execution (for UI updates)
 #[derive(Debug, Clone)]
 pub enum QueryEvent {
+    /// Streaming thinking/reasoning content from LLM
+    ThinkingDelta { text: String },
     /// Streaming text from LLM
     TextDelta(String),
     /// Tool call started
-    ToolCallStart { id: String, name: String },
+    ToolCallStart {
+        id: String,
+        name: String,
+        parent_agent_id: Option<String>,
+    },
     /// Tool call completed
     ToolCallComplete { id: String, result: ToolResultBlock },
     /// Tool call input fully received (for display summary)
@@ -101,12 +109,16 @@ pub enum QueryEvent {
     /// LLM response complete
     ResponseComplete { stop_reason: StopReason },
     /// Token usage update
-    Usage { input_tokens: u64, output_tokens: u64 },
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     /// Error occurred
     Error(String),
     /// Background agent completed or failed
     AgentCompleted {
         agent_id: String,
+        agent_type: String,
         description: String,
         result: Option<String>,
         is_error: bool,
@@ -126,10 +138,7 @@ pub enum QueryEvent {
         status: BriefStatus,
     },
     /// Context was compacted to fit token budget
-    Compacted {
-        stage: String,
-        tokens_freed: u64,
-    },
+    Compacted { stage: String, tokens_freed: u64 },
     /// Query was cancelled — carries partial messages and the cancel reason
     QueryCancelled {
         partial_messages: Vec<crate::types::message::ApiMessage>,

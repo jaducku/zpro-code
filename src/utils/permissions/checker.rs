@@ -81,11 +81,7 @@ fn is_edit_tool(tool_name: &str) -> bool {
 }
 
 /// Check if any rule in the list matches the given tool + metadata.
-fn matches_any_rule(
-    tool_name: &str,
-    meta: &PermissionMeta,
-    rules: &[PermissionRule],
-) -> bool {
+fn matches_any_rule(tool_name: &str, meta: &PermissionMeta, rules: &[PermissionRule]) -> bool {
     rules.iter().any(|rule| {
         if rule.tool_name != tool_name && rule.tool_name != "*" {
             return false;

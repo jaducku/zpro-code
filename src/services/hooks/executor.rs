@@ -3,11 +3,11 @@ use std::path::Path;
 
 use crate::services::hooks::command_hook::{execute_command_hook, CommandHookResult, HookEnv};
 use crate::services::hooks::matcher::{matches_pattern, parse_if_condition};
+#[cfg(test)]
+use crate::services::hooks::types::HookMatcher;
 use crate::services::hooks::types::{
     HookCommand, HookContext, HookExecutionResult, HookOutcome, HooksSettings, SyncHookOutput,
 };
-#[cfg(test)]
-use crate::services::hooks::types::HookMatcher;
 
 /// Events that are always emitted (used for documentation/future filtering at a higher level).
 const ALWAYS_EMITTED: &[&str] = &["SessionStart", "Setup"];
@@ -16,10 +16,7 @@ const ALWAYS_EMITTED: &[&str] = &["SessionStart", "Setup"];
 fn build_base_env(event: &str, cwd: &Path) -> HookEnv {
     let mut env = HashMap::new();
     env.insert("ATOM_HOOK_TYPE".to_string(), event.to_string());
-    env.insert(
-        "ATOM_CWD".to_string(),
-        cwd.to_string_lossy().to_string(),
-    );
+    env.insert("ATOM_CWD".to_string(), cwd.to_string_lossy().to_string());
     env.insert("ATOM_SESSION_ID".to_string(), String::new());
     env.insert("ATOM_TRANSCRIPT_PATH".to_string(), String::new());
     env.insert("ATOM_PERMISSION_MODE".to_string(), String::new());
@@ -75,14 +72,7 @@ async fn execute_single_hook(
             timeout,
             ..
         } => {
-            let result = execute_command_hook(
-                command,
-                shell.as_deref(),
-                env,
-                cwd,
-                *timeout,
-            )
-            .await;
+            let result = execute_command_hook(command, shell.as_deref(), env, cwd, *timeout).await;
 
             match result {
                 CommandHookResult::Success { output } => {
@@ -147,7 +137,12 @@ async fn execute_single_hook(
             let allowed = allowed_env_vars.as_ref().cloned().unwrap_or_default();
 
             match crate::services::hooks::http_hook::execute_http_hook(
-                url, &hdrs, &allowed, env, &input_json, *timeout,
+                url,
+                &hdrs,
+                &allowed,
+                env,
+                &input_json,
+                *timeout,
             )
             .await
             {
@@ -371,7 +366,9 @@ pub async fn execute_event_hooks(
 
     for result in results {
         // Accumulate contexts and watch paths
-        combined.additional_contexts.extend(result.additional_contexts);
+        combined
+            .additional_contexts
+            .extend(result.additional_contexts);
         combined.watch_paths.extend(result.watch_paths);
 
         // Use last non-None hook_specific
@@ -383,7 +380,10 @@ pub async fn execute_event_hooks(
         // NonBlockingError is also surfaced (but doesn't override Blocking).
         match result.outcome {
             HookOutcome::Blocking { reason } => {
-                if matches!(combined.outcome, HookOutcome::Success | HookOutcome::NonBlockingError { .. }) {
+                if matches!(
+                    combined.outcome,
+                    HookOutcome::Success | HookOutcome::NonBlockingError { .. }
+                ) {
                     combined.outcome = HookOutcome::Blocking { reason };
                 }
             }
@@ -430,7 +430,10 @@ mod tests {
             &serde_json::json!({}),
             &empty_settings(),
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -459,7 +462,10 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         assert!(matches!(result.outcome, HookOutcome::Success));
@@ -488,7 +494,10 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         assert!(
@@ -522,7 +531,10 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         assert!(
@@ -555,7 +567,10 @@ mod tests {
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         match &result.outcome {
@@ -644,7 +659,10 @@ more output"#;
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         // HTTP hook should be filtered out, resulting in Success (no hooks executed)
@@ -676,7 +694,10 @@ more output"#;
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         assert!(
@@ -707,7 +728,10 @@ more output"#;
             &serde_json::json!({}),
             &settings,
             dir.path(),
-            &HookContext { provider: None, registry: None },
+            &HookContext {
+                provider: None,
+                registry: None,
+            },
         )
         .await;
         assert!(

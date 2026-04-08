@@ -98,7 +98,8 @@ mod tests {
         // We don't actually sleep 60s; instead we cancel immediately.
         let ctx = ToolUseContext::test(serde_json::json!({"duration_ms": 99999}));
         // Cancel right away so the test doesn't block
-        ctx.abort_signal.cancel(crate::utils::abort_signal::AbortReason::UserCancel);
+        ctx.abort_signal
+            .cancel(crate::utils::abort_signal::AbortReason::UserCancel);
         let result = tool.execute(ctx).await.unwrap();
         // Either interrupted or slept — the important thing is no error and no panic
         assert!(!result.is_error);

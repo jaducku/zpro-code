@@ -85,10 +85,7 @@ impl TuiCommand for ModelCommand {
                     Style::default().fg(Color::White),
                 )),
                 Line::from(""),
-                Line::from(Span::styled(
-                    "  {",
-                    Style::default().fg(Color::DarkGray),
-                )),
+                Line::from(Span::styled("  {", Style::default().fg(Color::DarkGray))),
                 Line::from(Span::styled(
                     "    \"provider\": \"openrouter\",",
                     Style::default().fg(Color::DarkGray),
@@ -113,14 +110,8 @@ impl TuiCommand for ModelCommand {
                     "      \"smart\": \"anthropic/claude-sonnet-4\"",
                     Style::default().fg(Color::DarkGray),
                 )),
-                Line::from(Span::styled(
-                    "    }",
-                    Style::default().fg(Color::DarkGray),
-                )),
-                Line::from(Span::styled(
-                    "  }",
-                    Style::default().fg(Color::DarkGray),
-                )),
+                Line::from(Span::styled("    }", Style::default().fg(Color::DarkGray))),
+                Line::from(Span::styled("  }", Style::default().fg(Color::DarkGray))),
                 Line::from(""),
                 Line::from(Span::styled(
                     "  Press q to close",
@@ -146,7 +137,10 @@ impl TuiCommand for ModelCommand {
             };
 
             lines.push(Line::from(vec![
-                Span::styled(format!("{cursor}{marker}"), Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    format!("{cursor}{marker}"),
+                    Style::default().fg(Color::Cyan),
+                ),
                 Span::styled(format!("{alias:<12}"), alias_style),
                 Span::styled(format!(" {full_id}"), Style::default().fg(Color::DarkGray)),
             ]));

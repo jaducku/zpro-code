@@ -2,20 +2,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
 use crate::commands::registry::CommandRegistry;
+use crate::query::engine::query;
+use crate::query::types::{PermissionAsk, QueryContext, QueryEvent, UserQuestionAsk};
 use crate::services::api::types::SystemBlock;
 use crate::services::hooks::command_hook::HookEnv;
 use crate::services::hooks::prompt_hook::build_prompt_input;
 use crate::services::hooks::types::{HookContext, HookExecutionResult, HookOutcome};
-use crate::query::engine::query;
-use crate::query::types::{QueryContext, QueryEvent, PermissionAsk, UserQuestionAsk};
 use crate::tool::Tool;
 use crate::tools::get_builtin_tools;
 use crate::tools::synthetic_output_tool::SyntheticOutputTool;
 use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
 use crate::types::permissions::{PermissionMode, ToolPermissionContext};
+use tokio::sync::mpsc;
 
 /// Maximum number of agentic turns an agent hook may execute.
 pub const MAX_AGENT_HOOK_TURNS: usize = 50;
@@ -89,27 +89,34 @@ pub async fn execute_agent_hook(
                     }
                     Err(_) => match &hook_ctx.provider {
                         Some(p) => (p.clone(), m.to_string()),
-                        None => return HookExecutionResult {
-                            outcome: HookOutcome::NonBlockingError {
-                                message: format!("Agent hook: cannot resolve model '{}' (no provider)", m),
-                            },
-                            additional_contexts: Vec::new(),
-                            watch_paths: Vec::new(),
-                            hook_specific: None,
-                        },
+                        None => {
+                            return HookExecutionResult {
+                                outcome: HookOutcome::NonBlockingError {
+                                    message: format!(
+                                        "Agent hook: cannot resolve model '{}' (no provider)",
+                                        m
+                                    ),
+                                },
+                                additional_contexts: Vec::new(),
+                                watch_paths: Vec::new(),
+                                hook_specific: None,
+                            }
+                        }
                     },
                 }
             } else {
                 match &hook_ctx.provider {
                     Some(p) => (p.clone(), m.to_string()),
-                    None => return HookExecutionResult {
-                        outcome: HookOutcome::NonBlockingError {
-                            message: "Agent hooks require LLM provider (not available)".into(),
-                        },
-                        additional_contexts: Vec::new(),
-                        watch_paths: Vec::new(),
-                        hook_specific: None,
-                    },
+                    None => {
+                        return HookExecutionResult {
+                            outcome: HookOutcome::NonBlockingError {
+                                message: "Agent hooks require LLM provider (not available)".into(),
+                            },
+                            additional_contexts: Vec::new(),
+                            watch_paths: Vec::new(),
+                            hook_specific: None,
+                        }
+                    }
                 }
             }
         }
@@ -118,14 +125,16 @@ pub async fn execute_agent_hook(
                 let id = p.model_info().id.clone();
                 (p.clone(), id)
             }
-            None => return HookExecutionResult {
-                outcome: HookOutcome::NonBlockingError {
-                    message: "Agent hooks require LLM provider (not available)".into(),
-                },
-                additional_contexts: Vec::new(),
-                watch_paths: Vec::new(),
-                hook_specific: None,
-            },
+            None => {
+                return HookExecutionResult {
+                    outcome: HookOutcome::NonBlockingError {
+                        message: "Agent hooks require LLM provider (not available)".into(),
+                    },
+                    additional_contexts: Vec::new(),
+                    watch_paths: Vec::new(),
+                    hook_specific: None,
+                }
+            }
         },
     };
 
@@ -139,7 +148,9 @@ pub async fn execute_agent_hook(
     // 4. Build messages — single user message
     let messages = vec![ApiMessage {
         role: Role::User,
-        content: vec![ContentBlock::Text { text: processed_prompt }],
+        content: vec![ContentBlock::Text {
+            text: processed_prompt,
+        }],
     }];
 
     // 5. Build QueryContext with throwaway channels
@@ -161,7 +172,11 @@ pub async fn execute_agent_hook(
         permission_tx,
         question_tx,
         hooks: HashMap::new(),
-        cwd: PathBuf::from(env.get("ATOM_CWD").cloned().unwrap_or_else(|| "/tmp".into())),
+        cwd: PathBuf::from(
+            env.get("ATOM_CWD")
+                .cloned()
+                .unwrap_or_else(|| "/tmp".into()),
+        ),
         max_turns: Some(MAX_AGENT_HOOK_TURNS as u32),
         max_budget_usd: None,
         commands: Arc::new(CommandRegistry::empty()),
@@ -172,17 +187,14 @@ pub async fn execute_agent_hook(
         agent_depth: None,
         query_source: Some("hook_agent".into()),
         abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+        session_memory: None,
     };
 
     // 6. Execute with timeout
     let timeout_ms = timeout.unwrap_or(60_000);
     let timeout_duration = std::time::Duration::from_millis(timeout_ms);
 
-    let query_result = tokio::time::timeout(
-        timeout_duration,
-        query(ctx, event_tx),
-    )
-    .await;
+    let query_result = tokio::time::timeout(timeout_duration, query(ctx, event_tx)).await;
 
     // 7. Process result
     match query_result {
@@ -202,32 +214,30 @@ pub async fn execute_agent_hook(
             watch_paths: Vec::new(),
             hook_specific: None,
         },
-        Ok(Ok(result)) => {
-            match extract_structured_output(&result.messages) {
-                Some(output) => match parse_agent_output(&output) {
-                    Ok(()) => HookExecutionResult {
-                        outcome: HookOutcome::Success,
-                        additional_contexts: Vec::new(),
-                        watch_paths: Vec::new(),
-                        hook_specific: None,
-                    },
-                    Err(reason) => HookExecutionResult {
-                        outcome: HookOutcome::Blocking { reason },
-                        additional_contexts: Vec::new(),
-                        watch_paths: Vec::new(),
-                        hook_specific: None,
-                    },
-                },
-                None => HookExecutionResult {
-                    outcome: HookOutcome::NonBlockingError {
-                        message: "Agent hook did not return structured output".into(),
-                    },
+        Ok(Ok(result)) => match extract_structured_output(&result.messages) {
+            Some(output) => match parse_agent_output(&output) {
+                Ok(()) => HookExecutionResult {
+                    outcome: HookOutcome::Success,
                     additional_contexts: Vec::new(),
                     watch_paths: Vec::new(),
                     hook_specific: None,
                 },
-            }
-        }
+                Err(reason) => HookExecutionResult {
+                    outcome: HookOutcome::Blocking { reason },
+                    additional_contexts: Vec::new(),
+                    watch_paths: Vec::new(),
+                    hook_specific: None,
+                },
+            },
+            None => HookExecutionResult {
+                outcome: HookOutcome::NonBlockingError {
+                    message: "Agent hook did not return structured output".into(),
+                },
+                additional_contexts: Vec::new(),
+                watch_paths: Vec::new(),
+                hook_specific: None,
+            },
+        },
     }
 }
 
@@ -307,7 +317,10 @@ mod tests {
             );
         }
         // StructuredOutput must be present (from SyntheticOutputTool)
-        assert!(names.contains(&"StructuredOutput"), "StructuredOutput tool must be present");
+        assert!(
+            names.contains(&"StructuredOutput"),
+            "StructuredOutput tool must be present"
+        );
     }
 
     #[test]
@@ -326,7 +339,9 @@ mod tests {
         let messages = vec![
             ApiMessage {
                 role: Role::User,
-                content: vec![ContentBlock::Text { text: "verify condition".into() }],
+                content: vec![ContentBlock::Text {
+                    text: "verify condition".into(),
+                }],
             },
             ApiMessage {
                 role: Role::Assistant,
@@ -344,29 +359,27 @@ mod tests {
 
     #[test]
     fn test_extract_structured_output_not_found() {
-        let messages = vec![
-            ApiMessage {
-                role: Role::Assistant,
-                content: vec![ContentBlock::Text { text: "I'm done".into() }],
-            },
-        ];
+        let messages = vec![ApiMessage {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text {
+                text: "I'm done".into(),
+            }],
+        }];
         assert!(super::extract_structured_output(&messages).is_none());
     }
 
     #[tokio::test]
     async fn test_execute_agent_hook_no_provider() {
-        use std::collections::HashMap;
         use crate::services::hooks::types::{HookContext, HookOutcome};
+        use std::collections::HashMap;
 
         let env: HashMap<String, String> = HashMap::new();
-        let hook_ctx = HookContext { provider: None, registry: None };
-        let result = super::execute_agent_hook(
-            "check something",
-            None,
-            None,
-            &env,
-            &hook_ctx,
-        ).await;
+        let hook_ctx = HookContext {
+            provider: None,
+            registry: None,
+        };
+        let result =
+            super::execute_agent_hook("check something", None, None, &env, &hook_ctx).await;
         assert!(
             matches!(result.outcome, HookOutcome::NonBlockingError { .. }),
             "Expected NonBlockingError when no provider, got {:?}",

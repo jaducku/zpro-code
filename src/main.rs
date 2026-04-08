@@ -5,7 +5,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use zpro_code::commands::CommandRegistry;
 use zpro_code::services::api::provider::LlmProvider;
 use zpro_code::services::config::AtomConfig;
-use zpro_code::services::context::{assemble_system_prompt, assemble_system_prompt_with_config, SystemPromptConfig};
+use zpro_code::services::context::{
+    assemble_system_prompt, assemble_system_prompt_with_config, SystemPromptConfig,
+};
 use zpro_code::services::session_transcript::SessionStore;
 use zpro_code::tui::run::run_app;
 use zpro_code::types::permissions::{PermissionMode, PermissionRule};
@@ -364,14 +366,9 @@ enum ConfigAction {
     /// Show current config
     Show,
     /// Set a config value
-    Set {
-        key: String,
-        value: String,
-    },
+    Set { key: String, value: String },
     /// Get a config value
-    Get {
-        key: String,
-    },
+    Get { key: String },
     /// Show config file path
     Path,
 }
@@ -410,19 +407,26 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
                         Some(cfg) => {
                             println!("Server: {}", name);
                             println!("  Command: {}", cfg.command);
-                            println!("  Args: {}", if cfg.args.is_empty() {
-                                "(none)".to_string()
-                            } else {
-                                cfg.args.join(" ")
-                            });
-                            println!("  Env: {}", if cfg.env.is_empty() {
-                                "(none)".to_string()
-                            } else {
-                                cfg.env.iter()
-                                    .map(|(k, v)| format!("{}={}", k, v))
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            });
+                            println!(
+                                "  Args: {}",
+                                if cfg.args.is_empty() {
+                                    "(none)".to_string()
+                                } else {
+                                    cfg.args.join(" ")
+                                }
+                            );
+                            println!(
+                                "  Env: {}",
+                                if cfg.env.is_empty() {
+                                    "(none)".to_string()
+                                } else {
+                                    cfg.env
+                                        .iter()
+                                        .map(|(k, v)| format!("{}={}", k, v))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                }
+                            );
                         }
                         None => {
                             eprintln!("MCP server '{}' not found.", name);
@@ -430,7 +434,11 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
                         }
                     }
                 }
-                McpAction::AddJson { name, json, scope: _ } => {
+                McpAction::AddJson {
+                    name,
+                    json,
+                    scope: _,
+                } => {
                     let server_config: zpro_code::services::mcp::McpServerConfig =
                         match serde_json::from_str(&json) {
                             Ok(c) => c,
@@ -463,7 +471,9 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
                 McpAction::Serve => {
                     println!("MCP serve mode not yet implemented.");
                 }
-                McpAction::Marketplace { action: marketplace_action } => match marketplace_action {
+                McpAction::Marketplace {
+                    action: marketplace_action,
+                } => match marketplace_action {
                     MarketplaceAction::Search { query } => {
                         eprintln!("mcp marketplace search: query={query} (not yet implemented)");
                     }
@@ -482,10 +492,13 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             }
             AuthAction::Status { json } => {
                 if json {
-                    println!("{}", serde_json::json!({
-                        "authenticated": false,
-                        "provider": null
-                    }));
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "authenticated": false,
+                            "provider": null
+                        })
+                    );
                 } else {
                     println!("Not authenticated.");
                     println!("Use --api-key or --api-base to connect to an LLM provider.");
@@ -534,7 +547,11 @@ async fn execute_subcommand(sub: SubCmd) -> anyhow::Result<()> {
             let config_exists = config_dir.exists();
             println!(
                 "  {} config directory: {}",
-                if config_exists { "\u{2713}" } else { "\u{2717}" },
+                if config_exists {
+                    "\u{2713}"
+                } else {
+                    "\u{2717}"
+                },
                 config_dir.display()
             );
 
@@ -578,7 +595,12 @@ async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
         ConfigAction::Path => {
-            println!("{}", zpro_code::utils::paths::global_config_dir().join("config.json").display());
+            println!(
+                "{}",
+                zpro_code::utils::paths::global_config_dir()
+                    .join("config.json")
+                    .display()
+            );
         }
         ConfigAction::Get { key } => {
             let config = AtomConfig::load();
@@ -590,7 +612,9 @@ async fn execute_config_action(action: ConfigAction) -> anyhow::Result<()> {
                 "permission_mode" => config.permission_mode.unwrap_or_default(),
                 other => {
                     // Check models map
-                    config.models.get(other)
+                    config
+                        .models
+                        .get(other)
                         .cloned()
                         .unwrap_or_else(|| format!("Unknown key: {}", other))
                 }
@@ -667,14 +691,20 @@ async fn main() -> anyhow::Result<()> {
     if let Some(allowed) = &cli.allowed_tools {
         for tool_spec in allowed {
             let (tool_name, rule_content) = parse_tool_spec(tool_spec);
-            allow_rules.push(PermissionRule { tool_name, rule_content });
+            allow_rules.push(PermissionRule {
+                tool_name,
+                rule_content,
+            });
         }
     }
 
     if let Some(disallowed) = &cli.disallowed_tools {
         for tool_spec in disallowed {
             let (tool_name, rule_content) = parse_tool_spec(tool_spec);
-            deny_rules.push(PermissionRule { tool_name, rule_content });
+            deny_rules.push(PermissionRule {
+                tool_name,
+                rule_content,
+            });
         }
     }
 
@@ -730,7 +760,9 @@ async fn main() -> anyhow::Result<()> {
 
             let output_format = match cli.output_format {
                 Some(OutputFormat::Json) => zpro_code::entrypoints::print::OutputFormat::Json,
-                Some(OutputFormat::StreamJson) => zpro_code::entrypoints::print::OutputFormat::StreamJson,
+                Some(OutputFormat::StreamJson) => {
+                    zpro_code::entrypoints::print::OutputFormat::StreamJson
+                }
                 _ => zpro_code::entrypoints::print::OutputFormat::Text,
             };
 
@@ -746,7 +778,8 @@ async fn main() -> anyhow::Result<()> {
                 deny_rules.clone(),
                 tools_filter.clone(),
                 registry.clone(),
-            ).await?;
+            )
+            .await?;
         }
         None => {
             // Resolve provider from registry (None = no-provider mode)
@@ -772,7 +805,9 @@ async fn main() -> anyhow::Result<()> {
                 PermissionMode::BypassPermissions
             } else {
                 // CLI > config > default (Auto)
-                let mode_str = cli.permission_mode.as_deref()
+                let mode_str = cli
+                    .permission_mode
+                    .as_deref()
                     .or(config.permission_mode.as_deref());
                 match mode_str {
                     Some("default") => PermissionMode::Default,
@@ -864,7 +899,8 @@ async fn main() -> anyhow::Result<()> {
                 deny_rules,
                 tools_filter,
                 registry.clone(),
-            ).await?;
+            )
+            .await?;
         }
     }
 

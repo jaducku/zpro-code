@@ -19,6 +19,11 @@ pub fn user_skills_dir() -> PathBuf {
     global_config_dir().join("skills")
 }
 
+/// User-level agents directory: ~/.zpro-code/agents/
+pub fn user_agents_dir() -> PathBuf {
+    global_config_dir().join("agents")
+}
+
 /// User-level hooks config: ~/.zpro-code/hooks.json
 pub fn user_hooks_path() -> PathBuf {
     global_config_dir().join("hooks.json")

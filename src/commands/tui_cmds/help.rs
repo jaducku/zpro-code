@@ -49,10 +49,16 @@ impl TuiCommand for HelpCommand {
         Box::new(HelpState {
             scroll: 0,
             commands: vec![
-                ("clear".into(), "Clear conversation history and free up context".into()),
+                (
+                    "clear".into(),
+                    "Clear conversation history and free up context".into(),
+                ),
                 ("review".into(), "Review a pull request".into()),
                 ("help".into(), "Show help and available commands".into()),
-                ("compact".into(), "Compact conversation to save context".into()),
+                (
+                    "compact".into(),
+                    "Compact conversation to save context".into(),
+                ),
                 ("cost".into(), "Show token usage and session cost".into()),
                 ("model".into(), "Show or change the current model".into()),
                 ("vim".into(), "Toggle vim keybindings".into()),
@@ -91,32 +97,25 @@ impl TuiCommand for HelpCommand {
             )
             .highlight_style(Style::default().bg(Color::DarkGray));
 
-        let max_scroll = (state.commands.len() as u16).saturating_sub(area.height.saturating_sub(2));
+        let max_scroll =
+            (state.commands.len() as u16).saturating_sub(area.height.saturating_sub(2));
         if state.scroll > max_scroll {
             state.scroll = max_scroll;
         }
 
         // Render footer hint
         let inner = area.inner(Margin::new(1, 1));
-        let layout = Layout::vertical([
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ]);
+        let layout = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]);
         let chunks = layout.split(inner);
 
         // Render the list in the main area
-        frame.render_widget(
-            list.clone(),
-            area,
-        );
+        frame.render_widget(list.clone(), area);
 
         // Render footer hint over the bottom of the block
-        let hint = Line::from(vec![
-            Span::styled(
-                " q/Esc: close  |  j/k/Up/Down: scroll ",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]);
+        let hint = Line::from(vec![Span::styled(
+            " q/Esc: close  |  j/k/Up/Down: scroll ",
+            Style::default().fg(Color::DarkGray),
+        )]);
         if chunks[1].height > 0 {
             frame.render_widget(Paragraph::new(hint), chunks[1]);
         }

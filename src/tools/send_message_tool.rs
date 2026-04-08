@@ -83,8 +83,8 @@ impl Tool for SendMessageTool {
 
         // Determine if message is plain text or structured
         let is_plain = message_val.is_string();
-        let is_structured = message_val.is_object()
-            && message_val.get("type").and_then(|v| v.as_str()).is_some();
+        let is_structured =
+            message_val.is_object() && message_val.get("type").and_then(|v| v.as_str()).is_some();
 
         if is_plain && summary.is_none() {
             return Err(tool_err(
@@ -271,7 +271,8 @@ impl Tool for SendMessageTool {
                         // Cancel the target agent via background_tasks
                         let state = ctx.app_state.read().await;
                         if let Some(task) = state.background_tasks.get(to) {
-                            task.cancel_token.cancel(crate::utils::abort_signal::AbortReason::UserCancel);
+                            task.cancel_token
+                                .cancel(crate::utils::abort_signal::AbortReason::UserCancel);
                         }
                     }
 
@@ -449,7 +450,11 @@ mod tests {
         let result = SendMessageTool.execute(ctx).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("empty"), "Error should mention 'empty': {}", err);
+        assert!(
+            err.contains("empty"),
+            "Error should mention 'empty': {}",
+            err
+        );
     }
 
     #[tokio::test]

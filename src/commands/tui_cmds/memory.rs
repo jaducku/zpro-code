@@ -64,8 +64,9 @@ impl TuiCommand for MemoryCommand {
         }
 
         if content.is_empty() {
-            content = "No AGENTS.md found.\n\nCreate AGENTS.md in your project root to add context."
-                .to_string();
+            content =
+                "No AGENTS.md found.\n\nCreate AGENTS.md in your project root to add context."
+                    .to_string();
         }
 
         Box::new(MemoryState { content, scroll: 0 })

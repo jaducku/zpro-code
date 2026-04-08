@@ -20,6 +20,10 @@ pub struct ResolvedLlm {
     pub model_id: String,
     pub context_window: Option<u64>,
     pub max_output_tokens: Option<u32>,
+    /// Enable reasoning/thinking extraction at the provider level.
+    pub reasoning: Option<bool>,
+    /// Reasoning effort level (e.g., "high", "medium", "low").
+    pub reasoning_effort: Option<String>,
 }
 
 /// Model-centric provider registry with lazy creation and caching.
@@ -58,9 +62,10 @@ impl ProviderRegistry {
                 if name.starts_with('_') {
                     anyhow::bail!("Provider name '{}' is reserved (starts with '_')", name);
                 }
-                let api_base = pcfg.api_base.clone().ok_or_else(|| {
-                    anyhow::anyhow!("Provider '{}': api_base is required", name)
-                })?;
+                let api_base = pcfg
+                    .api_base
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("Provider '{}': api_base is required", name))?;
                 registry.provider_templates.insert(
                     name.clone(),
                     ProviderTemplate {
@@ -82,7 +87,11 @@ impl ProviderRegistry {
             // treat it as provider:model if the left side matches a registered provider.
             let resolved = if let Some((left, right)) = spec.split_once(':') {
                 if let Some(tmpl) = registry.provider_templates.get(left) {
-                    Some((tmpl.api_base.clone(), tmpl.api_key.clone(), right.to_string()))
+                    Some((
+                        tmpl.api_base.clone(),
+                        tmpl.api_key.clone(),
+                        right.to_string(),
+                    ))
                 } else {
                     None
                 }
@@ -91,6 +100,19 @@ impl ProviderRegistry {
             };
 
             if let Some((api_base, api_key, model_id)) = resolved {
+                // Look up model_options from the provider config
+                let (reasoning, reasoning_effort) = if let Some(providers) = &config.providers {
+                    let provider_name = spec.split_once(':').map(|(l, _)| l).unwrap_or("");
+                    providers
+                        .get(provider_name)
+                        .and_then(|p| p.model_options.as_ref())
+                        .and_then(|opts| opts.get(&model_id))
+                        .map(|o| (o.reasoning, o.reasoning_effort.clone()))
+                        .unwrap_or((None, None))
+                } else {
+                    (None, None)
+                };
+
                 registry.llm_configs.insert(
                     alias.clone(),
                     ResolvedLlm {
@@ -99,6 +121,8 @@ impl ProviderRegistry {
                         model_id,
                         context_window: None,
                         max_output_tokens: None,
+                        reasoning,
+                        reasoning_effort,
                     },
                 );
             } else {
@@ -159,6 +183,8 @@ impl ProviderRegistry {
                     model_id: right.to_string(),
                     context_window: None,
                     max_output_tokens: None,
+                    reasoning: None,
+                    reasoning_effort: None,
                 };
                 let cache_key = format!("{}:{}", left, right);
                 return self.resolve_cached(&cache_key, &llm);
@@ -187,6 +213,8 @@ impl ProviderRegistry {
                 model_id,
                 context_window: None,
                 max_output_tokens: None,
+                reasoning: None,
+                reasoning_effort: None,
             };
             let cache_key = format!("_cli:{}", spec);
             return self.resolve_cached(&cache_key, &llm);
@@ -225,11 +253,16 @@ impl ProviderRegistry {
     }
 
     fn create_provider(&self, llm: &ResolvedLlm) -> anyhow::Result<ChatCompletionsProvider> {
-        let provider = ChatCompletionsProvider::new(
+        let mut provider = ChatCompletionsProvider::new(
             llm.api_base.clone(),
             llm.api_key.clone(),
             llm.model_id.clone(),
         );
+
+        // Apply reasoning config if enabled for this model
+        if llm.reasoning == Some(true) {
+            provider = provider.with_reasoning(llm.reasoning_effort.clone());
+        }
 
         if llm.context_window.is_some() || llm.max_output_tokens.is_some() {
             let info = ModelInfo {
@@ -262,11 +295,7 @@ mod tests {
             "https://openrouter.ai/api/v1".into(),
             Some("sk-test".into()),
         );
-        r.register_provider(
-            "ollama".into(),
-            "http://localhost:11434/v1".into(),
-            None,
-        );
+        r.register_provider("ollama".into(), "http://localhost:11434/v1".into(), None);
         r.register_llm(
             "sonnet".into(),
             ResolvedLlm {
@@ -275,6 +304,8 @@ mod tests {
                 model_id: "anthropic/claude-sonnet-4-20250514".into(),
                 context_window: None,
                 max_output_tokens: None,
+                reasoning: None,
+                reasoning_effort: None,
             },
         );
         r.register_llm(
@@ -285,6 +316,8 @@ mod tests {
                 model_id: "google/gemini-2.5-flash".into(),
                 context_window: Some(1_000_000),
                 max_output_tokens: Some(65536),
+                reasoning: None,
+                reasoning_effort: None,
             },
         );
         r.register_llm(
@@ -295,6 +328,8 @@ mod tests {
                 model_id: "llama3.2".into(),
                 context_window: None,
                 max_output_tokens: None,
+                reasoning: None,
+                reasoning_effort: None,
             },
         );
         r.set_default_model(Some("sonnet".into()));
@@ -415,7 +450,9 @@ mod tests {
     fn test_from_config_reserved_name_provider() {
         let json = r#"{ "providers": { "_bad": { "api_base": "http://x" } } }"#;
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
+        let err = ProviderRegistry::from_config(&config)
+            .err()
+            .expect("should fail");
         assert!(err.to_string().contains("reserved"));
     }
 
@@ -426,7 +463,9 @@ mod tests {
             "models": { "_bad": "p:model" }
         }"#;
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
-        let err = ProviderRegistry::from_config(&config).err().expect("should fail");
+        let err = ProviderRegistry::from_config(&config)
+            .err()
+            .expect("should fail");
         assert!(err.to_string().contains("reserved"));
     }
 
@@ -439,7 +478,11 @@ mod tests {
         let config: crate::services::config::AtomConfig = serde_json::from_str(json).unwrap();
         let mut r = ProviderRegistry::from_config(&config).unwrap();
         // No colon → stored as legacy, needs _cli to resolve
-        r.register_provider("_cli".into(), "https://openrouter.ai/api/v1".into(), Some("sk-test".into()));
+        r.register_provider(
+            "_cli".into(),
+            "https://openrouter.ai/api/v1".into(),
+            Some("sk-test".into()),
+        );
         let p = r.resolve("fast").unwrap();
         assert_eq!(p.model_info().id, "google/gemma-3-27b-it:free");
     }

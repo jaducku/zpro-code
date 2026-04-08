@@ -16,9 +16,16 @@ pub struct CommandOutput {
 
 #[derive(Debug)]
 pub enum CommandHookResult {
-    Success { output: CommandOutput },
-    Blocking { reason: String, output: CommandOutput },
-    NonBlockingError { message: String },
+    Success {
+        output: CommandOutput,
+    },
+    Blocking {
+        reason: String,
+        output: CommandOutput,
+    },
+    NonBlockingError {
+        message: String,
+    },
 }
 
 const DEFAULT_TIMEOUT_SECS: u64 = 120;

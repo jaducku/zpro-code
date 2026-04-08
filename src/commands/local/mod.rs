@@ -86,7 +86,9 @@ pub fn get_internal_local_commands() -> Vec<Command> {
         Command::Local(Box::new(break_cache::BreakCacheCommand)),
         Command::Local(Box::new(mock_limits::MockLimitsCommand)),
         Command::Local(Box::new(reset_limits::ResetLimitsCommand)),
-        Command::Local(Box::new(reset_limits_noninteractive::ResetLimitsNoninteractiveCommand)),
+        Command::Local(Box::new(
+            reset_limits_noninteractive::ResetLimitsNoninteractiveCommand,
+        )),
         Command::Local(Box::new(oauth_refresh::OauthRefreshCommand)),
         Command::Local(Box::new(heapdump::HeapdumpCommand)),
     ];

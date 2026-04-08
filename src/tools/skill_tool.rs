@@ -69,11 +69,7 @@ impl Tool for SkillTool {
                 tool_name: "Skill".into(),
                 message: "Missing required 'skill' parameter".into(),
             })?;
-        let args = ctx
-            .input
-            .get("args")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let args = ctx.input.get("args").and_then(|v| v.as_str()).unwrap_or("");
 
         // Look up skill in registry
         let command = ctx.commands.find(skill_name);
@@ -105,6 +101,9 @@ impl Tool for SkillTool {
             options: CommandOptions {
                 theme: "default".to_string(),
             },
+            provider: None,
+            messages: Arc::new(Vec::new()),
+            session_memory: None,
         };
 
         let blocks = match prompt_cmd.get_prompt(args, &cmd_ctx).await {
@@ -194,6 +193,7 @@ async fn execute_forked_skill(
         agent_depth: None,
         query_source: None,
         abort_signal: child_abort,
+        session_memory: None,
     };
 
     let result = query(query_ctx, event_tx).await;

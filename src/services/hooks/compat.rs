@@ -1,8 +1,8 @@
 use serde::Deserialize;
 use std::path::Path;
 
-use crate::services::hooks::types::{HookCommand, HookMatcher, HooksSettings};
 use crate::services::hooks::settings::merge_hooks_settings;
+use crate::services::hooks::types::{HookCommand, HookMatcher, HooksSettings};
 
 /// Legacy hook configuration format (flat JSON array entries).
 #[derive(Debug, Clone, Deserialize)]

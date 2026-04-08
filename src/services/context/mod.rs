@@ -85,9 +85,14 @@ pub fn assemble_system_prompt(
 
     // 3b. Output style
     if let Some(style_name) = output_style {
-        if let Some(style_config) = crate::services::output_styles::get_output_style_config(cwd, style_name) {
+        if let Some(style_config) =
+            crate::services::output_styles::get_output_style_config(cwd, style_name)
+        {
             blocks.push(SystemBlock::Text {
-                text: format!("# Output Style: {}\n\n{}", style_config.name, style_config.prompt),
+                text: format!(
+                    "# Output Style: {}\n\n{}",
+                    style_config.name, style_config.prompt
+                ),
             });
         }
     }
@@ -279,7 +284,10 @@ fn gather_git_context(cwd: &Path) -> String {
         // Still include working directory and date even outside git
         let mut parts = Vec::new();
         parts.push(format!("- Working directory: {}", cwd.display()));
-        parts.push(format!("- Date: {}", chrono::Local::now().format("%Y-%m-%d")));
+        parts.push(format!(
+            "- Date: {}",
+            chrono::Local::now().format("%Y-%m-%d")
+        ));
         return parts.join("\n");
     }
 
@@ -315,7 +323,10 @@ fn gather_git_context(cwd: &Path) -> String {
 
     // Working directory and date
     parts.push(format!("- Working directory: {}", cwd.display()));
-    parts.push(format!("- Date: {}", chrono::Local::now().format("%Y-%m-%d")));
+    parts.push(format!(
+        "- Date: {}",
+        chrono::Local::now().format("%Y-%m-%d")
+    ));
 
     parts.join("\n")
 }
@@ -410,22 +421,43 @@ mod tests {
     fn test_core_instructions_has_all_sections() {
         let prompt = core_instructions();
         assert!(prompt.contains("# System"), "missing System section");
-        assert!(prompt.contains("# Doing tasks"), "missing Doing tasks section");
-        assert!(prompt.contains("# Executing actions with care"), "missing Actions section");
-        assert!(prompt.contains("# Using your tools"), "missing Using tools section");
+        assert!(
+            prompt.contains("# Doing tasks"),
+            "missing Doing tasks section"
+        );
+        assert!(
+            prompt.contains("# Executing actions with care"),
+            "missing Actions section"
+        );
+        assert!(
+            prompt.contains("# Using your tools"),
+            "missing Using tools section"
+        );
         assert!(prompt.contains("# Tone and style"), "missing Tone section");
-        assert!(prompt.contains("# Output efficiency"), "missing Output efficiency section");
+        assert!(
+            prompt.contains("# Output efficiency"),
+            "missing Output efficiency section"
+        );
         // Tool names are referenced
         assert!(prompt.contains("Read"), "missing Read tool reference");
         assert!(prompt.contains("Edit"), "missing Edit tool reference");
         assert!(prompt.contains("Glob"), "missing Glob tool reference");
         assert!(prompt.contains("Grep"), "missing Grep tool reference");
         assert!(prompt.contains("Bash"), "missing Bash tool reference");
-        assert!(prompt.contains("TaskCreate"), "missing TaskCreate tool reference");
-        assert!(prompt.contains("AskUserQuestion"), "missing AskUserQuestion tool reference");
+        assert!(
+            prompt.contains("TaskCreate"),
+            "missing TaskCreate tool reference"
+        );
+        assert!(
+            prompt.contains("AskUserQuestion"),
+            "missing AskUserQuestion tool reference"
+        );
         // Security guidance present
         assert!(prompt.contains("OWASP"), "missing OWASP security guidance");
-        assert!(prompt.contains("prompt injection"), "missing prompt injection warning");
+        assert!(
+            prompt.contains("prompt injection"),
+            "missing prompt injection warning"
+        );
     }
 
     #[test]

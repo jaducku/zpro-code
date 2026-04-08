@@ -57,7 +57,11 @@ impl TuiCommand for PlanCommand {
             .border_style(Style::default().fg(Color::Cyan));
 
         let status_text = if state.enabled { "ON" } else { "OFF" };
-        let status_color = if state.enabled { Color::Green } else { Color::Red };
+        let status_color = if state.enabled {
+            Color::Green
+        } else {
+            Color::Red
+        };
 
         let lines = vec![
             Line::from(""),
@@ -66,7 +70,10 @@ impl TuiCommand for PlanCommand {
                 Span::styled(status_text, Style::default().fg(status_color).bold()),
             ]),
             Line::from(""),
-            Line::from(Span::styled("  Space/Enter to toggle | q to close", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  Space/Enter to toggle | q to close",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);

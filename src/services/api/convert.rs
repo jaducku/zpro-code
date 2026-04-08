@@ -182,15 +182,10 @@ fn content_blocks_to_openai(blocks: &[ContentBlock]) -> OpenAiContent {
         let parts: Vec<OpenAiContentPart> = blocks
             .iter()
             .filter_map(|b| match b {
-                ContentBlock::Text { text } => {
-                    Some(OpenAiContentPart::Text { text: text.clone() })
-                }
+                ContentBlock::Text { text } => Some(OpenAiContentPart::Text { text: text.clone() }),
                 ContentBlock::Image { source } => {
                     let url = match source {
-                        crate::types::content::ImageSource::Base64 {
-                            media_type,
-                            data,
-                        } => {
+                        crate::types::content::ImageSource::Base64 { media_type, data } => {
                             format!("data:{};base64,{}", media_type, data)
                         }
                         crate::types::content::ImageSource::Url { url } => url.clone(),
@@ -244,9 +239,7 @@ mod tests {
     fn test_system_prompt_prepended() {
         let messages = vec![ApiMessage {
             role: Role::User,
-            content: vec![ContentBlock::Text {
-                text: "hi".into(),
-            }],
+            content: vec![ContentBlock::Text { text: "hi".into() }],
         }];
         let system = vec![SystemBlock::Text {
             text: "You are helpful".into(),

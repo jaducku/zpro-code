@@ -2,8 +2,8 @@ pub mod client;
 pub mod config;
 pub mod connection_manager;
 pub mod jsonrpc;
-pub mod transport;
 pub mod tool_wrapper;
+pub mod transport;
 pub mod types;
 
 pub use client::McpClient;

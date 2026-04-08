@@ -55,7 +55,10 @@ impl TuiCommand for McpCommand {
             })
             .collect();
         servers.sort_by(|a, b| a.0.cmp(&b.0));
-        Box::new(McpState { servers, selected: 0 })
+        Box::new(McpState {
+            servers,
+            selected: 0,
+        })
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut dyn Any) {
@@ -69,15 +72,22 @@ impl TuiCommand for McpCommand {
         if state.servers.is_empty() {
             let lines = vec![
                 Line::from(""),
-                Line::from(Span::styled("  No MCP servers configured.", Style::default().fg(Color::DarkGray))),
+                Line::from(Span::styled(
+                    "  No MCP servers configured.",
+                    Style::default().fg(Color::DarkGray),
+                )),
                 Line::from(""),
-                Line::from(Span::styled("  Add with: atom mcp add-json <name> '<json>'", Style::default().fg(Color::DarkGray))),
+                Line::from(Span::styled(
+                    "  Add with: atom mcp add-json <name> '<json>'",
+                    Style::default().fg(Color::DarkGray),
+                )),
             ];
             let paragraph = Paragraph::new(lines).block(block);
             frame.render_widget(Clear, area);
             frame.render_widget(paragraph, area);
         } else {
-            let items: Vec<ListItem> = state.servers
+            let items: Vec<ListItem> = state
+                .servers
                 .iter()
                 .enumerate()
                 .map(|(i, (name, cmd))| {
@@ -100,7 +110,8 @@ impl TuiCommand for McpCommand {
                     ListItem::new(Line::from(vec![
                         Span::styled(format!("  {:<20}", name), name_style),
                         Span::styled(cmd.clone(), cmd_style),
-                    ])).style(style)
+                    ]))
+                    .style(style)
                 })
                 .collect();
 

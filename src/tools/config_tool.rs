@@ -55,12 +55,7 @@ pub static SETTINGS: &[SettingDef] = &[
     SettingDef {
         key: "permissions.defaultMode",
         source: SettingSource::Project,
-        value_type: SettingType::Enum(&[
-            "default",
-            "plan",
-            "acceptEdits",
-            "bypassPermissions",
-        ]),
+        value_type: SettingType::Enum(&["default", "plan", "acceptEdits", "bypassPermissions"]),
         description: "Default permission mode",
     },
     SettingDef {
@@ -88,10 +83,7 @@ pub fn validate_value(setting: &SettingDef, value: &Value) -> Result<Value, Stri
             Value::String(s) => match s.as_str() {
                 "true" => Ok(Value::Bool(true)),
                 "false" => Ok(Value::Bool(false)),
-                _ => Err(format!(
-                    "Invalid boolean value '{}'. Use true or false.",
-                    s
-                )),
+                _ => Err(format!("Invalid boolean value '{}'. Use true or false.", s)),
             },
             _ => Err(format!(
                 "Invalid boolean value '{}'. Use true or false.",
@@ -155,7 +147,9 @@ fn project_settings_path() -> std::path::PathBuf {
 fn load_project_settings() -> Value {
     let path = project_settings_path();
     match std::fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or(Value::Object(serde_json::Map::new())),
+        Ok(content) => {
+            serde_json::from_str(&content).unwrap_or(Value::Object(serde_json::Map::new()))
+        }
         Err(_) => Value::Object(serde_json::Map::new()),
     }
 }
@@ -198,9 +192,15 @@ impl Tool for ConfigTool {
         })
     }
 
-    fn is_read_only(&self) -> bool { false }
-    fn should_defer(&self) -> bool { true }
-    fn search_hint(&self) -> Option<&str> { Some("get or set configuration settings") }
+    fn is_read_only(&self) -> bool {
+        false
+    }
+    fn should_defer(&self) -> bool {
+        true
+    }
+    fn search_hint(&self) -> Option<&str> {
+        Some("get or set configuration settings")
+    }
 
     async fn execute(&self, ctx: ToolUseContext) -> crate::types::Result<ToolResult> {
         let setting_key = ctx
@@ -321,7 +321,6 @@ impl Tool for ConfigTool {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

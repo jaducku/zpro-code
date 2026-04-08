@@ -92,7 +92,10 @@ impl InputHistory {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let _ = std::fs::write(path, serde_json::to_string(&self.entries).unwrap_or_default());
+            let _ = std::fs::write(
+                path,
+                serde_json::to_string(&self.entries).unwrap_or_default(),
+            );
         }
     }
 }

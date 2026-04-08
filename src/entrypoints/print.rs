@@ -99,14 +99,14 @@ pub async fn run_print_mode(
         agent_depth: None,
         query_source: None,
         abort_signal: crate::utils::abort_signal::AbortSignal::new(),
+        session_memory: None,
     };
 
     // 4. Run query
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<QueryEvent>();
 
-    let query_handle = tokio::spawn(async move {
-        crate::query::engine::query(ctx, event_tx).await
-    });
+    let query_handle =
+        tokio::spawn(async move { crate::query::engine::query(ctx, event_tx).await });
 
     // 5. Process events based on output format
     let mut final_text = String::new();
@@ -136,7 +136,7 @@ pub async fn run_print_mode(
                     OutputFormat::Json => {} // collect, output at end
                 }
             }
-            QueryEvent::ToolCallStart { name, id } => {
+            QueryEvent::ToolCallStart { name, id, .. } => {
                 eprintln!("[tool] {} ({})", name, id);
                 if matches!(output_format, OutputFormat::StreamJson) {
                     writeln!(
@@ -168,23 +168,21 @@ pub async fn run_print_mode(
                 output_tokens += o;
             }
             QueryEvent::ResponseComplete { .. } => {}
-            QueryEvent::BriefMessage { message, .. } => {
-                match output_format {
-                    OutputFormat::Text => {
-                        writeln!(stdout_lock, "{}", message)?;
-                        stdout_lock.flush()?;
-                    }
-                    OutputFormat::StreamJson => {
-                        writeln!(
-                            stdout_lock,
-                            "{}",
-                            serde_json::json!({"type": "brief", "message": message})
-                        )?;
-                        stdout_lock.flush()?;
-                    }
-                    OutputFormat::Json => {}
+            QueryEvent::BriefMessage { message, .. } => match output_format {
+                OutputFormat::Text => {
+                    writeln!(stdout_lock, "{}", message)?;
+                    stdout_lock.flush()?;
                 }
-            }
+                OutputFormat::StreamJson => {
+                    writeln!(
+                        stdout_lock,
+                        "{}",
+                        serde_json::json!({"type": "brief", "message": message})
+                    )?;
+                    stdout_lock.flush()?;
+                }
+                OutputFormat::Json => {}
+            },
             QueryEvent::Error(msg) => {
                 eprintln!("Error: {}", msg);
                 if matches!(output_format, OutputFormat::StreamJson) {
@@ -195,7 +193,11 @@ pub async fn run_print_mode(
                     )?;
                 }
             }
-            QueryEvent::AgentCompleted { description, is_error, .. } => {
+            QueryEvent::AgentCompleted {
+                description,
+                is_error,
+                ..
+            } => {
                 let status = if *is_error { "failed" } else { "completed" };
                 eprintln!("[agent] '{}' {}", description, status);
             }
@@ -205,6 +207,7 @@ pub async fn run_print_mode(
             }
             QueryEvent::Compacted { .. } => {}
             QueryEvent::QueryCancelled { .. } => {}
+            QueryEvent::ThinkingDelta { .. } => {}
         }
     }
 

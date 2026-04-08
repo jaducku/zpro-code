@@ -38,9 +38,7 @@ impl LocalCommand for ClearCommand {
     }
 
     async fn call(&self, _args: &str, _ctx: &CommandContext) -> anyhow::Result<LocalCommandResult> {
-        Ok(LocalCommandResult::Compact {
-            display_text: Some("Conversation cleared.".to_string()),
-        })
+        Ok(LocalCommandResult::Clear)
     }
 }
 

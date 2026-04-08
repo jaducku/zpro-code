@@ -53,8 +53,7 @@ impl TuiCommand for WorkflowsCommand {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan));
-        let text = Paragraph::new("Manage workflows")
-            .block(block);
+        let text = Paragraph::new("Manage workflows").block(block);
         frame.render_widget(Clear, area);
         frame.render_widget(text, area);
     }

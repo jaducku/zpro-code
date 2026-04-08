@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use super::loader::{BuiltinPluginDefinition, PluginRegistry};
 use crate::services::hooks::types::HooksSettings;
 #[cfg(test)]
 use crate::services::hooks::types::{HookCommand, HookMatcher};
-use super::loader::{BuiltinPluginDefinition, PluginRegistry};
 
 /// Merge a plugin's hooks into the base hooks settings.
 ///

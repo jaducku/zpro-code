@@ -21,6 +21,7 @@ const BACKGROUND_ALLOWED_TOOLS: &[&str] = &[
 pub struct AgentSpawnParams {
     pub prompt: String,
     pub description: String,
+    pub agent_type: String,
     pub model: Option<String>,
     pub run_in_background: bool,
     pub isolation: Option<String>,
@@ -30,6 +31,8 @@ pub struct AgentSpawnParams {
     pub fork_messages: Option<Vec<crate::types::message::ApiMessage>>,
     /// Query source for recursion guard (e.g., "agent:builtin:fork")
     pub query_source: Option<String>,
+    /// Agent definition (if resolved from registry)
+    pub agent_def: Option<crate::services::agents::AgentDefinition>,
 }
 
 impl AgentSpawnParams {
@@ -49,24 +52,38 @@ impl AgentSpawnParams {
             .unwrap_or("agent task")
             .to_string();
 
-        let model = input.get("model").and_then(|v| v.as_str()).map(String::from);
+        let model = input
+            .get("model")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         let run_in_background = input
             .get("run_in_background")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let isolation = input.get("isolation").and_then(|v| v.as_str()).map(String::from);
+        let isolation = input
+            .get("isolation")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let agent_type = input
+            .get("subagent_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Agent")
+            .to_string();
 
         Ok(Self {
             prompt,
             description,
+            agent_type,
             model,
             run_in_background,
             isolation,
             is_fork: false,
             fork_messages: None,
             query_source: None,
+            agent_def: None,
         })
     }
 }
@@ -92,6 +109,32 @@ pub fn get_agent_tools(is_background: bool) -> Vec<Box<dyn Tool>> {
         .collect()
 }
 
+/// Apply tool filter from agent definition.
+/// Priority: AllowList (only specified tools) → disallowed (remove specified tools) → AllTools (all allowed).
+fn apply_tool_filter(
+    tools: Vec<Box<dyn Tool>>,
+    tool_filter: &crate::services::agents::AgentToolFilter,
+    disallowed_tools: &[String],
+) -> Vec<Box<dyn Tool>> {
+    use crate::services::agents::AgentToolFilter;
+
+    let filtered = match tool_filter {
+        AgentToolFilter::AllTools => tools,
+        AgentToolFilter::AllowList(allowed) => {
+            tools
+                .into_iter()
+                .filter(|t| allowed.contains(&t.name().to_string()))
+                .collect()
+        }
+    };
+
+    // Remove explicitly disallowed tools regardless of filter type
+    filtered
+        .into_iter()
+        .filter(|t| !disallowed_tools.contains(&t.name().to_string()))
+        .collect()
+}
+
 /// Build a child QueryContext from the parent's ToolUseContext.
 pub fn build_child_context(
     params: &AgentSpawnParams,
@@ -101,8 +144,26 @@ pub fn build_child_context(
     use crate::types::content::ContentBlock;
     use crate::types::message::{ApiMessage, Role};
 
-    let model = params.model.clone().unwrap_or_else(|| parent_ctx.model.clone());
+    let model = params
+        .model
+        .clone()
+        .unwrap_or_else(|| parent_ctx.model.clone());
     let max_tokens = parent_ctx.provider.model_info().max_output_tokens;
+
+    // Apply agent_def system_prompt if present, otherwise inherit from parent
+    let system_prompt = params
+        .agent_def
+        .as_ref()
+        .and_then(|d| d.system_prompt.as_ref())
+        .map(|sp| vec![crate::services::api::types::SystemBlock::Text { text: sp.clone() }])
+        .unwrap_or_else(|| parent_ctx.system_prompt.clone());
+
+    // Apply agent_def max_turns if present, otherwise use default (50)
+    let max_turns = params
+        .agent_def
+        .as_ref()
+        .and_then(|d| d.max_turns)
+        .or(Some(50));
 
     let messages = vec![ApiMessage {
         role: Role::User,
@@ -114,7 +175,7 @@ pub fn build_child_context(
     QueryContext {
         messages,
         tools,
-        system_prompt: Some(parent_ctx.system_prompt.clone()),
+        system_prompt: Some(system_prompt),
         model,
         max_tokens,
         permission_ctx: parent_ctx.permission_ctx.clone(),
@@ -122,7 +183,7 @@ pub fn build_child_context(
         question_tx: parent_ctx.question_tx.clone(),
         hooks: crate::services::hooks::load_all_hooks(&parent_ctx.cwd),
         cwd: parent_ctx.cwd.clone(),
-        max_turns: Some(50),
+        max_turns,
         max_budget_usd: None,
         commands: parent_ctx.commands.clone(),
         provider: parent_ctx.provider.clone(),
@@ -132,6 +193,7 @@ pub fn build_child_context(
         agent_depth: Some(parent_ctx.agent_depth + 1),
         query_source: parent_ctx.query_source.clone(),
         abort_signal: parent_ctx.abort_signal.child_signal(),
+        session_memory: None,
     }
 }
 
@@ -178,7 +240,10 @@ pub fn build_fork_context(
     parent_ctx: &ToolUseContext,
     tools: Vec<Box<dyn Tool>>,
 ) -> QueryContext {
-    let model = params.model.clone().unwrap_or_else(|| parent_ctx.model.clone());
+    let model = params
+        .model
+        .clone()
+        .unwrap_or_else(|| parent_ctx.model.clone());
     let max_tokens = parent_ctx.provider.model_info().max_output_tokens;
 
     let mut messages = filter_incomplete_tool_calls(parent_ctx.messages.as_ref());
@@ -207,6 +272,7 @@ pub fn build_fork_context(
         agent_depth: Some(parent_ctx.agent_depth + 1),
         query_source: params.query_source.clone(),
         abort_signal: parent_ctx.abort_signal.child_signal(),
+        session_memory: None,
     }
 }
 
@@ -233,7 +299,13 @@ fn extract_agent_output(messages: &[crate::types::message::ApiMessage]) -> Strin
 async fn create_agent_worktree(
     cwd: &std::path::Path,
     agent_id: &str,
-) -> Result<(std::path::PathBuf, crate::services::worktree::WorktreeSession), String> {
+) -> Result<
+    (
+        std::path::PathBuf,
+        crate::services::worktree::WorktreeSession,
+    ),
+    String,
+> {
     let slug = format!("agent-{}", &agent_id[..8.min(agent_id.len())]);
     let session = crate::services::worktree::WorktreeService::create(cwd, &slug, agent_id)
         .await
@@ -250,12 +322,9 @@ async fn cleanup_agent_worktree(session: &crate::services::worktree::WorktreeSes
             .unwrap_or(0);
 
     let new_commits = if let Some(ref head) = session.original_head_commit {
-        crate::services::worktree::WorktreeService::count_new_commits(
-            &session.worktree_path,
-            head,
-        )
-        .await
-        .unwrap_or(0)
+        crate::services::worktree::WorktreeService::count_new_commits(&session.worktree_path, head)
+            .await
+            .unwrap_or(0)
     } else {
         0
     };
@@ -265,6 +334,49 @@ async fn cleanup_agent_worktree(session: &crate::services::worktree::WorktreeSes
         let _ = crate::services::worktree::WorktreeService::remove(session).await;
     }
     // If there are changes, keep the worktree for the user to review
+}
+
+/// Relay child query events to the parent event channel, setting `parent_agent_id` on
+/// `ToolCallStart` events so the TUI can nest child tools under their parent agent.
+/// Returns (tool_count, token_count) collected from the stream.
+async fn relay_child_events(
+    mut child_event_rx: tokio::sync::mpsc::UnboundedReceiver<crate::query::types::QueryEvent>,
+    parent_event_tx: &tokio::sync::mpsc::UnboundedSender<crate::query::types::QueryEvent>,
+    agent_tool_use_id: &str,
+) -> (u32, u64) {
+    let mut tool_count: u32 = 0;
+    let mut token_count: u64 = 0;
+    while let Some(event) = child_event_rx.recv().await {
+        match event {
+            crate::query::types::QueryEvent::ToolCallStart { id, name, .. } => {
+                let _ = parent_event_tx.send(crate::query::types::QueryEvent::ToolCallStart {
+                    id,
+                    name,
+                    parent_agent_id: Some(agent_tool_use_id.to_string()),
+                });
+            }
+            crate::query::types::QueryEvent::ToolCallInputReady { id, name, input } => {
+                let _ = parent_event_tx.send(crate::query::types::QueryEvent::ToolCallInputReady {
+                    id,
+                    name,
+                    input,
+                });
+            }
+            crate::query::types::QueryEvent::ToolCallComplete { id, result } => {
+                tool_count += 1;
+                let _ = parent_event_tx
+                    .send(crate::query::types::QueryEvent::ToolCallComplete { id, result });
+            }
+            crate::query::types::QueryEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
+                token_count += input_tokens + output_tokens;
+            }
+            _ => {}
+        }
+    }
+    (tool_count, token_count)
 }
 
 /// Run an agent in foreground (blocking) mode.
@@ -279,6 +391,12 @@ pub async fn run_foreground(
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
     }
+
+    // Apply tool filter from agent definition if present
+    if let Some(ref agent_def) = params.agent_def {
+        tools = apply_tool_filter(tools, &agent_def.tool_filter, &agent_def.disallowed_tools);
+    }
+
     // Create worktree if isolation requested
     let worktree_session = if params.isolation.as_deref() == Some("worktree") {
         match create_agent_worktree(&parent_ctx.cwd, &agent_id).await {
@@ -288,7 +406,9 @@ pub async fn run_foreground(
                     agent_id,
                     output: format!("Failed to create worktree: {e}"),
                     is_error: true,
-                    tool_count: 0, token_count: 0, duration_secs: 0,
+                    tool_count: 0,
+                    token_count: 0,
+                    duration_secs: 0,
                 });
             }
         }
@@ -306,7 +426,8 @@ pub async fn run_foreground(
         // Inject worktree notice for fork children
         if params.is_fork {
             let notice = crate::services::fork_subagent::build_worktree_notice(
-                &parent_ctx.cwd, worktree_path,
+                &parent_ctx.cwd,
+                worktree_path,
             );
             child_ctx.messages.push(crate::types::message::ApiMessage {
                 role: crate::types::message::Role::User,
@@ -317,22 +438,16 @@ pub async fn run_foreground(
 
     let start_time = std::time::Instant::now();
 
-    // Use a separate event channel so child tool events don't leak to parent TUI.
-    let (child_event_tx, mut child_event_rx) = tokio::sync::mpsc::unbounded_channel();
-    let result = crate::query::engine::query(child_ctx, child_event_tx).await;
-
-    // Collect stats
-    let mut tool_count: u32 = 0;
-    let mut token_count: u64 = 0;
-    while let Ok(event) = child_event_rx.try_recv() {
-        match event {
-            crate::query::types::QueryEvent::ToolCallComplete { .. } => tool_count += 1,
-            crate::query::types::QueryEvent::Usage { input_tokens, output_tokens } => {
-                token_count += input_tokens + output_tokens;
-            }
-            _ => {}
-        }
-    }
+    // Run query and relay child events to parent concurrently.
+    // relay_child_events drives child_event_rx; it finishes when child_event_tx is dropped
+    // (which happens when query() returns).
+    let (child_event_tx, child_event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let parent_event_tx = parent_ctx.event_tx.clone();
+    let agent_tool_use_id = parent_ctx.tool_use_id.clone();
+    let (result, (tool_count, token_count)) = tokio::join!(
+        crate::query::engine::query(child_ctx, child_event_tx),
+        relay_child_events(child_event_rx, &parent_event_tx, &agent_tool_use_id),
+    );
     let duration_secs = start_time.elapsed().as_secs();
 
     // Clean up worktree
@@ -343,11 +458,22 @@ pub async fn run_foreground(
     match result {
         Ok(query_result) => {
             let output = extract_agent_output(&query_result.messages);
-            Ok(AgentResult { agent_id, output, is_error: false, tool_count, token_count, duration_secs })
+            Ok(AgentResult {
+                agent_id,
+                output,
+                is_error: false,
+                tool_count,
+                token_count,
+                duration_secs,
+            })
         }
         Err(e) => Ok(AgentResult {
-            agent_id, output: format!("Agent failed: {}", e), is_error: true,
-            tool_count, token_count, duration_secs,
+            agent_id,
+            output: format!("Agent failed: {}", e),
+            is_error: true,
+            tool_count,
+            token_count,
+            duration_secs,
         }),
     }
 }
@@ -360,6 +486,7 @@ pub async fn run_background(
 ) -> Result<crate::tool::ToolResult, crate::types::AtomError> {
     let agent_id = uuid::Uuid::new_v4().to_string();
     let description = params.description.clone();
+    let agent_type = params.agent_type.clone();
     let mut tools = if params.is_fork {
         get_agent_tools(false) // fork: full tool access
     } else {
@@ -369,6 +496,12 @@ pub async fn run_background(
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
     }
+
+    // Apply tool filter from agent definition if present
+    if let Some(ref agent_def) = params.agent_def {
+        tools = apply_tool_filter(tools, &agent_def.tool_filter, &agent_def.disallowed_tools);
+    }
+
     let cancel_token = crate::utils::abort_signal::AbortSignal::new();
 
     // Register as BackgroundTask in AppState
@@ -416,7 +549,8 @@ pub async fn run_background(
         // Inject worktree notice for fork children
         if params.is_fork {
             let notice = crate::services::fork_subagent::build_worktree_notice(
-                &parent_ctx.cwd, worktree_path,
+                &parent_ctx.cwd,
+                worktree_path,
             );
             child_ctx.messages.push(crate::types::message::ApiMessage {
                 role: crate::types::message::Role::User,
@@ -429,27 +563,19 @@ pub async fn run_background(
     let app_state = parent_ctx.app_state.clone();
     let agent_id_clone = agent_id.clone();
     let description_clone = description.clone();
+    let agent_type_clone = agent_type.clone();
+
+    let agent_tool_use_id = parent_ctx.tool_use_id.clone();
 
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();
 
-        // Use a separate event channel so child tool events don't appear in parent TUI.
-        // We drain it to collect stats (tool count, tokens).
-        let (child_event_tx, mut child_event_rx) = tokio::sync::mpsc::unbounded_channel();
-        let result = crate::query::engine::query(child_ctx, child_event_tx).await;
-
-        // Collect stats from child events
-        let mut tool_count: u32 = 0;
-        let mut token_count: u64 = 0;
-        while let Ok(event) = child_event_rx.try_recv() {
-            match event {
-                crate::query::types::QueryEvent::ToolCallComplete { .. } => tool_count += 1,
-                crate::query::types::QueryEvent::Usage { input_tokens, output_tokens } => {
-                    token_count += input_tokens + output_tokens;
-                }
-                _ => {}
-            }
-        }
+        // Run query and relay child tool events to parent concurrently.
+        let (child_event_tx, child_event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (result, (tool_count, token_count)) = tokio::join!(
+            crate::query::engine::query(child_ctx, child_event_tx),
+            relay_child_events(child_event_rx, &parent_event_tx, &agent_tool_use_id),
+        );
         let duration_secs = start_time.elapsed().as_secs();
 
         let (result_text, is_error) = match result {
@@ -477,17 +603,20 @@ pub async fn run_background(
                 *task.output.lock().unwrap() = result_text.clone();
             }
 
-            state.pending_agent_results.push(crate::state::app_state::PendingAgentResult {
-                agent_id: agent_id_clone.clone(),
-                description: description_clone.clone(),
-                result: result_text.clone(),
-                is_error,
-            });
+            state
+                .pending_agent_results
+                .push(crate::state::app_state::PendingAgentResult {
+                    agent_id: agent_id_clone.clone(),
+                    description: description_clone.clone(),
+                    result: result_text.clone(),
+                    is_error,
+                });
         }
 
         // Notify parent TUI with stats
         let _ = parent_event_tx.send(crate::query::types::QueryEvent::AgentCompleted {
             agent_id: agent_id_clone,
+            agent_type: agent_type_clone,
             description: description_clone,
             result: Some(result_text),
             is_error,
@@ -576,12 +705,14 @@ mod tests {
         let params = AgentSpawnParams {
             prompt: "test prompt".into(),
             description: "test".into(),
+            agent_type: "Agent".into(),
             model: Some("custom-model".into()),
             run_in_background: false,
             isolation: None,
             is_fork: false,
             fork_messages: None,
             query_source: None,
+            agent_def: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
@@ -598,12 +729,14 @@ mod tests {
         let params = AgentSpawnParams {
             prompt: "test".into(),
             description: "test".into(),
+            agent_type: "Agent".into(),
             model: None,
             run_in_background: false,
             isolation: None,
             is_fork: false,
             fork_messages: None,
             query_source: None,
+            agent_def: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
@@ -709,12 +842,14 @@ mod tests {
         let params = AgentSpawnParams {
             prompt: "test".into(),
             description: "test".into(),
+            agent_type: "Agent".into(),
             model: None,
             run_in_background: false,
             isolation: None,
             is_fork: true,
             fork_messages: Some(fork_msgs),
             query_source: Some("agent:builtin:fork".into()),
+            agent_def: None,
         };
         let tools = get_agent_tools(false);
         let ctx = build_fork_context(&params, &parent_ctx, tools);

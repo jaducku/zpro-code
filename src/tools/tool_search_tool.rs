@@ -61,7 +61,10 @@ impl Tool for ToolSearchTool {
 
         // Mode 2: Exact name fast path (case-insensitive)
         let query_lower = query.to_lowercase();
-        if let Some(tool) = tools.iter().find(|t| t.name().to_lowercase() == query_lower) {
+        if let Some(tool) = tools
+            .iter()
+            .find(|t| t.name().to_lowercase() == query_lower)
+        {
             return Ok(build_result(query, tools, &[tool.name().to_string()]));
         }
 
@@ -91,9 +94,9 @@ impl Tool for ToolSearchTool {
             if score > 0 {
                 // For mode 4: all required terms must match
                 if !required_terms.is_empty() {
-                    let all_required = required_terms.iter().all(|req| {
-                        term_matches_tool(*tool, req)
-                    });
+                    let all_required = required_terms
+                        .iter()
+                        .all(|req| term_matches_tool(*tool, req));
                     if !all_required {
                         continue;
                     }
@@ -184,18 +187,14 @@ fn score_tool(tool: &dyn Tool, required: &[String], optional: &[String]) -> i32 
 
         // search_hint scoring (full word only)
         if !hint_lower.is_empty() {
-            let full_word_hint = hint_lower
-                .split_whitespace()
-                .any(|w| w == term.as_str());
+            let full_word_hint = hint_lower.split_whitespace().any(|w| w == term.as_str());
             if full_word_hint {
                 total += 4;
             }
         }
 
         // description scoring (full word only)
-        let full_word_desc = desc_lower
-            .split_whitespace()
-            .any(|w| w == term.as_str());
+        let full_word_desc = desc_lower.split_whitespace().any(|w| w == term.as_str());
         if full_word_desc {
             total += 2;
         }
@@ -205,7 +204,10 @@ fn score_tool(tool: &dyn Tool, required: &[String], optional: &[String]) -> i32 
 }
 
 fn build_result(query: &str, tools: &[Box<dyn Tool>], matched_names: &[String]) -> ToolResult {
-    let total_deferred = tools.iter().filter(|t| is_deferred_tool(t.as_ref())).count();
+    let total_deferred = tools
+        .iter()
+        .filter(|t| is_deferred_tool(t.as_ref()))
+        .count();
 
     let mut blocks: Vec<ContentBlock> = Vec::new();
 
@@ -279,8 +281,12 @@ mod tests {
             .collect();
         assert_eq!(refs.len(), 2);
 
-        assert!(matches!(&refs[0], ContentBlock::ToolReference { tool_name } if tool_name == "Bash"));
-        assert!(matches!(&refs[1], ContentBlock::ToolReference { tool_name } if tool_name == "Read"));
+        assert!(
+            matches!(&refs[0], ContentBlock::ToolReference { tool_name } if tool_name == "Bash")
+        );
+        assert!(
+            matches!(&refs[1], ContentBlock::ToolReference { tool_name } if tool_name == "Read")
+        );
     }
 
     #[tokio::test]
@@ -295,7 +301,9 @@ mod tests {
             .filter(|b| matches!(b, ContentBlock::ToolReference { .. }))
             .collect();
         assert_eq!(refs.len(), 1);
-        assert!(matches!(&refs[0], ContentBlock::ToolReference { tool_name } if tool_name == "Bash"));
+        assert!(
+            matches!(&refs[0], ContentBlock::ToolReference { tool_name } if tool_name == "Bash")
+        );
     }
 
     #[tokio::test]
@@ -310,7 +318,9 @@ mod tests {
             .filter(|b| matches!(b, ContentBlock::ToolReference { .. }))
             .collect();
         assert_eq!(refs.len(), 1);
-        assert!(matches!(&refs[0], ContentBlock::ToolReference { tool_name } if tool_name == "Bash"));
+        assert!(
+            matches!(&refs[0], ContentBlock::ToolReference { tool_name } if tool_name == "Bash")
+        );
     }
 
     #[tokio::test]
@@ -327,9 +337,15 @@ mod tests {
 
         #[async_trait]
         impl Tool for MockTool {
-            fn name(&self) -> &str { "web_search" }
-            fn description(&self) -> &str { "Search the web" }
-            fn input_schema(&self) -> serde_json::Value { serde_json::json!({"type": "object"}) }
+            fn name(&self) -> &str {
+                "web_search"
+            }
+            fn description(&self) -> &str {
+                "Search the web"
+            }
+            fn input_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
             async fn execute(&self, _ctx: ToolUseContext) -> crate::types::Result<ToolResult> {
                 unimplemented!()
             }
@@ -348,13 +364,21 @@ mod tests {
 
         #[async_trait]
         impl Tool for MockMcpTool {
-            fn name(&self) -> &str { "mcp__server__search" }
-            fn description(&self) -> &str { "Search tool" }
-            fn input_schema(&self) -> serde_json::Value { serde_json::json!({"type": "object"}) }
+            fn name(&self) -> &str {
+                "mcp__server__search"
+            }
+            fn description(&self) -> &str {
+                "Search tool"
+            }
+            fn input_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
             async fn execute(&self, _ctx: ToolUseContext) -> crate::types::Result<ToolResult> {
                 unimplemented!()
             }
-            fn is_mcp(&self) -> bool { true }
+            fn is_mcp(&self) -> bool {
+                true
+            }
         }
 
         let score = score_tool(&MockMcpTool, &[], &["search".into()]);

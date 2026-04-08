@@ -23,7 +23,10 @@ pub fn snip(messages: &mut Vec<ApiMessage>, keep_turns: usize) -> u64 {
         .enumerate()
         .filter(|(_, m)| {
             m.role == Role::User
-                && !m.content.iter().all(|c| matches!(c, ContentBlock::ToolResult { .. }))
+                && !m
+                    .content
+                    .iter()
+                    .all(|c| matches!(c, ContentBlock::ToolResult { .. }))
         })
         .map(|(i, _)| i)
         .collect();
@@ -142,12 +145,16 @@ mod tests {
         ];
         let freed = snip(&mut msgs, 2);
         assert!(freed > 0);
-        let has_tu = msgs
-            .iter()
-            .any(|m| m.content.iter().any(|c| matches!(c, ContentBlock::ToolUse { .. })));
-        let has_tr = msgs
-            .iter()
-            .any(|m| m.content.iter().any(|c| matches!(c, ContentBlock::ToolResult { .. })));
+        let has_tu = msgs.iter().any(|m| {
+            m.content
+                .iter()
+                .any(|c| matches!(c, ContentBlock::ToolUse { .. }))
+        });
+        let has_tr = msgs.iter().any(|m| {
+            m.content
+                .iter()
+                .any(|c| matches!(c, ContentBlock::ToolResult { .. }))
+        });
         assert_eq!(has_tu, has_tr); // both present or both absent
     }
 
