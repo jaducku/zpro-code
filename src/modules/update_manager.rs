@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use chrono::Local;
 use reqwest::Client;
 use semver::Version;
 use serde_json::Value;
@@ -70,8 +71,24 @@ impl UpdateManager {
     }
 
     /// Log update status
-    fn log_update(&self, _status: &str, _details: &str) -> Result<()> {
-        // Will implement in next task
+    fn log_update(&self, status: &str, details: &str) -> Result<()> {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        // Create log directory if it doesn't exist
+        if let Some(parent) = self.log_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
+        let log_line = format!("[{}] {}: {}\n", timestamp, status, details);
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_path)?;
+
+        file.write_all(log_line.as_bytes())?;
         Ok(())
     }
 }
