@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// Builtin agent definitions. These are hardcoded and have highest code-level authority,
 /// but can be overridden by config (builtin_models.{name}).
 /// Model priority: config override → code default → None (inherit from parent)
-
+///
 /// Create the general-purpose builtin agent.
 fn general_purpose_agent(model_override: Option<String>) -> AgentDefinition {
     let code_default = None;
@@ -12,7 +12,8 @@ fn general_purpose_agent(model_override: Option<String>) -> AgentDefinition {
 
     AgentDefinition {
         name: "general-purpose".to_string(),
-        description: "General-purpose agent for complex reasoning and problem-solving tasks".to_string(),
+        description: "General-purpose agent for complex reasoning and problem-solving tasks"
+            .to_string(),
         source: AgentSource::BuiltIn,
         system_prompt: None,
         tool_filter: AgentToolFilter::AllTools,
@@ -32,7 +33,8 @@ fn explore_agent(model_override: Option<String>) -> AgentDefinition {
 
     AgentDefinition {
         name: "Explore".to_string(),
-        description: "Fast exploration agent for quickly scanning codebases and finding patterns".to_string(),
+        description: "Fast exploration agent for quickly scanning codebases and finding patterns"
+            .to_string(),
         source: AgentSource::BuiltIn,
         system_prompt: None,
         tool_filter: AgentToolFilter::AllTools,
@@ -59,7 +61,8 @@ fn plan_agent(model_override: Option<String>) -> AgentDefinition {
 
     AgentDefinition {
         name: "Plan".to_string(),
-        description: "Agent for creating detailed implementation plans and architecture decisions".to_string(),
+        description: "Agent for creating detailed implementation plans and architecture decisions"
+            .to_string(),
         source: AgentSource::BuiltIn,
         system_prompt: None,
         tool_filter: AgentToolFilter::AllTools,
@@ -86,11 +89,13 @@ fn verification_agent(model_override: Option<String>) -> AgentDefinition {
 
     AgentDefinition {
         name: "Verification".to_string(),
-        description: "Agent for verifying implementations and ensuring quality standards".to_string(),
+        description: "Agent for verifying implementations and ensuring quality standards"
+            .to_string(),
         source: AgentSource::BuiltIn,
         system_prompt: Some(
             "You are a verification specialist. Your role is to thoroughly verify implementations \
-             against requirements, check for edge cases, and ensure quality standards are met.".to_string()
+             against requirements, check for edge cases, and ensure quality standards are met."
+                .to_string(),
         ),
         tool_filter: AgentToolFilter::AllTools,
         disallowed_tools: Vec::new(),
@@ -109,7 +114,8 @@ fn claude_code_guide_agent(model_override: Option<String>) -> AgentDefinition {
 
     AgentDefinition {
         name: "claude-code-guide".to_string(),
-        description: "Agent for answering questions about Claude Code features, CLI, and API usage".to_string(),
+        description: "Agent for answering questions about Claude Code features, CLI, and API usage"
+            .to_string(),
         source: AgentSource::BuiltIn,
         system_prompt: None,
         tool_filter: AgentToolFilter::AllowList(vec![
@@ -246,7 +252,10 @@ mod tests {
     fn test_claude_code_guide_tool_filter() {
         let models = BuiltinModels::default();
         let agents = builtin_agents(&models);
-        let guide = agents.iter().find(|a| a.name == "claude-code-guide").unwrap();
+        let guide = agents
+            .iter()
+            .find(|a| a.name == "claude-code-guide")
+            .unwrap();
 
         match &guide.tool_filter {
             AgentToolFilter::AllowList(tools) => {
