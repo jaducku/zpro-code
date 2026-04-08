@@ -1,8 +1,10 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
 use zpro_code::commands::CommandRegistry;
+use zpro_code::modules::update_manager::UpdateManager;
 use zpro_code::services::api::provider::LlmProvider;
 use zpro_code::services::config::AtomConfig;
 use zpro_code::services::context::{
@@ -11,6 +13,7 @@ use zpro_code::services::context::{
 use zpro_code::services::session_transcript::SessionStore;
 use zpro_code::tui::run::run_app;
 use zpro_code::types::permissions::{PermissionMode, PermissionRule};
+use zpro_code::utils::paths::global_config_dir;
 
 // ---------------------------------------------------------------------------
 // Output / Input format enums
@@ -882,6 +885,37 @@ async fn main() -> anyhow::Result<()> {
                 output_style: None,
                 skill_entries: &skill_entries,
             }));
+
+            // Auto-update check on startup
+            let config_path = global_config_dir();
+            let log_path = config_path.join("updates.log");
+            let manager = UpdateManager::new(log_path.clone());
+
+            // Non-blocking version check with timeout
+            match tokio::time::timeout(
+                Duration::from_secs(2),
+                manager.check_latest_version(),
+            )
+            .await
+            {
+                Ok(Ok(Some(latest))) => {
+                    // New version available - spawn background update
+                    println!("↻ Updating to v{}...", latest);
+
+                    let manager_update = UpdateManager::new(log_path);
+                    tokio::spawn(async move {
+                        if let Err(e) = manager_update.install_update().await {
+                            eprintln!("Update failed: {}", e);
+                        }
+                    });
+
+                    // Brief wait for update to start, then continue
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                _ => {
+                    // Timeout, check failed, or no update - just continue
+                }
+            }
 
             let command_registry = Arc::new(command_registry);
             run_app(
