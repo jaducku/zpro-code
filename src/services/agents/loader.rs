@@ -1,8 +1,8 @@
-use super::types::{AgentDefinition, AgentSource, AgentToolFilter};
 use super::builtins::{builtin_agents, BuiltinModels};
 use super::registry::AgentRegistry;
-use std::path::{Path, PathBuf};
+use super::types::{AgentDefinition, AgentSource, AgentToolFilter};
 use anyhow::{Context, Result};
+use std::path::{Path, PathBuf};
 
 /// Parse agent definition from Markdown frontmatter + body.
 /// Format:
@@ -184,7 +184,11 @@ pub fn scan_dir(dir: &Path, source: AgentSource) -> Result<Vec<AgentDefinition>>
                     }
                 },
                 Err(e) => {
-                    eprintln!("warning: failed to read agent file '{}': {}", path.display(), e);
+                    eprintln!(
+                        "warning: failed to read agent file '{}': {}",
+                        path.display(),
+                        e
+                    );
                 }
             }
         }

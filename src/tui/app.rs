@@ -938,14 +938,17 @@ impl App {
             } => {
                 self.activity.add(&id, &name);
                 // Store in running_tools, NOT in messages
-                self.running_tools.insert(id.clone(), RunningToolInfo {
-                    id: id.clone(),
-                    name,
-                    input_summary: String::new(),
-                    input_full: None,
-                    start_time: Instant::now(),
-                    parent_id: parent_agent_id.clone(),
-                });
+                self.running_tools.insert(
+                    id.clone(),
+                    RunningToolInfo {
+                        id: id.clone(),
+                        name,
+                        input_summary: String::new(),
+                        input_full: None,
+                        start_time: Instant::now(),
+                        parent_id: parent_agent_id.clone(),
+                    },
+                );
                 // Track child tool IDs in parent Agent
                 if let Some(ref agent_id) = parent_agent_id {
                     for msg in &mut self.messages {
@@ -971,9 +974,12 @@ impl App {
                     // Use content_blocks if available (parsed), else use raw content
                     let result_text = if let Some(ref blocks) = result.content_blocks {
                         // Convert ContentBlocks to readable text
-                        blocks.iter()
+                        blocks
+                            .iter()
                             .filter_map(|block| match block {
-                                crate::types::content::ContentBlock::Text { text } => Some(text.clone()),
+                                crate::types::content::ContentBlock::Text { text } => {
+                                    Some(text.clone())
+                                }
                                 _ => None,
                             })
                             .collect::<Vec<_>>()

@@ -120,12 +120,10 @@ fn apply_tool_filter(
 
     let filtered = match tool_filter {
         AgentToolFilter::AllTools => tools,
-        AgentToolFilter::AllowList(allowed) => {
-            tools
-                .into_iter()
-                .filter(|t| allowed.contains(&t.name().to_string()))
-                .collect()
-        }
+        AgentToolFilter::AllowList(allowed) => tools
+            .into_iter()
+            .filter(|t| allowed.contains(&t.name().to_string()))
+            .collect(),
     };
 
     // Remove explicitly disallowed tools regardless of filter type

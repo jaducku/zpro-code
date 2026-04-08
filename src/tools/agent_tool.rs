@@ -101,9 +101,9 @@ impl Tool for AgentTool {
             let (agent_def, override_model) = {
                 let state = ctx.app_state.read().await;
                 let def = state.agent_registry.get(agent_name).cloned();
-                let override_model = def.as_ref().and_then(|d| {
-                    resolve_builtin_model(&state.agent_config, agent_name, &d.model)
-                });
+                let override_model = def
+                    .as_ref()
+                    .and_then(|d| resolve_builtin_model(&state.agent_config, agent_name, &d.model));
                 (def, override_model)
             };
 

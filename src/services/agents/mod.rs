@@ -8,12 +8,12 @@
 //   2. Code default (Explore: haiku, others: None/inherit)
 //   3. None (inherit from parent at runtime)
 
-pub mod types;
-pub mod registry;
 pub mod builtins;
 pub mod loader;
+pub mod registry;
+pub mod types;
 
-pub use types::{AgentDefinition, AgentSource, AgentToolFilter};
-pub use registry::AgentRegistry;
 pub use builtins::{builtin_agents, BuiltinModels};
-pub use loader::{parse_agent_md, load_agents};
+pub use loader::{load_agents, parse_agent_md};
+pub use registry::AgentRegistry;
+pub use types::{AgentDefinition, AgentSource, AgentToolFilter};

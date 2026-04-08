@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::modules::update_manager::UpdateManager;
+use anyhow::Result;
 use std::path::PathBuf;
 
 pub async fn handle_update_command(update_log_path: PathBuf) -> Result<()> {

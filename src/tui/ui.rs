@@ -257,7 +257,6 @@ fn render_conversation(
     let mut expand_hit_areas = Vec::new();
 
     for (msg_idx, msg) in app.messages.iter().enumerate() {
-
         match msg {
             DisplayMessage::Text {
                 role: TextRole::System,
@@ -352,10 +351,7 @@ fn render_conversation(
                             let show_count = result_lines.len().min(max_preview);
                             for line_text in &result_lines[..show_count] {
                                 lines.push(Line::from(vec![
-                                    Span::styled(
-                                        "    ⎿ ",
-                                        Style::default().fg(Color::DarkGray),
-                                    ),
+                                    Span::styled("    ⎿ ", Style::default().fg(Color::DarkGray)),
                                     Span::raw(line_text.to_string()),
                                 ]));
                             }

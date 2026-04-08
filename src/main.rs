@@ -892,11 +892,7 @@ async fn main() -> anyhow::Result<()> {
             let manager = UpdateManager::new(log_path.clone());
 
             // Non-blocking version check with timeout
-            match tokio::time::timeout(
-                Duration::from_secs(2),
-                manager.check_latest_version(),
-            )
-            .await
+            match tokio::time::timeout(Duration::from_secs(2), manager.check_latest_version()).await
             {
                 Ok(Ok(Some(latest))) => {
                     // New version available - spawn background update

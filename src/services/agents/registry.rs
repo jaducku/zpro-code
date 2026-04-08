@@ -86,7 +86,7 @@ impl Default for AgentRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::agents::types::{AgentToolFilter, AgentSource};
+    use crate::services::agents::types::{AgentSource, AgentToolFilter};
 
     fn agent(name: &str, source: AgentSource) -> AgentDefinition {
         AgentDefinition {
@@ -111,7 +111,10 @@ mod tests {
         registry.register(ag.clone());
 
         assert!(registry.contains("test-agent"));
-        assert_eq!(registry.get("test-agent").map(|a| &a.name), Some(&"test-agent".to_string()));
+        assert_eq!(
+            registry.get("test-agent").map(|a| &a.name),
+            Some(&"test-agent".to_string())
+        );
     }
 
     #[test]
@@ -125,22 +128,34 @@ mod tests {
         // Try to override with plugin (higher priority)
         let plugin = agent("agent", AgentSource::Plugin);
         registry.register(plugin);
-        assert_eq!(registry.get("agent").map(|a| a.source), Some(AgentSource::Plugin));
+        assert_eq!(
+            registry.get("agent").map(|a| a.source),
+            Some(AgentSource::Plugin)
+        );
 
         // Try to downgrade to user (still higher than plugin) - should win
         let user = agent("agent", AgentSource::UserSettings);
         registry.register(user);
-        assert_eq!(registry.get("agent").map(|a| a.source), Some(AgentSource::UserSettings));
+        assert_eq!(
+            registry.get("agent").map(|a| a.source),
+            Some(AgentSource::UserSettings)
+        );
 
         // Project overrides everything
         let project = agent("agent", AgentSource::ProjectSettings);
         registry.register(project);
-        assert_eq!(registry.get("agent").map(|a| a.source), Some(AgentSource::ProjectSettings));
+        assert_eq!(
+            registry.get("agent").map(|a| a.source),
+            Some(AgentSource::ProjectSettings)
+        );
 
         // Try to downgrade from project - should keep project
         let builtin2 = agent("agent", AgentSource::BuiltIn);
         registry.register(builtin2);
-        assert_eq!(registry.get("agent").map(|a| a.source), Some(AgentSource::ProjectSettings));
+        assert_eq!(
+            registry.get("agent").map(|a| a.source),
+            Some(AgentSource::ProjectSettings)
+        );
     }
 
     #[test]

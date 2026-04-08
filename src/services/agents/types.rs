@@ -58,15 +58,23 @@ pub struct AgentDefinition {
 
 impl AgentDefinition {
     /// Create a new agent definition with required fields.
-    pub fn new(name: impl Into<String>, description: impl Into<String>, source: AgentSource) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        source: AgentSource,
+    ) -> Self {
         let name = name.into();
         Self {
-            query_source: format!("agent:{}:{}", match source {
-                AgentSource::BuiltIn => "builtin",
-                AgentSource::Plugin => "plugin",
-                AgentSource::UserSettings => "user",
-                AgentSource::ProjectSettings => "project",
-            }, name.to_lowercase()),
+            query_source: format!(
+                "agent:{}:{}",
+                match source {
+                    AgentSource::BuiltIn => "builtin",
+                    AgentSource::Plugin => "plugin",
+                    AgentSource::UserSettings => "user",
+                    AgentSource::ProjectSettings => "project",
+                },
+                name.to_lowercase()
+            ),
             name,
             description: description.into(),
             source,
