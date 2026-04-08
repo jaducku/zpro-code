@@ -481,10 +481,7 @@ fn render_conversation(
                     Span::raw("  "),
                     Span::styled(icon, icon_style),
                     Span::raw(" "),
-                    Span::styled(
-                        subagent_label,
-                        Style::default().fg(Color::Blue),
-                    ),
+                    Span::styled(subagent_label, Style::default().fg(Color::Blue)),
                     Span::styled(
                         format!("Agent({})", description),
                         Style::default().fg(Color::White).bold(),
@@ -1238,10 +1235,7 @@ fn calculate_tool_depth(
     let mut current_id = tool_use_id.to_string();
 
     // Walk up the parent chain to count nesting levels
-    while let Some(tool) = all_tools
-        .iter()
-        .find(|t| t.tool_use_id == current_id)
-    {
+    while let Some(tool) = all_tools.iter().find(|t| t.tool_use_id == current_id) {
         if let Some(ref parent_id) = tool.parent_agent_id {
             depth += 1;
             current_id = parent_id.clone();
@@ -1281,12 +1275,10 @@ fn render_main_loop_panel(frame: &mut Frame, app: &App, area: Rect) {
         MainLoopStatus::Idle => "Idle",
         MainLoopStatus::AwaitingHitl => "Awaiting Input",
     };
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("Main Loop [{}]", status_str),
-            Style::default().fg(Color::Cyan).bold(),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("Main Loop [{}]", status_str),
+        Style::default().fg(Color::Cyan).bold(),
+    )]));
     lines.push(Line::from("")); // blank line
 
     // If no tools, show empty state
@@ -1312,7 +1304,13 @@ fn render_main_loop_panel(frame: &mut Frame, app: &App, area: Rect) {
                         .unwrap_or(0);
                     format_elapsed_time(elapsed)
                 }
-                ToolStatus::Failed(_) => "failed".to_string(),
+                ToolStatus::Failed(_) => {
+                    let elapsed = SystemTime::now()
+                        .duration_since(tool.created_at)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    format_elapsed_time(elapsed)
+                }
             };
 
             lines.push(Line::from(vec![
@@ -1355,9 +1353,7 @@ fn render_main_loop_panel(frame: &mut Frame, app: &App, area: Rect) {
         .title(" Tool Execution State ")
         .style(Style::default().fg(Color::DarkGray));
 
-    let paragraph = Paragraph::new(text)
-        .block(block)
-        .wrap(Wrap { trim: true });
+    let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: true });
 
     frame.render_widget(Clear, area);
     frame.render_widget(paragraph, area);
