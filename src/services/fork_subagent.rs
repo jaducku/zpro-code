@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::types::content::{ContentBlock, ToolResultContent};
+use crate::types::content::ContentBlock;
 use crate::types::message::{ApiMessage, Role};
 
 pub const FORK_PLACEHOLDER: &str = "Fork started \u{2014} processing in background";
@@ -67,47 +67,16 @@ pub fn is_inside_fork(query_source: Option<&str>, messages: &[ApiMessage]) -> bo
 }
 
 /// Build the fork child's initial messages from the parent's assistant message.
-pub fn build_forked_messages(directive: &str, assistant_message: &ApiMessage) -> Vec<ApiMessage> {
-    let tool_use_ids: Vec<&str> = assistant_message
-        .content
-        .iter()
-        .filter_map(|block| match block {
-            ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    // Edge case: no tool_use blocks
-    if tool_use_ids.is_empty() {
-        return vec![ApiMessage {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
-                text: build_child_message(directive),
-            }],
-        }];
-    }
-
-    let cloned_assistant = assistant_message.clone();
-
-    let mut user_content: Vec<ContentBlock> = tool_use_ids
-        .iter()
-        .map(|id| ContentBlock::ToolResult {
-            tool_use_id: id.to_string(),
-            content: ToolResultContent::Text(FORK_PLACEHOLDER.to_string()),
-            is_error: false,
-        })
-        .collect();
-    user_content.push(ContentBlock::Text {
-        text: build_child_message(directive),
-    });
-
-    vec![
-        cloned_assistant,
-        ApiMessage {
-            role: Role::User,
-            content: user_content,
-        },
-    ]
+pub fn build_forked_messages(directive: &str, _assistant_message: &ApiMessage) -> Vec<ApiMessage> {
+    // Fresh start: don't clone parent's assistant message to avoid confusing the model.
+    // Just provide the directive as a clean user message.
+    // This prevents tool call XML parsing issues and ensures fork child starts fresh.
+    vec![ApiMessage {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: build_child_message(directive),
+        }],
+    }]
 }
 
 pub fn build_worktree_notice(parent_cwd: &Path, worktree_cwd: &Path) -> String {
