@@ -43,7 +43,7 @@ jobs:
         if: matrix.use_cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Set version from tag
+      - name: Update Cargo.toml from tag
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           sed -i.bak "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
@@ -83,6 +83,19 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+
+      - name: Update Cargo.toml from tag
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          sed -i.bak "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+          rm -f Cargo.toml.bak
+
+      - name: Commit version update
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add Cargo.toml
+          git diff --cached --quiet || (git commit -m "chore: sync version with tag ${GITHUB_REF#refs/tags/}" && git push origin main)
 
       - name: Create release (private repo)
         uses: softprops/action-gh-release@v2
