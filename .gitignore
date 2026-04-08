@@ -15,3 +15,6 @@ coverage
 
 # Original TypeScript reference (pre-port)
 /_reference_ts
+
+# Git worktrees
+.worktrees
