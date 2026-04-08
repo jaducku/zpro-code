@@ -6,12 +6,12 @@ use std::time::SystemTime;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallState {
     pub tool_use_id: String,
-    pub parent_agent_id: Option<String>,    // Which agent called this tool
+    pub parent_agent_id: Option<String>, // Which agent called this tool
     pub parent_tool_use_id: Option<String>, // For nested tool relationships
     pub tool_name: String,
     pub status: ToolStatus,
     pub created_at: SystemTime,
-    pub params: Option<serde_json::Value>,  // Set on InputReady
+    pub params: Option<serde_json::Value>, // Set on InputReady
     pub result: Option<ToolResult>,
 }
 
@@ -40,6 +40,6 @@ pub struct MainLoopState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MainLoopStatus {
     Active,
-    Idle,        // All agents idle, no pending tools
+    Idle,         // All agents idle, no pending tools
     AwaitingHitl, // HITL input required
 }

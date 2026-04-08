@@ -1119,9 +1119,7 @@ impl App {
                     tool_info.input_full = Some(full);
                 }
             }
-            QueryEvent::AgentStart {
-                agent_id, ..
-            } => {
+            QueryEvent::AgentStart { agent_id, .. } => {
                 self.active_agents.insert(agent_id);
             }
             QueryEvent::AgentCompleted {

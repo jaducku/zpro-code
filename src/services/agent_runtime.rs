@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::query::types::QueryContext;
+use crate::query::types::{QueryContext, QueryEvent};
 use crate::tool::{Tool, ToolUseContext};
 use crate::tools::get_builtin_tools;
 
@@ -564,6 +564,12 @@ pub async fn run_background(
     let agent_type_clone = agent_type.clone();
 
     let agent_tool_use_id = parent_ctx.tool_use_id.clone();
+
+    // Emit AgentStart event before spawning background task
+    let _ = parent_ctx.event_tx.send(QueryEvent::AgentStart {
+        agent_id: agent_id.clone(),
+        agent_type: agent_type.clone(),
+    });
 
     tokio::spawn(async move {
         let start_time = std::time::Instant::now();

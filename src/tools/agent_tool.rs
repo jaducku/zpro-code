@@ -129,12 +129,18 @@ impl Tool for AgentTool {
         if params.run_in_background {
             crate::services::agent_runtime::run_background(params, &ctx).await
         } else {
+            let agent_id = format!("fg-{}", uuid::Uuid::new_v4());
             let description = params.description.clone();
             let agent_type = params.agent_type.clone();
+            // Send AgentStart event before running
+            let _ = ctx.event_tx.send(crate::query::QueryEvent::AgentStart {
+                agent_id: agent_id.clone(),
+                agent_type: agent_type.clone(),
+            });
             let result = crate::services::agent_runtime::run_foreground(params, &ctx).await?;
             // Send AgentCompleted event so TUI shows agent with stats
             let _ = ctx.event_tx.send(crate::query::QueryEvent::AgentCompleted {
-                agent_id: format!("fg-{}", uuid::Uuid::new_v4()),
+                agent_id,
                 agent_type,
                 description,
                 result: Some(result.output.clone()),
