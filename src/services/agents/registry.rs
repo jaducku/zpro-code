@@ -1,4 +1,4 @@
-use super::types::{AgentDefinition, AgentSource};
+use super::types::AgentDefinition;
 use std::collections::HashMap;
 
 /// Registry of all available agents with override precedence.
@@ -86,7 +86,7 @@ impl Default for AgentRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::agents::types::AgentToolFilter;
+    use crate::services::agents::types::{AgentToolFilter, AgentSource};
 
     fn agent(name: &str, source: AgentSource) -> AgentDefinition {
         AgentDefinition {

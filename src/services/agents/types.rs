@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 /// Source of agent definition. Used for override precedence.
 /// Higher value overrides lower value (ProjectSettings > UserSettings > Plugin > BuiltIn).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

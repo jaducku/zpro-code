@@ -5,27 +5,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Builtin model overrides from config.
-/// Maps agent names to model overrides (e.g., explore: "sonnet").
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BuiltinModels {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub general_purpose: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub explore: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verification: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "claude_code_guide")]
-    pub claude_code_guide: Option<String>,
-}
-
 /// Agent configuration (user-settable).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentConfig {
     #[serde(default)]
-    pub builtin_models: BuiltinModels,
+    pub builtin_models: crate::services::agents::BuiltinModels,
 }
 
 /// Background task (shell, agent) — runtime only, not serialized
@@ -327,7 +311,12 @@ impl Default for AppState {
             initial_message: None,
             active_overlays: Vec::new(),
             agent_config: AgentConfig::default(),
-            agent_registry: crate::services::agents::AgentRegistry::new(),
+            agent_registry: {
+                let builtin_models = &AgentConfig::default().builtin_models;
+                crate::services::agents::AgentRegistry::with_builtins(
+                    crate::services::agents::builtin_agents(builtin_models),
+                )
+            },
         }
     }
 }

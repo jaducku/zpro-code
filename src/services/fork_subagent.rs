@@ -207,25 +207,11 @@ mod tests {
         };
 
         let result = build_forked_messages("Fix the bug", &assistant_msg);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].role, Role::Assistant);
-        assert_eq!(result[0].content.len(), 3);
-        assert_eq!(result[1].role, Role::User);
-        assert_eq!(result[1].content.len(), 3); // 2 results + 1 text
+        // Fresh start: single user message with directive only (no parent context)
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].role, Role::User);
 
-        match &result[1].content[0] {
-            ContentBlock::ToolResult {
-                tool_use_id,
-                content,
-                ..
-            } => {
-                assert_eq!(tool_use_id, "tu_1");
-                assert_eq!(*content, ToolResultContent::Text(FORK_PLACEHOLDER.into()));
-            }
-            _ => panic!("Expected ToolResult"),
-        }
-
-        match &result[1].content[2] {
+        match &result[0].content[0] {
             ContentBlock::Text { text } => {
                 assert!(text.contains("<fork-boilerplate>"));
                 assert!(text.contains("Your directive: Fix the bug"));
@@ -338,13 +324,14 @@ mod tests {
 
         // Build fork messages
         let fork_msgs = build_forked_messages("Fix the bug in main.rs", last_assistant);
-        assert_eq!(fork_msgs.len(), 2);
+        // Fresh start: single user message with directive
+        assert_eq!(fork_msgs.len(), 1);
 
         // Verify fork child can't re-fork (recursion guard)
         assert!(is_in_fork_child(&fork_msgs));
 
         // Verify the directive is in the output
-        let user_msg = &fork_msgs[1];
+        let user_msg = &fork_msgs[0];
         let has_directive = user_msg.content.iter().any(|block| {
             matches!(
                 block,

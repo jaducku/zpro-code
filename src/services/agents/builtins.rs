@@ -1,4 +1,5 @@
 use super::types::{AgentDefinition, AgentSource, AgentToolFilter};
+use serde::{Deserialize, Serialize};
 
 /// Builtin agent definitions. These are hardcoded and have highest code-level authority,
 /// but can be overridden by config (builtin_models.{name}).
@@ -129,12 +130,17 @@ fn claude_code_guide_agent(model_override: Option<String>) -> AgentDefinition {
 
 /// Builtin model overrides from config (name → model).
 /// Used to allow configuration-level override of hardcoded defaults.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BuiltinModels {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub general_purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub explore: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "claude_code_guide")]
     pub claude_code_guide: Option<String>,
 }
 
