@@ -96,6 +96,35 @@ impl Tool for AgentTool {
             // If no assistant message found, fall through to normal path
         }
 
+        // Lookup builtin/custom agent from registry if subagent_type specified
+        if let Some(agent_name) = subagent_type {
+            let (agent_def, override_model) = {
+                let state = ctx.app_state.read().await;
+                let def = state.agent_registry.get(agent_name).cloned();
+                let override_model = def.as_ref().and_then(|d| {
+                    resolve_builtin_model(&state.agent_config, agent_name, &d.model)
+                });
+                (def, override_model)
+            };
+
+            if let Some(mut def) = agent_def {
+                // Model: config override → code default → None (inherit)
+                if let Some(override_m) = override_model {
+                    def.model = Some(override_m);
+                }
+
+                if params.model.is_none() {
+                    params.model = def.model.clone();
+                }
+                if params.isolation.is_none() {
+                    params.isolation = def.isolation.clone();
+                }
+                params.query_source = Some(def.query_source.clone());
+                params.agent_def = Some(def);
+            }
+            // If agent not found, fallback to general agent (no warning)
+        }
+
         if params.run_in_background {
             crate::services::agent_runtime::run_background(params, &ctx).await
         } else {
@@ -150,6 +179,43 @@ impl Tool for AgentTool {
 
     fn is_mcp(&self) -> bool {
         false
+    }
+}
+
+/// Resolve builtin agent model with config override + code default.
+/// Priority: config.builtin_models.{name} → code_default → None
+fn resolve_builtin_model(
+    agent_config: &crate::state::app_state::AgentConfig,
+    agent_name: &str,
+    code_default: &Option<String>,
+) -> Option<String> {
+    match agent_name {
+        "general-purpose" => agent_config
+            .builtin_models
+            .general_purpose
+            .clone()
+            .or_else(|| code_default.clone()),
+        "Explore" => agent_config
+            .builtin_models
+            .explore
+            .clone()
+            .or_else(|| code_default.clone()),
+        "Plan" => agent_config
+            .builtin_models
+            .plan
+            .clone()
+            .or_else(|| code_default.clone()),
+        "Verification" => agent_config
+            .builtin_models
+            .verification
+            .clone()
+            .or_else(|| code_default.clone()),
+        "claude-code-guide" => agent_config
+            .builtin_models
+            .claude_code_guide
+            .clone()
+            .or_else(|| code_default.clone()),
+        _ => code_default.clone(),
     }
 }
 

@@ -1,4 +1,5 @@
 pub mod agent_runtime;
+pub mod agents;
 pub mod api;
 pub mod compact;
 pub mod config;

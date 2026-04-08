@@ -31,6 +31,8 @@ pub struct AgentSpawnParams {
     pub fork_messages: Option<Vec<crate::types::message::ApiMessage>>,
     /// Query source for recursion guard (e.g., "agent:builtin:fork")
     pub query_source: Option<String>,
+    /// Agent definition (if resolved from registry)
+    pub agent_def: Option<crate::services::agents::AgentDefinition>,
 }
 
 impl AgentSpawnParams {
@@ -81,6 +83,7 @@ impl AgentSpawnParams {
             is_fork: false,
             fork_messages: None,
             query_source: None,
+            agent_def: None,
         })
     }
 }
@@ -106,6 +109,32 @@ pub fn get_agent_tools(is_background: bool) -> Vec<Box<dyn Tool>> {
         .collect()
 }
 
+/// Apply tool filter from agent definition.
+/// Priority: AllowList (only specified tools) → disallowed (remove specified tools) → AllTools (all allowed).
+fn apply_tool_filter(
+    tools: Vec<Box<dyn Tool>>,
+    tool_filter: &crate::services::agents::AgentToolFilter,
+    disallowed_tools: &[String],
+) -> Vec<Box<dyn Tool>> {
+    use crate::services::agents::AgentToolFilter;
+
+    let filtered = match tool_filter {
+        AgentToolFilter::AllTools => tools,
+        AgentToolFilter::AllowList(allowed) => {
+            tools
+                .into_iter()
+                .filter(|t| allowed.contains(&t.name().to_string()))
+                .collect()
+        }
+    };
+
+    // Remove explicitly disallowed tools regardless of filter type
+    filtered
+        .into_iter()
+        .filter(|t| !disallowed_tools.contains(&t.name().to_string()))
+        .collect()
+}
+
 /// Build a child QueryContext from the parent's ToolUseContext.
 pub fn build_child_context(
     params: &AgentSpawnParams,
@@ -121,6 +150,21 @@ pub fn build_child_context(
         .unwrap_or_else(|| parent_ctx.model.clone());
     let max_tokens = parent_ctx.provider.model_info().max_output_tokens;
 
+    // Apply agent_def system_prompt if present, otherwise inherit from parent
+    let system_prompt = params
+        .agent_def
+        .as_ref()
+        .and_then(|d| d.system_prompt.as_ref())
+        .map(|sp| vec![crate::services::api::types::SystemBlock::Text { text: sp.clone() }])
+        .unwrap_or_else(|| parent_ctx.system_prompt.clone());
+
+    // Apply agent_def max_turns if present, otherwise use default (50)
+    let max_turns = params
+        .agent_def
+        .as_ref()
+        .and_then(|d| d.max_turns)
+        .or(Some(50));
+
     let messages = vec![ApiMessage {
         role: Role::User,
         content: vec![ContentBlock::Text {
@@ -131,7 +175,7 @@ pub fn build_child_context(
     QueryContext {
         messages,
         tools,
-        system_prompt: Some(parent_ctx.system_prompt.clone()),
+        system_prompt: Some(system_prompt),
         model,
         max_tokens,
         permission_ctx: parent_ctx.permission_ctx.clone(),
@@ -139,7 +183,7 @@ pub fn build_child_context(
         question_tx: parent_ctx.question_tx.clone(),
         hooks: crate::services::hooks::load_all_hooks(&parent_ctx.cwd),
         cwd: parent_ctx.cwd.clone(),
-        max_turns: Some(50),
+        max_turns,
         max_budget_usd: None,
         commands: parent_ctx.commands.clone(),
         provider: parent_ctx.provider.clone(),
@@ -347,6 +391,12 @@ pub async fn run_foreground(
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
     }
+
+    // Apply tool filter from agent definition if present
+    if let Some(ref agent_def) = params.agent_def {
+        tools = apply_tool_filter(tools, &agent_def.tool_filter, &agent_def.disallowed_tools);
+    }
+
     // Create worktree if isolation requested
     let worktree_session = if params.isolation.as_deref() == Some("worktree") {
         match create_agent_worktree(&parent_ctx.cwd, &agent_id).await {
@@ -446,6 +496,12 @@ pub async fn run_background(
     if let Some(ref mcp) = parent_ctx.mcp_manager {
         tools.extend(mcp.get_all_tools().await);
     }
+
+    // Apply tool filter from agent definition if present
+    if let Some(ref agent_def) = params.agent_def {
+        tools = apply_tool_filter(tools, &agent_def.tool_filter, &agent_def.disallowed_tools);
+    }
+
     let cancel_token = crate::utils::abort_signal::AbortSignal::new();
 
     // Register as BackgroundTask in AppState
@@ -656,6 +712,7 @@ mod tests {
             is_fork: false,
             fork_messages: None,
             query_source: None,
+            agent_def: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
@@ -679,6 +736,7 @@ mod tests {
             is_fork: false,
             fork_messages: None,
             query_source: None,
+            agent_def: None,
         };
         let tools = get_agent_tools(false);
         let child = build_child_context(&params, &parent_ctx, tools);
@@ -791,6 +849,7 @@ mod tests {
             is_fork: true,
             fork_messages: Some(fork_msgs),
             query_source: Some("agent:builtin:fork".into()),
+            agent_def: None,
         };
         let tools = get_agent_tools(false);
         let ctx = build_fork_context(&params, &parent_ctx, tools);
