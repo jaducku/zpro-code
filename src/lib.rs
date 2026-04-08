@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod entrypoints;
+pub mod modules;
 pub mod query;
 pub mod services;
 pub mod state;
