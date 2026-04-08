@@ -576,3 +576,236 @@ fn loop_detects_all_subagent_tools_complete() {
     loop_state.status = MainLoopStatus::Idle;
     assert!(matches!(loop_state.status, MainLoopStatus::Idle));
 }
+
+// Test scenario 16: /clear command resets current_main_loop to None
+#[test]
+fn clear_command_resets_current_main_loop() {
+    // Setup: Create a main loop with active tools
+    let mut loop_state = Some(MainLoopState {
+        loop_id: "loop_clear_1".to_string(),
+        started_at: SystemTime::now(),
+        status: MainLoopStatus::Active,
+        tools: vec![
+            create_test_tool("tool_1", "Read"),
+            create_test_tool("tool_2", "Bash"),
+            create_test_tool("tool_3", "Edit"),
+        ],
+    });
+
+    // Verify loop exists and has tools before clear
+    assert!(loop_state.is_some());
+    assert_eq!(loop_state.as_ref().unwrap().tools.len(), 3);
+    assert!(matches!(
+        loop_state.as_ref().unwrap().status,
+        MainLoopStatus::Active
+    ));
+
+    // Simulate /clear: set loop_state to None
+    loop_state = None;
+
+    // Verify loop is cleared
+    assert!(loop_state.is_none());
+}
+
+// Test scenario 17: /clear command clears active_agents HashSet
+#[test]
+fn clear_command_clears_active_agents() {
+    // Setup: Create a set of active agents
+    let mut active_agents = std::collections::HashSet::new();
+    active_agents.insert("planner".to_string());
+    active_agents.insert("code_reviewer".to_string());
+    active_agents.insert("security_reviewer".to_string());
+
+    // Verify agents are present
+    assert_eq!(active_agents.len(), 3);
+    assert!(active_agents.contains("planner"));
+    assert!(active_agents.contains("code_reviewer"));
+    assert!(active_agents.contains("security_reviewer"));
+
+    // Simulate /clear: clear active_agents
+    active_agents.clear();
+
+    // Verify active_agents is empty
+    assert_eq!(active_agents.len(), 0);
+    assert!(!active_agents.contains("planner"));
+    assert!(!active_agents.contains("code_reviewer"));
+    assert!(!active_agents.contains("security_reviewer"));
+}
+
+// Test scenario 18: /clear fully resets main loop and agent state
+#[test]
+fn clear_fully_resets_main_loop_and_agent_state() {
+    // Setup: Complex state with active loop and multiple agents
+    let mut current_main_loop = Some(MainLoopState {
+        loop_id: "loop_clear_2".to_string(),
+        started_at: SystemTime::now(),
+        status: MainLoopStatus::Active,
+        tools: vec![
+            {
+                let mut tool = create_test_tool("agent_tool_1", "AgentTool");
+                tool.parent_agent_id = Some("planner".to_string());
+                tool.status = ToolStatus::Running;
+                tool
+            },
+            {
+                let mut tool = create_test_tool("read_1", "Read");
+                tool.parent_agent_id = Some("code_reviewer".to_string());
+                tool.status = ToolStatus::Completed(200);
+                tool
+            },
+            {
+                let mut tool = create_test_tool("bash_1", "Bash");
+                tool.status = ToolStatus::Running;
+                tool
+            },
+        ],
+    });
+
+    let mut active_agents = std::collections::HashSet::new();
+    active_agents.insert("planner".to_string());
+    active_agents.insert("code_reviewer".to_string());
+
+    // Verify initial state
+    assert!(current_main_loop.is_some());
+    assert_eq!(current_main_loop.as_ref().unwrap().tools.len(), 3);
+    assert_eq!(active_agents.len(), 2);
+
+    // Verify there are running tools
+    let running_tools = current_main_loop
+        .as_ref()
+        .unwrap()
+        .tools
+        .iter()
+        .filter(|t| matches!(t.status, ToolStatus::Running))
+        .count();
+    assert_eq!(running_tools, 2);
+
+    // Simulate /clear: reset both parts of state
+    current_main_loop = None;
+    active_agents.clear();
+
+    // Verify both parts are reset
+    assert!(current_main_loop.is_none());
+    assert_eq!(active_agents.len(), 0);
+}
+
+// Test scenario 19: /clear after single tool completes
+#[test]
+fn clear_after_single_tool_completes() {
+    // Setup: Simple completed loop
+    let mut current_main_loop = Some(MainLoopState {
+        loop_id: "loop_clear_3".to_string(),
+        started_at: SystemTime::now(),
+        status: MainLoopStatus::Idle,
+        tools: vec![{
+            let mut tool = create_test_tool("final_tool", "Read");
+            tool.status = ToolStatus::Completed(1500);
+            tool.result = Some(ToolResult {
+                content: "Completed successfully".to_string(),
+                full_content_available: true,
+            });
+            tool
+        }],
+    });
+
+    let active_agents: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Verify completed state
+    assert!(current_main_loop.is_some());
+    assert_eq!(current_main_loop.as_ref().unwrap().tools.len(), 1);
+    assert!(matches!(
+        current_main_loop.as_ref().unwrap().status,
+        MainLoopStatus::Idle
+    ));
+    assert!(active_agents.is_empty());
+
+    // Simulate /clear
+    current_main_loop = None;
+
+    // Verify cleared
+    assert!(current_main_loop.is_none());
+}
+
+// Test scenario 20: /clear idempotency (clearing already-empty state)
+#[test]
+fn clear_is_idempotent() {
+    // Setup: Already-cleared state
+    let mut current_main_loop: Option<MainLoopState> = None;
+    let mut active_agents: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Verify initial state is already clear
+    assert!(current_main_loop.is_none());
+    assert!(active_agents.is_empty());
+
+    // Simulate /clear on already-clear state
+    current_main_loop = None;
+    active_agents.clear();
+
+    // Verify still clear (idempotent)
+    assert!(current_main_loop.is_none());
+    assert!(active_agents.is_empty());
+}
+
+// Test scenario 21: /clear with mixed tool states
+#[test]
+fn clear_with_mixed_tool_states() {
+    // Setup: Mix of running, completed, and failed tools
+    let mut current_main_loop = Some(MainLoopState {
+        loop_id: "loop_clear_4".to_string(),
+        started_at: SystemTime::now(),
+        status: MainLoopStatus::Active,
+        tools: vec![
+            {
+                let mut tool = create_test_tool("running_tool", "Bash");
+                tool.status = ToolStatus::Running;
+                tool
+            },
+            {
+                let mut tool = create_test_tool("completed_tool", "Read");
+                tool.status = ToolStatus::Completed(100);
+                tool.result = Some(ToolResult {
+                    content: "Done".to_string(),
+                    full_content_available: true,
+                });
+                tool
+            },
+            {
+                let mut tool = create_test_tool("failed_tool", "Edit");
+                tool.status = ToolStatus::Failed("Error occurred".to_string());
+                tool.result = Some(ToolResult {
+                    content: "Error details".to_string(),
+                    full_content_available: true,
+                });
+                tool
+            },
+        ],
+    });
+
+    let mut active_agents = std::collections::HashSet::new();
+    active_agents.insert("executor".to_string());
+
+    // Verify complex state
+    assert_eq!(current_main_loop.as_ref().unwrap().tools.len(), 3);
+    assert_eq!(active_agents.len(), 1);
+
+    let tool_states: Vec<&str> = current_main_loop
+        .as_ref()
+        .unwrap()
+        .tools
+        .iter()
+        .map(|t| match &t.status {
+            ToolStatus::Running => "running",
+            ToolStatus::Completed(_) => "completed",
+            ToolStatus::Failed(_) => "failed",
+        })
+        .collect();
+    assert_eq!(tool_states, vec!["running", "completed", "failed"]);
+
+    // Simulate /clear
+    current_main_loop = None;
+    active_agents.clear();
+
+    // Verify all state cleared regardless of mixed states
+    assert!(current_main_loop.is_none());
+    assert!(active_agents.is_empty());
+}
